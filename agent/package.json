@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "setup": "node setup.js",
-    "start": "node watcher.js"
+    "start": "node watcher.js",
+    "startup:install": "powershell -ExecutionPolicy Bypass -File ./install-startup.ps1",
+    "startup:uninstall": "powershell -ExecutionPolicy Bypass -File ./uninstall-startup.ps1"
   },
   "dependencies": {
     "chokidar": "^3.6.0",
