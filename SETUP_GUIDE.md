@@ -20,37 +20,70 @@ Open a terminal (PowerShell or Command Prompt) and go to the `agent` folder:
 cd "C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\agent"
 ```
 
----
-
-## Step 2 — Create the Environment Config File
-
-Copy the example config and open it for editing:
-
-```powershell
-copy .env.example .env
-notepad .env
-```
-
-Fill in your values:
-
-```env
-VERCEL_SYNC_URL="https://YOUR-APP-NAME.vercel.app/api/sync"
-SYNC_SECRET="optiplex-sync-secret-2026"
-WATCH_DIR="./data"
-POLL_INTERVAL_MS=500
-STABILITY_THRESHOLD_MS=2500
-MAX_RETRIES=3
-```
-
-> ⚠️ **Important:** The `SYNC_SECRET` value here must **exactly match** the `SYNC_SECRET` environment variable you set in your Vercel project settings.
+> 💡 Change this path to wherever you cloned/downloaded this project.
 
 ---
 
-## Step 3 — Install Dependencies
+## Step 2 — Install Dependencies
 
 ```powershell
 npm install
 ```
+
+---
+
+## Step 3 — Run the Interactive Setup (Configure Directories)
+
+Instead of manually editing config files, run the built-in setup tool:
+
+```powershell
+npm run setup
+```
+
+You will see an interactive menu like this:
+
+```
+╔══════════════════════════════════════════════════════╗
+║       ChickenSee Agent — Directory Configurator       ║
+╚══════════════════════════════════════════════════════╝
+
+  Vercel Sync URL : (not set)
+  Sync Secret     : (not set)
+
+  Watched Directories: (none configured)
+
+  [1] Add a directory to watch
+  [2] Remove a directory
+  [3] Set Vercel Sync URL
+  [4] Set Sync Secret
+  [5] Save & Exit
+```
+
+### What to configure:
+
+| Option | What to enter |
+|---|---|
+| **[3] Set Vercel Sync URL** | `https://YOUR-APP-NAME.vercel.app/api/sync` |
+| **[4] Set Sync Secret** | The same `SYNC_SECRET` value you set in Vercel env vars |
+| **[1] Add a directory to watch** | Full path to any folder containing your `.mp4` or `.sqlite` files |
+
+### Example — adding your separate startup app's data folders:
+
+Press `1` and enter your folder path when prompted:
+```
+C:\ChickenSee\Recordings
+```
+Press `1` again to add more folders (you can add as many as you like):
+```
+D:\Camera\Videos
+C:\Users\Kairi\AppData\Local\ChickenApp\data
+```
+
+When done, press **`5`** to save and exit. Your settings are saved to:
+- `agent/.env` — connection settings (URL + secret)
+- `agent/directories.json` — list of all watched folders
+
+> ⚠️ **Important:** The `SYNC_SECRET` must **exactly match** the `SYNC_SECRET` you set in your Vercel project environment variables.
 
 ---
 
@@ -60,36 +93,39 @@ npm install
 npm start
 ```
 
-You should see output like this:
+You should see all your configured directories listed:
 
 ```
-[2026-10-12T...] [START] ChickenSee Sync Agent started.
-[2026-10-12T...] [START] Watching directory: C:\...\agent\data
-[2026-10-12T...] [START] Sync target: https://your-app.vercel.app/api/sync
+[START] ══════════════════════════════════════════════════
+[START]   ChickenSee Sync Agent
+[START] ══════════════════════════════════════════════════
+[START] Sync target : https://your-app.vercel.app/api/sync
+[START] Directories : 3 configured
+[START]   → C:\ChickenSee\Recordings
+[START]   → D:\Camera\Videos
+[START]   → C:\Users\Kairi\AppData\Local\ChickenApp\data
+[START] ══════════════════════════════════════════════════
 ```
 
-The watcher is now **running in the background** monitoring the `agent/data/` folder.
+The agent is now watching **all your configured folders simultaneously**.
 
 ---
 
-## Step 5 — Drop a File to Test
+## Step 5 — Test It
 
-While the watcher is running, copy any `.mp4`, `.sqlite`, or `.db` file into the `agent/data/` folder:
+The agent auto-detects any `.mp4`, `.sqlite`, or `.db` file dropped into any of your watched folders. You can test by copying a file:
 
 ```powershell
-# Example: copy a video file
-copy "C:\path\to\your\video.mp4" ".\data\test_video.mp4"
-
-# Example: copy a SQLite database
-copy "C:\path\to\your\database.sqlite" ".\data\test_db.sqlite"
+# Copy a test video into any watched folder
+copy "C:\path\to\any\video.mp4" "C:\ChickenSee\Recordings\test_video.mp4"
 ```
 
 The terminal will immediately respond:
 
 ```
-[DETECT] New file detected and ready: test_video.mp4
-[Attempt 1/3] Initiating upload for "test_video.mp4" (25.4 MB)...
-[SUCCESS] Successfully synced "test_video.mp4" -> Vercel Blob: https://...blob.vercel-storage.com/videos/test_video.mp4
+[DETECT] New file ready: test_video.mp4  (C:\ChickenSee\Recordings)
+[Attempt 1/3] Uploading "test_video.mp4" (25.4 MB)...
+[SUCCESS] Synced "test_video.mp4" → https://...blob.vercel-storage.com/videos/test_video.mp4
 ```
 
 ---
@@ -98,8 +134,20 @@ The terminal will immediately respond:
 
 1. Open your Vercel app URL in a browser
 2. Log in with your `DASHBOARD_PASSWORD`
-3. The **Videos** tab will show your uploaded MP4 files with a built-in streaming player
-4. The **SQLite Tables** tab will show your database tables with paginated rows
+3. The **Videos** tab shows your uploaded MP4 files with a built-in streaming player
+4. The **SQLite Tables** tab shows your database tables with paginated rows
+
+---
+
+## Updating Directories Later
+
+To add or remove watched folders at any time, just re-run the setup:
+
+```powershell
+npm run setup
+```
+
+Changes take effect the **next time you start** the watcher (`npm start`).
 
 ---
 
@@ -135,8 +183,9 @@ pm2 stop chickensee-agent
 
 | Problem | Likely Cause | Fix |
 |---|---|---|
-| `401 Unauthorized` in terminal | SYNC_SECRET mismatch | Make sure `SYNC_SECRET` in `agent/.env` matches Vercel env vars exactly |
-| `fetch failed` / network error | Wrong Vercel URL | Double-check `VERCEL_SYNC_URL` in `agent/.env` |
-| File not detected | File type not supported | Only `.mp4`, `.sqlite`, `.db` are watched |
+| `401 Unauthorized` in terminal | SYNC_SECRET mismatch | Re-run `npm run setup` → option 4 and match the Vercel env var exactly |
+| `fetch failed` / network error | Wrong Vercel URL | Re-run `npm run setup` → option 3 and double-check your URL |
+| File not detected | File type not supported | Only `.mp4`, `.sqlite`, `.db` files are watched |
+| Folder not being watched | Path not configured | Re-run `npm run setup` → option 1 and add the correct path |
 | File uploaded but not in dashboard | Vercel Blob not attached | Attach Blob storage in Vercel project → Storage tab |
 | Video shows but won't play | Blob Access set to Private | Re-create Blob store with **Public** access |
