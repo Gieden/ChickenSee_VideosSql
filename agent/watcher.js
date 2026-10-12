@@ -7,25 +7,63 @@ dotenv.config();
 
 const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
-const WATCH_DIR = path.resolve(process.env.WATCH_DIR || './data');
 const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '2500', 10);
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '500', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
 const STATE_FILE = path.resolve('./.sync-state.json');
+const CONFIG_FILE = path.resolve('./directories.json');
 
-// Ensure watch directory exists
-if (!fs.existsSync(WATCH_DIR)) {
-  fs.mkdirSync(WATCH_DIR, { recursive: true });
+// ─── Resolve watch directories ────────────────────────────────────────────────
+// Priority: directories.json > WATCH_DIRS env (comma-separated) > WATCH_DIR > ./data
+function resolveWatchDirs() {
+  const dirs = new Set();
+
+  // 1. Read from directories.json (set via `npm run setup`)
+  if (fs.existsSync(CONFIG_FILE)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (Array.isArray(config.directories)) {
+        config.directories.forEach((d) => dirs.add(path.resolve(d)));
+      }
+    } catch (err) {
+      console.warn('[WARN] Could not parse directories.json:', err.message);
+    }
+  }
+
+  // 2. WATCH_DIRS env var (comma-separated list)
+  if (process.env.WATCH_DIRS) {
+    process.env.WATCH_DIRS.split(',')
+      .map((d) => d.trim())
+      .filter(Boolean)
+      .forEach((d) => dirs.add(path.resolve(d)));
+  }
+
+  // 3. Fallback single WATCH_DIR env var or ./data
+  if (dirs.size === 0) {
+    dirs.add(path.resolve(process.env.WATCH_DIR || './data'));
+  }
+
+  return [...dirs];
 }
 
-// Persistent sync tracking
+const WATCH_DIRS = resolveWatchDirs();
+
+// Ensure all watch directories exist
+for (const dir of WATCH_DIRS) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`[INIT] Created missing watch directory: ${dir}`);
+  }
+}
+
+// ─── Persistent sync state ────────────────────────────────────────────────────
 let syncState = {};
 try {
   if (fs.existsSync(STATE_FILE)) {
     syncState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
   }
-} catch (err) {
-  console.warn('[WARN] Failed to load sync state, initializing fresh state.');
+} catch {
+  console.warn('[WARN] Failed to load sync state, starting fresh.');
 }
 
 function saveState() {
@@ -36,21 +74,23 @@ function saveState() {
   }
 }
 
+// ─── Logging ──────────────────────────────────────────────────────────────────
 function log(level, message, meta = '') {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [${level}] ${message} ${meta}`.trim());
 }
 
+// ─── Upload logic ─────────────────────────────────────────────────────────────
 async function uploadFileWithRetry(filePath, attempt = 1) {
   const filename = path.basename(filePath);
   const stats = fs.statSync(filePath);
   const ext = path.extname(filename).toLowerCase();
 
-  const mimeType = ext === '.mp4' 
-    ? 'video/mp4' 
+  const mimeType = ext === '.mp4'
+    ? 'video/mp4'
     : 'application/x-sqlite3';
 
-  log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Initiating upload for "${filename}" (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`);
+  log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Uploading "${filename}" (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`);
 
   const fileStream = fs.createReadStream(filePath);
 
@@ -64,18 +104,17 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
         'content-length': stats.size.toString(),
       },
       body: fileStream,
-      duplex: 'half', // Required in Node.js 18+ for streaming request bodies
+      duplex: 'half',
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Server returned HTTP ${response.status}: ${errText}`);
+      throw new Error(`HTTP ${response.status}: ${errText}`);
     }
 
     const result = await response.json();
-    log('SUCCESS', `Successfully synced "${filename}" -> Vercel Blob:`, result.url || result.pathname);
+    log('SUCCESS', `Synced "${filename}" →`, result.url || result.pathname);
 
-    // Save state
     syncState[filename] = {
       size: stats.size,
       mtime: stats.mtimeMs,
@@ -87,11 +126,11 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
     log('ERROR', `Upload failed for "${filename}": ${error.message}`);
     if (attempt < MAX_RETRIES) {
       const delayMs = Math.pow(2, attempt) * 1000;
-      log('INFO', `Retrying in ${delayMs / 1000} seconds...`);
+      log('INFO', `Retrying in ${delayMs / 1000}s...`);
       await new Promise((r) => setTimeout(r, delayMs));
       return uploadFileWithRetry(filePath, attempt + 1);
     } else {
-      log('ERROR', `Exceeded maximum retries for "${filename}". Skipping for now.`);
+      log('ERROR', `Max retries exceeded for "${filename}". Will retry on next file change.`);
     }
   }
 }
@@ -99,19 +138,15 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
 function shouldSync(filePath) {
   const filename = path.basename(filePath);
   const ext = path.extname(filename).toLowerCase();
-  
-  if (!['.mp4', '.sqlite', '.db'].includes(ext)) {
-    return false;
-  }
 
-  if (filename.startsWith('.') || filename.endsWith('.tmp') || filename.endsWith('.part')) {
-    return false;
-  }
+  if (!['.mp4', '.sqlite', '.db'].includes(ext)) return false;
+  if (filename.startsWith('.') || filename.endsWith('.tmp') || filename.endsWith('.part')) return false;
+
+  if (!fs.existsSync(filePath)) return false;
 
   const stats = fs.statSync(filePath);
   const previous = syncState[filename];
 
-  // If already uploaded and size/modification time hasn't changed, skip
   if (previous && previous.size === stats.size && Math.abs(previous.mtime - stats.mtimeMs) < 1000) {
     return false;
   }
@@ -119,13 +154,17 @@ function shouldSync(filePath) {
   return true;
 }
 
-// Initialize Chokidar Watcher
-log('START', `ChickenSee Sync Agent started.`);
-log('START', `Watching directory: ${WATCH_DIR}`);
-log('START', `Sync target: ${SYNC_URL}`);
+// ─── Start watcher ────────────────────────────────────────────────────────────
+log('START', '══════════════════════════════════════════════════');
+log('START', '  ChickenSee Sync Agent');
+log('START', '══════════════════════════════════════════════════');
+log('START', `Sync target : ${SYNC_URL}`);
+log('START', `Directories : ${WATCH_DIRS.length} configured`);
+WATCH_DIRS.forEach((d) => log('START', `  → ${d}`));
+log('START', '══════════════════════════════════════════════════');
 
-const watcher = chokidar.watch(WATCH_DIR, {
-  ignored: /(^|[\/\\])\..|.*\.tmp$|.*\.part$/,
+const watcher = chokidar.watch(WATCH_DIRS, {
+  ignored: /(^|[\/\\])\\..|.*\.tmp$|.*\.part$/,
   persistent: true,
   ignoreInitial: false,
   awaitWriteFinish: {
@@ -137,7 +176,7 @@ const watcher = chokidar.watch(WATCH_DIR, {
 watcher
   .on('add', (filePath) => {
     if (shouldSync(filePath)) {
-      log('DETECT', `New file detected and ready: ${path.basename(filePath)}`);
+      log('DETECT', `New file ready: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
       uploadFileWithRetry(filePath);
     }
   })
@@ -148,5 +187,5 @@ watcher
     }
   })
   .on('error', (error) => {
-    log('ERROR', `Watcher encounter an error: ${error.message}`);
+    log('ERROR', `Watcher error: ${error.message}`);
   });

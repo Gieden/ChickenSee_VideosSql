@@ -5,6 +5,7 @@
   "main": "watcher.js",
   "type": "module",
   "scripts": {
+    "setup": "node setup.js",
     "start": "node watcher.js"
   },
   "dependencies": {
