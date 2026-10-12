@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 import { put } from '@vercel/blob';
 
-// Disable default body parser if needed, Next.js App Router Request is a ReadableStream by default!
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -29,19 +29,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const folder = ext === 'mp4' ? 'videos' : 'databases';
+    const blobPath = `${folder}/${filename}`;
+
+    // Mode 1: Request an upload token (used for large files like 256MB videos to bypass Vercel 4.5MB limit)
+    const isTokenRequest = req.headers.get('x-action') === 'get-upload-token';
+    if (isTokenRequest) {
+      const clientToken = await generateClientTokenFromReadWriteToken({
+        pathname: blobPath,
+        validUntil: Date.now() + 3600 * 1000, // 1 hour
+      });
+
+      return NextResponse.json({
+        success: true,
+        blobPath,
+        clientToken,
+      });
+    }
+
+    // Mode 2: Direct streaming body fallback (works for small files < 4.5MB)
     if (!req.body) {
       return NextResponse.json({ error: 'Empty file payload' }, { status: 400 });
     }
 
-    // Determine blob folder path
-    const folder = ext === 'mp4' ? 'videos' : 'databases';
-    const blobPath = `${folder}/${filename}`;
     const contentType = req.headers.get('content-type') || (ext === 'mp4' ? 'video/mp4' : 'application/x-sqlite3');
 
-    // Stream directly into Vercel Blob Storage
     const blob = await put(blobPath, req.body, {
       access: 'public',
-      addRandomSuffix: false, // Maintain stable path for overwrites/updates
+      addRandomSuffix: false,
       contentType,
     });
 

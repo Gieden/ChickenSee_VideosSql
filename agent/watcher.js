@@ -2,6 +2,7 @@ import chokidar from 'chokidar';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
+import { put } from '@vercel/blob';
 
 dotenv.config();
 
@@ -43,27 +44,18 @@ function resolveWatchDirs() {
     dirs.add(path.resolve(process.env.WATCH_DIR || './data'));
   }
 
-  return [...dirs];
+  return Array.from(dirs);
 }
 
-const WATCH_DIRS = resolveWatchDirs();
-
-// Ensure all watch directories exist
-for (const dir of WATCH_DIRS) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`[INIT] Created missing watch directory: ${dir}`);
-  }
-}
-
-// ─── Persistent sync state ────────────────────────────────────────────────────
+// ─── State Management ─────────────────────────────────────────────────────────
 let syncState = {};
 try {
   if (fs.existsSync(STATE_FILE)) {
     syncState = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
   }
-} catch {
-  console.warn('[WARN] Failed to load sync state, starting fresh.');
+} catch (err) {
+  console.warn('[WARN] Could not read sync state file, starting fresh:', err.message);
+  syncState = {};
 }
 
 function saveState() {
@@ -80,39 +72,88 @@ function log(level, message, meta = '') {
   console.log(`[${timestamp}] [${level}] ${message} ${meta}`.trim());
 }
 
-// ─── Upload logic ─────────────────────────────────────────────────────────────
+// ─── Direct Large-File Upload using Token ─────────────────────────────────────
+async function uploadDirectWithToken(filePath, filename, ext, stats) {
+  // 1. Request client upload token from our Next.js API
+  const tokenRes = await fetch(SYNC_URL, {
+    method: 'POST',
+    headers: {
+      'x-sync-secret': SYNC_SECRET,
+      'x-filename': encodeURIComponent(filename),
+      'x-action': 'get-upload-token',
+    },
+  });
+
+  if (!tokenRes.ok) {
+    const errText = await tokenRes.text();
+    throw new Error(`Token request failed (HTTP ${tokenRes.status}): ${errText}`);
+  }
+
+  const tokenData = await tokenRes.json();
+  if (!tokenData.clientToken) {
+    throw new Error('No clientToken returned by server');
+  }
+
+  const mimeType = ext === '.mp4' ? 'video/mp4' : 'application/x-sqlite3';
+  const fileStream = fs.createReadStream(filePath);
+
+  // 2. Upload directly to Vercel Blob with multipart: true
+  // This bypasses the Vercel Function 4.5MB payload limit completely!
+  const blob = await put(tokenData.blobPath, fileStream, {
+    access: 'public',
+    addRandomSuffix: false,
+    contentType: mimeType,
+    token: tokenData.clientToken,
+    multipart: true,
+  });
+
+  return blob;
+}
+
+// ─── Fallback Direct Streaming Upload ─────────────────────────────────────────
+async function uploadViaServerStream(filePath, filename, ext, stats) {
+  const mimeType = ext === '.mp4' ? 'video/mp4' : 'application/x-sqlite3';
+  const fileStream = fs.createReadStream(filePath);
+
+  const response = await fetch(SYNC_URL, {
+    method: 'POST',
+    headers: {
+      'x-sync-secret': SYNC_SECRET,
+      'x-filename': encodeURIComponent(filename),
+      'content-type': mimeType,
+      'content-length': stats.size.toString(),
+    },
+    body: fileStream,
+    duplex: 'half',
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errText}`);
+  }
+
+  return await response.json();
+}
+
+// ─── Upload logic with Automatic Retry ────────────────────────────────────────
 async function uploadFileWithRetry(filePath, attempt = 1) {
   const filename = path.basename(filePath);
   const stats = fs.statSync(filePath);
   const ext = path.extname(filename).toLowerCase();
+  const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
-  const mimeType = ext === '.mp4'
-    ? 'video/mp4'
-    : 'application/x-sqlite3';
-
-  log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Uploading "${filename}" (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`);
-
-  const fileStream = fs.createReadStream(filePath);
+  log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Uploading "${filename}" (${sizeMB} MB)...`);
 
   try {
-    const response = await fetch(SYNC_URL, {
-      method: 'POST',
-      headers: {
-        'x-sync-secret': SYNC_SECRET,
-        'x-filename': encodeURIComponent(filename),
-        'content-type': mimeType,
-        'content-length': stats.size.toString(),
-      },
-      body: fileStream,
-      duplex: 'half',
-    });
+    let result;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errText}`);
+    // For files > 4MB (like videos), use token-based direct multipart upload to bypass Vercel 4.5MB limit
+    if (stats.size > 4 * 1024 * 1024) {
+      result = await uploadDirectWithToken(filePath, filename, ext, stats);
+    } else {
+      result = await uploadViaServerStream(filePath, filename, ext, stats);
     }
 
-    const result = await response.json();
     log('SUCCESS', `Synced "${filename}" →`, result.url || result.pathname);
 
     syncState[filename] = {
@@ -145,47 +186,88 @@ function shouldSync(filePath) {
   if (!fs.existsSync(filePath)) return false;
 
   const stats = fs.statSync(filePath);
-  const previous = syncState[filename];
+  const prev = syncState[filename];
 
-  if (previous && previous.size === stats.size && Math.abs(previous.mtime - stats.mtimeMs) < 1000) {
+  // Already synced and hasn't changed
+  if (prev && prev.size === stats.size && prev.mtime === stats.mtimeMs) {
     return false;
   }
 
   return true;
 }
 
-// ─── Start watcher ────────────────────────────────────────────────────────────
-log('START', '══════════════════════════════════════════════════');
-log('START', '  ChickenSee Sync Agent');
-log('START', '══════════════════════════════════════════════════');
-log('START', `Sync target : ${SYNC_URL}`);
-log('START', `Directories : ${WATCH_DIRS.length} configured`);
-WATCH_DIRS.forEach((d) => log('START', `  → ${d}`));
-log('START', '══════════════════════════════════════════════════');
+// ─── Main Watcher Initializer ─────────────────────────────────────────────────
+function startWatcher() {
+  const watchDirs = resolveWatchDirs();
 
-const watcher = chokidar.watch(WATCH_DIRS, {
-  ignored: /(^|[\/\\])\\..|.*\.tmp$|.*\.part$/,
-  persistent: true,
-  ignoreInitial: false,
-  awaitWriteFinish: {
-    stabilityThreshold: STABILITY_THRESHOLD,
-    pollInterval: POLL_INTERVAL,
-  },
-});
+  console.log('[START] ══════════════════════════════════════════════════');
+  console.log('[START]   ChickenSee Sync Agent');
+  console.log('[START] ══════════════════════════════════════════════════');
+  console.log(`[START] Sync target : ${SYNC_URL || '(not set - check .env)'}`);
+  console.log(`[START] Directories : ${watchDirs.length} configured`);
+  watchDirs.forEach((d) => console.log(`[START]   → ${d}`));
+  console.log('[START] ══════════════════════════════════════════════════');
 
-watcher
-  .on('add', (filePath) => {
-    if (shouldSync(filePath)) {
-      log('DETECT', `New file ready: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
-      uploadFileWithRetry(filePath);
+  // Verify and create directories if needed
+  watchDirs.forEach((d) => {
+    if (!fs.existsSync(d)) {
+      try {
+        fs.mkdirSync(d, { recursive: true });
+        log('INFO', `Created directory: ${d}`);
+      } catch (err) {
+        log('WARN', `Could not create directory ${d}:`, err.message);
+      }
     }
-  })
-  .on('change', (filePath) => {
-    if (shouldSync(filePath)) {
-      log('DETECT', `Modified file ready: ${path.basename(filePath)}`);
-      uploadFileWithRetry(filePath);
-    }
-  })
-  .on('error', (error) => {
-    log('ERROR', `Watcher error: ${error.message}`);
   });
+
+  const watcher = chokidar.watch(watchDirs, {
+    persistent: true,
+    ignoreInitial: false,
+    usePolling: true,
+    interval: POLL_INTERVAL,
+    binaryInterval: POLL_INTERVAL,
+    awaitWriteFinish: {
+      stabilityThreshold: STABILITY_THRESHOLD,
+      pollInterval: POLL_INTERVAL,
+    },
+    ignored: /(^|[\/\\])\..|(\.tmp$)|(\.part$)/,
+    depth: 3,
+  });
+
+  watcher
+    .on('add', (filePath) => {
+      if (shouldSync(filePath)) {
+        log('DETECT', `New file ready: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
+        uploadFileWithRetry(filePath);
+      }
+    })
+    .on('change', (filePath) => {
+      if (shouldSync(filePath)) {
+        log('DETECT', `File changed: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
+        uploadFileWithRetry(filePath);
+      }
+    })
+    .on('error', (err) => {
+      log('ERROR', 'Watcher error:', err.message);
+    })
+    .on('ready', () => {
+      log('READY', 'Initial scan complete. Watching for new or updated files...');
+    });
+
+  process.on('SIGINT', () => {
+    log('SHUTDOWN', 'Stopping watcher gracefully...');
+    watcher.close().then(() => {
+      saveState();
+      process.exit(0);
+    });
+  });
+
+  process.on('SIGTERM', () => {
+    watcher.close().then(() => {
+      saveState();
+      process.exit(0);
+    });
+  });
+}
+
+startWatcher();
