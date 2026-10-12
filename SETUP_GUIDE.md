@@ -151,9 +151,36 @@ Changes take effect the **next time you start** the watcher (`npm start`).
 
 ---
 
-## Running the Agent Permanently (Background Service)
+## Running the Agent Permanently (Auto-Start on Boot)
 
-To keep the watcher running even after closing the terminal, use **PM2**:
+### Option A: Windows Auto-Start on Boot (Recommended for Windows)
+
+The agent includes a built-in silent Windows startup installer. This configures the agent to automatically run in the background every time your PC turns on or you log in, without keeping an open terminal window on your screen:
+
+```powershell
+# From the agent folder:
+npm run startup:install
+```
+
+You'll see:
+```text
+==========================================================
+ [SUCCESS] ChickenSee Agent registered for Auto-Start!
+==========================================================
+Shortcut created at:
+  C:\Users\...\Startup\ChickenSeeAgent.lnk
+```
+
+To remove or disable auto-start at any time:
+```powershell
+npm run startup:uninstall
+```
+
+---
+
+### Option B: Background Service via PM2
+
+Alternatively, you can manage the process using **PM2**:
 
 ```powershell
 # Install PM2 globally
