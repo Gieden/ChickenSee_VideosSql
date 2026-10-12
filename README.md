@@ -71,34 +71,46 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 
 ---
 
+
 ### 2. Configure & Run the Local Agent (Optiplex Server)
 
-1. Open a terminal on your Optiplex server and navigate to `agent/`:
-   ```bash
-   cd agent
-   npm install
-   ```
-2. Copy and configure `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-   Fill in your deployed Vercel domain and sync secret:
-   ```env
-   VERCEL_SYNC_URL="https://your-vercel-domain.vercel.app/api/sync"
-   SYNC_SECRET="your-matching-sync-secret"
-   WATCH_DIR="./data"
-   ```
-3. Run the watcher directly:
-   ```bash
-   npm start
-   ```
-4. **(Recommended) Run in Background via PM2 or Systemd:**
-   ```bash
-   npm install -g pm2
-   pm2 start watcher.js --name "chickensee-agent"
-   pm2 save
-   pm2 startup
-   ```
+Open **PowerShell** or **Command Prompt** (NOT the code blocks below — type each line one at a time):
+
+**Navigate to the agent folder:**
+```powershell
+cd agent
+```
+
+**Install dependencies:**
+```powershell
+npm install
+```
+
+**Run the interactive setup tool** (configure directories & connection settings):
+```powershell
+npm run setup
+```
+
+The setup menu will appear. Use it to:
+- **Option 3** — Enter your Vercel Sync URL: `https://your-app.vercel.app/api/sync`
+- **Option 4** — Enter your Sync Secret (must match `SYNC_SECRET` in Vercel)
+- **Option 1** — Add the folder paths where your `.mp4` and `.sqlite` files are stored
+- **Option 5** — Save and exit
+
+> 📖 See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for a full step-by-step walkthrough with screenshots.
+
+**Start the watcher:**
+```powershell
+npm start
+```
+
+**Run in the background permanently (recommended):**
+```powershell
+npm install -g pm2
+pm2 start watcher.js --name "chickensee-agent"
+pm2 save
+pm2 startup
+```
 
 ---
 
@@ -112,3 +124,7 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 
 3. **Protection Against Partial Writes:**
    `chokidar`'s `awaitWriteFinish` option ensures that video or database files actively being written by cameras or capture scripts are not uploaded prematurely until write locks have released.
+
+4. **Multi-Directory Watcher:**
+   The agent reads watched folder paths from `agent/directories.json` (configured via `npm run setup`), allowing it to monitor multiple separate folders simultaneously — useful when your startup application saves videos and databases in different locations.
+
