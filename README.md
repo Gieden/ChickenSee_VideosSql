@@ -128,3 +128,33 @@ pm2 startup
 4. **Multi-Directory Watcher:**
    The agent reads watched folder paths from `agent/directories.json` (configured via `npm run setup`), allowing it to monitor multiple separate folders simultaneously — useful when your startup application saves videos and databases in different locations.
 
+---
+
+## 🐔 Edge AI Computer Vision & Behavior Telemetry Pipeline
+
+The edge processing hub running on the Dell OptiPlex server includes a high-performance computer vision, tracking, behavior classification, and sensor synchronization pipeline located in the `edge/` directory.
+
+### Key Components:
+- **`edge/detector.py`**: Optimizes YOLO26n (`custom_poultry.pt`) CPU inference using PyTorch multi-threading and ByteTrack association (`bytetrack_poultry.yaml`). Differentiates Roosters (strictly red) from Hens, and performs Hens Re-ID via Leg Band detection with HSV feet-crop fallback. Includes LRU track memory pruning to eliminate memory leaks during 12-hour continuous shifts.
+- **`edge/behavior.py`**: Real-time behavior classification (Feeding, Drinking, Resting/Inactive, Walking/Active, Agitation) based on spatial proximity to feeders/drinkers and kinematic motion velocity. Maintains individual bird activity budgets and health flags (e.g. lethargy alert).
+- **`edge/sensors.py`**: Environmental and physical sensor hub (Temperature, Humidity, Ammonia NH3 ppm, Lux, THI heat stress index, feeder load cell, water flow). Features a thread-safe ring buffer with nearest-neighbor temporal synchronization to pair sensor metrics with vision frames.
+- **`edge/aggregator.py`**: Enforces strict **06:00:00 to 18:00:00 daily operational window**. Aggregates detection counts, flock mobility, behavior time-budgets, and environmental averages, flushing to local SQLite (`agent/data/chicken_telemetry.db`), CSV, and JSON every hour on the hour.
+- **`edge/pipeline.py`**: Master orchestrator with video stream watchdog, auto-reconnect backoff, and periodic garbage collection.
+
+### Quick Start Commands:
+
+```powershell
+# 1. Run the test verification suite:
+python edge/test_pipeline.py
+
+# 2. Run the pipeline interactively with live display:
+python -m edge.pipeline --view --force-start
+
+# 3. Run in headless server mode on Dell OptiPlex:
+python -m edge.pipeline
+
+# 4. Install as persistent Windows Service (auto-start on boot):
+powershell -ExecutionPolicy Bypass -File edge/service/install-service-windows.ps1
+```
+
+
