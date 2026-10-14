@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanupOldVideos } from '@/lib/blob';
-import { verifyAuthToken, AUTH_COOKIE_NAME } from '@/lib/auth';
+import { verifySessionToken, AUTH_COOKIE_NAME } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ async function handleCleanup(req: NextRequest) {
 
     const isCronAuthorized = cronSecret && authHeader === `Bearer ${cronSecret}`;
     const isSyncAuthorized = expectedSyncSecret && syncSecret === expectedSyncSecret;
-    const isUserAuthorized = cookieToken ? verifyAuthToken(cookieToken) : false;
+    const isUserAuthorized = cookieToken ? verifySessionToken(cookieToken) : false;
 
     // In preview/local testing or if no CRON_SECRET is set, allow Vercel header check or secret
     const isVercelCronHeader = req.headers.get('user-agent')?.includes('vercel-cron');
