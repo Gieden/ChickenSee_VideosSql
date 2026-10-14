@@ -10,7 +10,11 @@ export async function POST(req: NextRequest) {
     const syncSecret = req.headers.get('x-sync-secret');
     const expectedSecret = process.env.SYNC_SECRET;
 
-    if (!expectedSecret || syncSecret !== expectedSecret) {
+    if (!expectedSecret) {
+      return NextResponse.json({ error: 'Server configuration error: SYNC_SECRET is not set in Vercel environment variables' }, { status: 500 });
+    }
+
+    if (syncSecret !== expectedSecret) {
       return NextResponse.json({ error: 'Unauthorized: Invalid sync secret' }, { status: 401 });
     }
 
