@@ -7,23 +7,15 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
-    const syncSecret = req.headers.get('x-sync-secret');
-    const expectedSecret = process.env.SYNC_SECRET;
+    const syncSecret = req.headers.get('x-sync-secret')?.trim();
+    const expectedSecret = process.env.SYNC_SECRET?.trim();
 
     if (!expectedSecret) {
       return NextResponse.json({ error: 'Server configuration error: SYNC_SECRET is not set in Vercel environment variables' }, { status: 500 });
     }
 
     if (syncSecret !== expectedSecret) {
-      return NextResponse.json({
-        error: 'Unauthorized: Invalid sync secret',
-        hint: {
-          receivedLength: syncSecret ? syncSecret.length : 0,
-          expectedLength: expectedSecret ? expectedSecret.length : 0,
-          expectedFirst4: expectedSecret ? expectedSecret.slice(0, 4) : 'none',
-          expectedLast4: expectedSecret ? expectedSecret.slice(-4) : 'none',
-        }
-      }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized: Invalid sync secret' }, { status: 401 });
     }
 
     const rawFilename = req.headers.get('x-filename');
