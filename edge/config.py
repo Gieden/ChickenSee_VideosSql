@@ -40,6 +40,10 @@ class VisionConfig:
     video_fps_target: float = float(os.getenv("FPS_TARGET", "15.0"))
     reconnect_delay_s: float = 2.0
     max_reconnect_delay_s: float = 30.0
+    
+    # Annotated Video Recording (Saves video with bounding boxes & telemetry HUD)
+    record_annotated_video: bool = os.getenv("RECORD_ANNOTATED", "1").lower() in ("1", "true", "yes")
+    output_video_dir: str = str(DATA_DIR)
 
 
 @dataclass

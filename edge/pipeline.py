@@ -11,6 +11,7 @@ import signal
 import psutil
 import datetime
 import argparse
+from pathlib import Path
 from typing import Optional
 
 from .config import CONFIG, EdgeConfig
@@ -26,9 +27,18 @@ class EdgePipelineManager:
     Runs continuously on Dell OptiPlex edge hub.
     """
 
-    def __init__(self, config: Optional[EdgeConfig] = None, view_display: bool = False):
+    def __init__(
+        self, 
+        config: Optional[EdgeConfig] = None, 
+        view_display: bool = False,
+        record_video: Optional[bool] = None,
+        output_scale: float = 0.5
+    ):
         self.cfg = config or CONFIG
         self.view_display = view_display
+        self.record_video = record_video if record_video is not None else self.cfg.vision.record_annotated_video
+        self.output_scale = output_scale
+        self.write_size = (1280, 720)  # fallback, updated by _ensure_video_writer
         self._running = False
         
         print("\n" + "=" * 65)
@@ -44,10 +54,16 @@ class EdgePipelineManager:
         # 2. State & Watchdog
         self.cap: Optional[cv2.VideoCapture] = None
         self.frame_idx = 0
+        self._total_frames: int = 0
         self.consecutive_read_failures = 0
         self.reconnect_delay = self.cfg.vision.reconnect_delay_s
 
-        # 3. Setup signal handlers for graceful systemd/service termination
+        # 3. Video Writer for Annotated Detection Videos
+        self.video_writer: Optional[cv2.VideoWriter] = None
+        self.current_video_slot: Optional[str] = None
+        self.current_video_path: Optional[str] = None
+
+        # 4. Setup signal handlers for graceful systemd/service termination
         signal.signal(signal.SIGINT, self._handle_exit_signal)
         signal.signal(signal.SIGTERM, self._handle_exit_signal)
 
@@ -79,6 +95,11 @@ class EdgePipelineManager:
             pass
 
         print(f"[STREAM] Video source connected successfully.")
+        # Attempt to read total frame count (works for file sources)
+        self._total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        if self._total_frames > 0:
+            fps_src = self.cap.get(cv2.CAP_PROP_FPS) or 20.0
+            print(f"[STREAM] Total frames: {self._total_frames} (~{self._total_frames / fps_src / 60:.1f} min at {fps_src:.0f} FPS)")
         return True
 
     def _ensure_active_stream(self) -> bool:
@@ -136,6 +157,45 @@ class EdgePipelineManager:
             stress_color = (0, 255, 0) if sensor.heat_stress_level == "Comfort" else ((0, 165, 255) if sensor.heat_stress_level == "Mild Alert" else (0, 0, 255))
             hud_sensor = f"TEMP: {sensor.temperature_c:.1f}C | RH: {sensor.humidity_pct:.0f}% | NH3: {sensor.ammonia_ppm:.1f}ppm | THI: {sensor.thi:.1f} [{sensor.heat_stress_level}]"
             cv2.putText(frame, hud_sensor, (15, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.48, stress_color, 1)
+
+    def _ensure_video_writer(self, now_dt: datetime.datetime, frame_w: int, frame_h: int, fps: float):
+        """Initializes or rolls over the hourly annotated detection video file."""
+        slot_key = self.aggregator.get_hour_key(now_dt)
+        if self.video_writer is not None and self.current_video_slot == slot_key:
+            return
+
+        # Close existing writer if rolling over
+        self._close_video_writer()
+
+        out_dir = Path(self.cfg.vision.output_video_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"detection_{now_dt.strftime('%Y-%m-%d_%H%M')}.mp4"
+        self.current_video_path = str(out_dir / filename)
+        self.current_video_slot = slot_key
+
+        # Apply output scale (default 0.5 halves the resolution for smaller files)
+        scale = self.output_scale
+        write_w = max(2, int(frame_w * scale))
+        write_h = max(2, int(frame_h * scale))
+        self.write_size = (write_w, write_h)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        write_fps = max(5.0, fps)
+        self.video_writer = cv2.VideoWriter(self.current_video_path, fourcc, write_fps, self.write_size)
+        print(f"[RECORDER] Started recording detection video: {filename} ({write_w}x{write_h} @ {write_fps:.0f}fps)")
+
+    def _close_video_writer(self):
+        """Finalizes the video file so it is ready for immediate streaming & cloud sync."""
+        if self.video_writer is not None:
+            self.video_writer.release()
+            self.video_writer = None
+            if self.current_video_path and os.path.exists(self.current_video_path):
+                sz_mb = os.path.getsize(self.current_video_path) / 1024 / 1024
+                base_name = os.path.basename(self.current_video_path)
+                print(f"[RECORDER] Finalized detection video: {base_name} ({sz_mb:.2f} MB)")
+                print(f"           → Saved in agent/data/ (watcher.js will automatically sync to Vercel!)")
+            self.current_video_slot = None
+            self.current_video_path = None
 
     def run(self, max_frames: Optional[int] = None):
         """
@@ -227,22 +287,37 @@ class EdgePipelineManager:
                     import gc
                     gc.collect()
 
-                if t_now - last_health_check >= self.cfg.health_check_interval_s:
+                if t_now - last_health_check >= self.cfg.health_check_interval_s or self.frame_idx % 100 == 0:
                     last_health_check = t_now
                     cpu_p = psutil.cpu_percent()
                     ram_mb = psutil.Process().memory_info().rss / 1024 / 1024
-                    print(f"[HEALTH] Frame {self.frame_idx} | FPS: {inf_result.fps:.1f} | CPU: {cpu_p}% | RAM: {ram_mb:.1f}MB | Birds: {inf_result.total_birds}")
+                    total_frames_str = f"/{self._total_frames}" if self._total_frames else ""
+                    pct = f" ({self.frame_idx / self._total_frames * 100:.1f}%)" if self._total_frames else ""
+                    print(f"[PROGRESS] Frame {self.frame_idx}{total_frames_str}{pct} | FPS: {inf_result.fps:.1f} | CPU: {cpu_p:.0f}% | RAM: {ram_mb:.0f}MB | Birds: {inf_result.total_birds}")
 
                 # -------------------------------------------------------------
-                # 8. Optional Visualization UI
+                # 8. Annotated Video Recording & Live UI Visualization
                 # -------------------------------------------------------------
-                if self.view_display:
-                    self._overlay_telemetry_ui(frame, inf_result, beh_summary, sensor_reading)
-                    cv2.imshow("ChickenSee Edge Hub", frame)
-                    key = cv2.waitKey(1) & 0xFF
-                    if key in (27, ord('q')):
-                        print("[PIPELINE] Exit requested by user via UI.")
-                        break
+                if self.record_video or self.view_display:
+                    annotated_frame = frame.copy()
+                    self._overlay_telemetry_ui(annotated_frame, inf_result, beh_summary, sensor_reading)
+
+                    # Write frame to MP4 file (scaled to write_size)
+                    if self.record_video:
+                        h, w = frame.shape[:2]
+                        fps = self.cfg.vision.video_fps_target
+                        self._ensure_video_writer(now_dt, w, h, fps)
+                        if self.video_writer is not None:
+                            write_frame = cv2.resize(annotated_frame, self.write_size, interpolation=cv2.INTER_AREA)
+                            self.video_writer.write(write_frame)
+
+                    # Display on screen if requested
+                    if self.view_display:
+                        cv2.imshow("ChickenSee Edge Hub", annotated_frame)
+                        key = cv2.waitKey(1) & 0xFF
+                        if key in (27, ord('q')):
+                            print("[PIPELINE] Exit requested by user via UI.")
+                            break
 
                 # Frame limit for unit testing / batch evaluation
                 if max_frames and self.frame_idx >= max_frames:
@@ -260,6 +335,7 @@ class EdgePipelineManager:
         if self.view_display:
             cv2.destroyAllWindows()
 
+        self._close_video_writer()
         self.sensor_hub.stop()
 
         # Flush any unflushed hourly records to SQLite/CSV/JSON
@@ -274,6 +350,9 @@ def main():
     parser = argparse.ArgumentParser(description="ChickenSee Edge AI Pipeline - Dell OptiPlex Hub")
     parser.add_argument("--source", type=str, default=None, help="Video stream URL, device index, or file path")
     parser.add_argument("--view", action="store_true", help="Display live OpenCV overlay window")
+    parser.add_argument("--record", action="store_true", default=None, help="Force enable annotated video recording to disk")
+    parser.add_argument("--no-record", action="store_true", help="Disable annotated video recording")
+    parser.add_argument("--output-scale", type=float, default=0.5, help="Scale factor for output annotated video resolution (default: 0.5 = half res)")
     parser.add_argument("--frames", type=int, default=None, help="Stop after N frames (useful for verification/benchmarking)")
     parser.add_argument("--force-start", action="store_true", help="Bypass 6 AM - 6 PM check for off-hours testing")
     args = parser.parse_args()
@@ -286,7 +365,13 @@ def main():
         CONFIG.schedule.start_hour = 0
         CONFIG.schedule.end_hour = 24
 
-    pipeline = EdgePipelineManager(view_display=args.view)
+    record_opt = None
+    if args.no_record:
+        record_opt = False
+    elif args.record:
+        record_opt = True
+
+    pipeline = EdgePipelineManager(view_display=args.view, record_video=record_opt, output_scale=args.output_scale)
     pipeline.run(max_frames=args.frames)
 
 
