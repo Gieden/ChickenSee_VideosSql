@@ -1,0 +1,193 @@
+"""
+analytics/tracker.py
+Ultralytics YOLO26 Nano + ByteTrack Multi-Object Tracking Engine for Dell OptiPlex.
+Executes model.track(..., tracker="bytetrack.yaml", persist=True) for temporal bird tracking.
+"""
+
+import os
+import cv2
+import numpy as np
+from pathlib import Path
+from typing import List, Dict, Tuple, Optional, Any
+from dataclasses import dataclass
+from ultralytics import YOLO
+
+from .config import CONFIG
+
+
+@dataclass
+class TrackedDetection:
+    box: List[int]                     # [x1, y1, x2, y2]
+    centroid: Tuple[int, int]          # (cx, cy)
+    confidence: float
+    class_id: int
+    class_name: str
+    track_id: Optional[int]            # ByteTrack persistent ID
+    bird_label: str                    # Hen1-5, Rooster, or Chicken
+
+
+@dataclass
+class TrackerFrameOutput:
+    frame_idx: int
+    timestamp_s: float
+    birds: List[TrackedDetection]
+    feeders: List[TrackedDetection]
+    drinkers: List[TrackedDetection]
+
+
+class ZampenYOLOTracker:
+    """
+    YOLO26 Nano + ByteTrack edge inference wrapper.
+    Optimized for Dell OptiPlex multi-core CPU / Intel OpenVINO / CUDA execution.
+    """
+
+    def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
+        self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
+        self.tracker_yaml = tracker_yaml or CONFIG.tracker_config
+        self.device = CONFIG.device
+        self.conf = CONFIG.conf_threshold
+        self.iou = CONFIG.iou_threshold
+        self.imgsz = CONFIG.imgsz
+
+        print(f"[TRACKER] Initializing YOLO26 Nano from: {self.weights_path}")
+        print(f"[TRACKER] Using ByteTrack config: {self.tracker_yaml}")
+        self.model = YOLO(self.weights_path)
+
+        # Standard poultry class mapping
+        self.class_map = {
+            0: "Chicken",
+            1: "Drinker",
+            2: "Feeder",
+            3: "Leg_Band_Green",
+            4: "Leg_Band_Pink",
+            5: "Leg_Band_Violet",
+            6: "Leg_Band_White",
+            7: "Leg_Band_Yellow",
+            8: "Rooster",
+        }
+
+        # Persistent ID Re-ID cache: track_id -> confirmed label
+        self.track_label_cache: Dict[int, str] = {}
+
+    def _resolve_weights(self, desired_name: str) -> str:
+        """Finds or resolves the weights path, checking local files and fallbacks."""
+        # 1. Exact path or in current/root directory
+        candidates = [
+            Path(desired_name),
+            CONFIG.PROJECT_ROOT / desired_name,
+            CONFIG.BASE_DIR / desired_name,
+            Path(CONFIG.custom_weights_path),
+            CONFIG.PROJECT_ROOT / "custom_poultry.pt",
+            CONFIG.PROJECT_ROOT / "yolo26n.pt",
+            CONFIG.PROJECT_ROOT / "yolo11n.pt",
+            CONFIG.PROJECT_ROOT / "yolov8n.pt",
+        ]
+
+        for cand in candidates:
+            if cand and cand.is_file():
+                return str(cand.resolve())
+
+        # If desired is a standard ultralytics weight name, YOLO will auto-download
+        return desired_name
+
+    def process_frame(self, frame: np.ndarray, frame_idx: int, fps: float = 30.0) -> TrackerFrameOutput:
+        """
+        Executes YOLO26 Nano inference with ByteTrack persistence.
+        """
+        timestamp_s = frame_idx / fps if fps > 0 else 0.0
+
+        # Run ByteTrack prediction workflow
+        results = self.model.track(
+            frame,
+            persist=True,
+            tracker=self.tracker_yaml,
+            conf=self.conf,
+            iou=self.iou,
+            imgsz=self.imgsz,
+            device=self.device,
+            verbose=False
+        )[0]
+
+        birds: List[TrackedDetection] = []
+        feeders: List[TrackedDetection] = []
+        drinkers: List[TrackedDetection] = []
+        band_dets: List[Tuple[List[int], str]] = []
+
+        if results.boxes is None or len(results.boxes) == 0:
+            return TrackerFrameOutput(
+                frame_idx=frame_idx,
+                timestamp_s=timestamp_s,
+                birds=[],
+                feeders=[],
+                drinkers=[]
+            )
+
+        boxes = results.boxes.xyxy.cpu().numpy()
+        confs = results.boxes.conf.cpu().numpy()
+        classes = results.boxes.cls.int().cpu().tolist()
+        track_ids = (
+            results.boxes.id.int().cpu().tolist()
+            if results.boxes.id is not None
+            else [None] * len(boxes)
+        )
+
+        # First pass: parse raw detections
+        for box, conf, cls_id, track_id in zip(boxes, confs, classes, track_ids):
+            class_name = self.class_map.get(cls_id, self.model.names.get(cls_id, f"class_{cls_id}"))
+            x1, y1, x2, y2 = [int(v) for v in box]
+            cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+            det = TrackedDetection(
+                box=[x1, y1, x2, y2],
+                centroid=(cx, cy),
+                confidence=float(conf),
+                class_id=cls_id,
+                class_name=class_name,
+                track_id=track_id,
+                bird_label="Chicken"
+            )
+
+            if class_name in ("Chicken", "Rooster") or class_name.startswith("Hen"):
+                det.bird_label = class_name
+                birds.append(det)
+            elif class_name == "Feeder":
+                feeders.append(det)
+            elif class_name == "Drinker":
+                drinkers.append(det)
+            elif class_name.startswith("Leg_Band_"):
+                band_dets.append(([x1, y1, x2, y2], class_name))
+
+        # Re-ID lock for leg bands if present
+        BAND_TO_HEN = {
+            "Leg_Band_Green": "Hen1 (Green)",
+            "Leg_Band_White": "Hen2 (White)",
+            "Leg_Band_Violet": "Hen3 (Violet)",
+            "Leg_Band_Yellow": "Hen4 (Yellow)",
+            "Leg_Band_Pink": "Hen5 (Pink)",
+        }
+
+        for band_box, band_name in band_dets:
+            bx1, by1, bx2, by2 = band_box
+            bcx, bcy = (bx1 + bx2) // 2, (by1 + by2) // 2
+            for bird in birds:
+                if bird.track_id is None or bird.class_name == "Rooster":
+                    continue
+                x1, y1, x2, y2 = bird.box
+                if (x1 - 15 <= bcx <= x2 + 15) and (y1 - 15 <= bcy <= y2 + 15):
+                    hen_label = BAND_TO_HEN.get(band_name, bird.bird_label)
+                    self.track_label_cache[bird.track_id] = hen_label
+                    bird.bird_label = hen_label
+                    break
+
+        # Apply cached Re-ID labels to persistent ByteTrack IDs
+        for bird in birds:
+            if bird.track_id is not None and bird.track_id in self.track_label_cache:
+                bird.bird_label = self.track_label_cache[bird.track_id]
+
+        return TrackerFrameOutput(
+            frame_idx=frame_idx,
+            timestamp_s=timestamp_s,
+            birds=birds,
+            feeders=feeders,
+            drinkers=drinkers
+        )
