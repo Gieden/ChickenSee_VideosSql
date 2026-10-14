@@ -13,7 +13,8 @@ Write-Host "══════════════════════�
 try {
     $pythonVersion = & python --version 2>&1
     Write-Host "[OK] Python detected: $pythonVersion" -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "[ERROR] Python is not installed or not in PATH. Please install Python 3.10+." -ForegroundColor Red
     exit 1
 }
@@ -33,11 +34,14 @@ $analyticsPt = Join-Path $PSScriptRoot "yolo26n.pt"
 
 if (Test-Path $yolo26Pt) {
     Write-Host "[OK] Verified yolo26n.pt at $yolo26Pt" -ForegroundColor Green
-} elseif (Test-Path $analyticsPt) {
+}
+elseif (Test-Path $analyticsPt) {
     Write-Host "[OK] Verified yolo26n.pt at $analyticsPt" -ForegroundColor Green
-} elseif (Test-Path $customPt) {
+}
+elseif (Test-Path $customPt) {
     Write-Host "[INFO] yolo26n.pt not found. Using validated custom poultry model: $customPt" -ForegroundColor Cyan
-} else {
+}
+else {
     Write-Host "[INFO] Downloading YOLO Nano baseline weights..." -ForegroundColor Cyan
     & python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
 }
@@ -62,7 +66,8 @@ Start-Sleep -Seconds 2
 # Run Worker Daemon in current window
 try {
     & python -m analytics.worker
-} finally {
+}
+finally {
     Write-Host "`nStopping FastAPI background process (PID $($apiProcess.Id))..." -ForegroundColor Yellow
     Stop-Process -Id $apiProcess.Id -Force -ErrorAction SilentlyContinue
     Write-Host "[SHUTDOWN] All services stopped cleanly." -ForegroundColor Green
