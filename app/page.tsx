@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -24,6 +24,9 @@ import {
   Cpu,
   AlertTriangle,
   Eye,
+  CheckCircle2,
+  XCircle,
+  X,
 } from 'lucide-react';
 
 interface SyncedFileMeta {
@@ -81,20 +84,44 @@ export default function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
 
-  async function handleCleanupOldVideos() {
-    if (!confirm('Delete videos older than 7 days from Vercel Blob to free up cloud storage?\n\nSQLite databases, telemetry rows, and behavior metrics will be fully preserved.')) return;
+  // ── Custom Modal State ──
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<{
+    success: boolean;
+    message: string;
+    freedMB?: number;
+    deletedCount?: number;
+  } | null>(null);
+
+  function handleCleanupOldVideos() {
+    setShowCleanupConfirm(true);
+  }
+
+  async function executeCleanup() {
+    setShowCleanupConfirm(false);
     try {
       setIsCleaning(true);
       const res = await fetch('/api/cron/cleanup?days=7', { method: 'POST' });
       const data = await res.json();
       if (res.ok) {
-        alert(`Cleanup complete!\n${data.message}\nFreed: ${data.freedMB} MB`);
+        setCleanupResult({
+          success: true,
+          message: data.message || `Deleted ${data.deletedFiles?.length ?? 0} video(s).`,
+          freedMB: data.freedMB ?? 0,
+          deletedCount: data.deletedFiles?.length ?? 0,
+        });
         fetchVideos();
       } else {
-        alert(`Cleanup error: ${data.error || 'Failed'}`);
+        setCleanupResult({
+          success: false,
+          message: data.error || 'Cleanup failed. Please try again.',
+        });
       }
     } catch (err: any) {
-      alert(`Cleanup failed: ${err.message}`);
+      setCleanupResult({
+        success: false,
+        message: err.message || 'Network error during cleanup.',
+      });
     } finally {
       setIsCleaning(false);
     }
