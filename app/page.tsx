@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   Clock,
   Radio,
+  Trash2,
 } from 'lucide-react';
 
 interface SyncedFileMeta {
@@ -56,6 +57,32 @@ export default function DashboardPage() {
 
   // Auto-refresh timer / indicator
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+
+  async function handleCleanupOldVideos() {
+    if (
+      !confirm(
+        'Delete videos older than 7 days from Vercel Blob to free up cloud storage?\n\nSQLite databases, telemetry rows, and behavior metrics will be fully preserved.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setIsCleaning(true);
+      const res = await fetch('/api/cron/cleanup?days=7', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Cleanup complete!\n${data.message}\nFreed: ${data.freedMB} MB`);
+        fetchVideos();
+      } else {
+        alert(`Cleanup error: ${data.error || 'Failed'}`);
+      }
+    } catch (err: any) {
+      alert(`Cleanup failed: ${err.message}`);
+    } finally {
+      setIsCleaning(false);
+    }
+  }
 
   async function fetchVideos() {
     try {
@@ -157,6 +184,16 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleCleanupOldVideos}
+              disabled={isCleaning}
+              title="Delete synced videos older than 7 days from Vercel Blob to save storage"
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20 hover:text-amber-200"
+            >
+              <Trash2 className={`h-3.5 w-3.5 ${isCleaning ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Clean &gt;7d</span>
+            </button>
+
             <button
               onClick={refreshAll}
               disabled={isRefreshing}

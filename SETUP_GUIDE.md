@@ -216,3 +216,14 @@ pm2 stop chickensee-agent
 | Folder not being watched | Path not configured | Re-run `npm run setup` → option 1 and add the correct path |
 | File uploaded but not in dashboard | Vercel Blob not attached | Attach Blob storage in Vercel project → Storage tab |
 | Video shows but won't play | Blob Access set to Private | Re-create Blob store with **Public** access |
+
+---
+
+## 7-Day Automated Video Retention Policy
+
+To keep your cloud storage within free tier limits, an automated **7-day retention policy** is now active:
+
+* **Daily Automated Cron (`03:00 UTC`)**: Vercel automatically runs `/api/cron/cleanup?days=7` every day. Any `.mp4` video older than 7 days is deleted from Vercel Blob.
+* **Telemetry & Analytics are Permanent**: SQLite databases (`chicken_telemetry.db`), numerical behavior rows, and sensor metrics are **never deleted**. Only the heavy video files are pruned after 7 days.
+* **Manual One-Click Cleanup**: You can click the **Clean >7d** button in the dashboard header at any time to run the cleanup immediately.
+
