@@ -10,7 +10,7 @@ const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
 const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '2500', 10);
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '500', 10);
-const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '3', 10);
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
 const STATE_FILE = path.resolve('./.sync-state.json');
 const CONFIG_FILE = path.resolve('./directories.json');
 
@@ -196,12 +196,47 @@ function shouldSync(filePath) {
   return true;
 }
 
+// ─── Sequential Upload Queue ──────────────────────────────────────────────────
+const uploadQueue = [];
+let isProcessingQueue = false;
+
+function enqueueUpload(filePath) {
+  if (!uploadQueue.includes(filePath)) {
+    uploadQueue.push(filePath);
+    // Sort queue by file size ascending so small files sync first
+    uploadQueue.sort((a, b) => {
+      try {
+        return fs.statSync(a).size - fs.statSync(b).size;
+      } catch {
+        return 0;
+      }
+    });
+    log('QUEUE', `Queued "${path.basename(filePath)}" (Queue size: ${uploadQueue.length})`);
+    processQueue();
+  }
+}
+
+async function processQueue() {
+  if (isProcessingQueue || uploadQueue.length === 0) return;
+  isProcessingQueue = true;
+
+  while (uploadQueue.length > 0) {
+    const nextFile = uploadQueue.shift();
+    if (shouldSync(nextFile)) {
+      log('QUEUE', `Processing (${uploadQueue.length} remaining): "${path.basename(nextFile)}"`);
+      await uploadFileWithRetry(nextFile);
+    }
+  }
+
+  isProcessingQueue = false;
+}
+
 // ─── Main Watcher Initializer ─────────────────────────────────────────────────
 function startWatcher() {
   const watchDirs = resolveWatchDirs();
 
   console.log('[START] ══════════════════════════════════════════════════');
-  console.log('[START]   ChickenSee Sync Agent');
+  console.log('[START]   ChickenSee Sync Agent (Sequential Queue)');
   console.log('[START] ══════════════════════════════════════════════════');
   console.log(`[START] Sync target : ${SYNC_URL || '(not set - check .env)'}`);
   console.log(`[START] Directories : ${watchDirs.length} configured`);
@@ -238,13 +273,13 @@ function startWatcher() {
     .on('add', (filePath) => {
       if (shouldSync(filePath)) {
         log('DETECT', `New file ready: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
-        uploadFileWithRetry(filePath);
+        enqueueUpload(filePath);
       }
     })
     .on('change', (filePath) => {
       if (shouldSync(filePath)) {
         log('DETECT', `File changed: ${path.basename(filePath)}  (${path.dirname(filePath)})`);
-        uploadFileWithRetry(filePath);
+        enqueueUpload(filePath);
       }
     })
     .on('error', (err) => {
