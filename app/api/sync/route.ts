@@ -15,7 +15,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (syncSecret !== expectedSecret) {
-      return NextResponse.json({ error: 'Unauthorized: Invalid sync secret' }, { status: 401 });
+      return NextResponse.json({
+        error: 'Unauthorized: Invalid sync secret',
+        hint: {
+          receivedLength: syncSecret ? syncSecret.length : 0,
+          expectedLength: expectedSecret ? expectedSecret.length : 0,
+          expectedFirst4: expectedSecret ? expectedSecret.slice(0, 4) : 'none',
+          expectedLast4: expectedSecret ? expectedSecret.slice(-4) : 'none',
+        }
+      }, { status: 401 });
     }
 
     const rawFilename = req.headers.get('x-filename');
