@@ -9,6 +9,7 @@ import os
 import re
 import sys
 import time
+import shutil
 import sqlite3
 import datetime
 import traceback
@@ -26,7 +27,8 @@ class ZampenAnalyticsWorker:
     """
     Automated background worker running on the Dell OptiPlex server.
     Monitors video directory with a 1-hour lag, pairs sensor data,
-    and produces 30-minute chunked behavior & environmental intelligence.
+    produces 30-minute chunked behavior & environmental intelligence,
+    and archives processed videos locally.
     """
 
     def __init__(self):
@@ -36,6 +38,10 @@ class ZampenAnalyticsWorker:
         self.running = True
         self.current_job_id: Optional[int] = None
         self.current_progress_pct: float = 0.0
+        
+        # Local storage directory for saving processed video files
+        self.local_archive_dir = Path(r"C:\Users\Kairi\Documents\ChickenSee_Local_Storage\archive")
+        self.local_archive_dir.mkdir(parents=True, exist_ok=True)
 
     def start_daemon(self):
         """Main polling loop running continuously as an OptiPlex background service."""
@@ -43,6 +49,7 @@ class ZampenAnalyticsWorker:
         print("  ZAMPEN Layer Chicken Analytics Pipeline - OptiPlex Daemon")
         print("  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack")
         print(f"  Input Video Dir : {self.cfg.video_dir}")
+        print(f"  Local Archive   : {self.local_archive_dir}")
         print(f"  Sensor DB       : {self.cfg.sensor_db_url}")
         print(f"  Analytics DB    : {self.cfg.analytics_db_url}")
         print(f"  Rolling Delay   : {self.cfg.lag_hours} hour(s) | Chunks: {self.cfg.chunk_minutes}m")
@@ -54,7 +61,7 @@ class ZampenAnalyticsWorker:
                 if candidate:
                     filepath, filename, start_dt, end_dt = candidate
                     print(f"\n[DAEMON] Discovered 1-hour video eligible for processing: {filename}")
-                    print(f"         Window: {start_dt.strftime('%Y-%m-%d %H:%M')} → {end_dt.strftime('%H:%M')}")
+                    print(f"        Window: {start_dt.strftime('%Y-%m-%d %H:%M')} → {end_dt.strftime('%H:%M')}")
                     self._process_hourly_segment(filepath, filename, start_dt, end_dt)
                 else:
                     time.sleep(self.cfg.poll_interval_s)
@@ -103,7 +110,6 @@ class ZampenAnalyticsWorker:
             start_dt, end_dt = self._extract_timestamps_from_file(p)
 
             # Enforce 1-hour rolling delay if desired, or process if historical
-            # (Allows backlog catch-up while ensuring live files wait 1 hour)
             return str(p), filename, start_dt, end_dt
 
         return None
@@ -222,7 +228,8 @@ class ZampenAnalyticsWorker:
     ):
         """
         Executes frame-by-frame YOLO26 Nano + ByteTrack inference, splits into two
-        30-minute chunks, pairs sensor data, and commits to analytics database.
+        30-minute chunks, pairs sensor data, commits to analytics database,
+        and saves the processed video to local archive storage.
         """
         job = DB.lease_job(filename, video_path, start_dt, end_dt)
         if not job:
@@ -253,8 +260,8 @@ class ZampenAnalyticsWorker:
         ]
 
         print(f"[WORKER] Video: {filename} | Total Frames: {total_frames} @ {fps:.1f} FPS")
-        print(f"         Chunk 1: {start_dt.strftime('%H:%M:%S')} → {mid_dt.strftime('%H:%M:%S')}")
-        print(f"         Chunk 2: {mid_dt.strftime('%H:%M:%S')} → {end_dt.strftime('%H:%M:%S')}")
+        print(f"        Chunk 1: {start_dt.strftime('%H:%M:%S')} → {mid_dt.strftime('%H:%M:%S')}")
+        print(f"        Chunk 2: {mid_dt.strftime('%H:%M:%S')} → {end_dt.strftime('%H:%M:%S')}")
 
         chunk_metrics_results = []
         chunk_bird_records = []
@@ -361,15 +368,26 @@ class ZampenAnalyticsWorker:
         chunk_metrics_results.append(chunk2_record)
         chunk_bird_records.append(chunk2_summary.bird_records)
 
+        # ── Save Processed Video Locally ─────────────────────────────────────
+        try:
+            destination_path = self.local_archive_dir / filename
+            if not destination_path.exists():
+                shutil.copy2(video_path, destination_path)
+                print(f"[LOCAL STORE] Archived video locally to: {destination_path}")
+            else:
+                print(f"[LOCAL STORE] Video already exists in local archive: {destination_path}")
+        except Exception as e:
+            print(f"[LOCAL STORE WARN] Failed to back up video locally: {e}")
+
         # Persist results to SQLite/SQLAlchemy database
         DB.save_30m_metrics(job.id, chunk_metrics_results, chunk_bird_records)
         elapsed_s = time.time() - t_start_processing
         DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
 
         print(f"\n[WORKER SUCCESS] Successfully processed hourly block: {filename}")
-        print(f"                 Elapsed Time: {elapsed_s:.1f}s | Inferred Frames: {frames_processed}")
-        print(f"                 Chunk 1: {chunk1_summary.unique_birds} birds | Inactivity: {chunk1_summary.inactivity_pct:.1f}% | Pecking: {chunk1_summary.feather_pecking_events}")
-        print(f"                 Chunk 2: {chunk2_summary.unique_birds} birds | Inactivity: {chunk2_summary.inactivity_pct:.1f}% | Pecking: {chunk2_summary.feather_pecking_events}")
+        print(f"                Elapsed Time: {elapsed_s:.1f}s | Inferred Frames: {frames_processed}")
+        print(f"                Chunk 1: {chunk1_summary.unique_birds} birds | Inactivity: {chunk1_summary.inactivity_pct:.1f}% | Pecking: {chunk1_summary.feather_pecking_events}")
+        print(f"                Chunk 2: {chunk2_summary.unique_birds} birds | Inactivity: {chunk2_summary.inactivity_pct:.1f}% | Pecking: {chunk2_summary.feather_pecking_events}")
         
         self.current_job_id = None
         self.current_progress_pct = 100.0
