@@ -23,6 +23,8 @@ Designed and optimized for local edge deployment on a **Dell OptiPlex server**, 
   │  • Keeps a shorter final interval for videos of varying lengths         │
   │  • Computes interval sensor averages (Temp, RH, NH3, Lux, THI)          │
   │  • Runs YOLO26 Nano (yolo26n.pt) + ByteTrack persistent inference      │
+  │  • Stabilizes class labels across each track to limit frame-to-frame  │
+  │    Chicken / Feeder / Drinker label flips                              │
   │  • Quantifies Behaviors:                                               │
   │      1. Reduce Eating  |  2. Drinking  |  3. Inactivity  |  4. Pecking │
   │  • Persists to SQLite / SQLAlchemy (zampen_analytics.db)               │
@@ -131,7 +133,7 @@ Once started, the interactive OpenAPI documentation is available at:
 
 For the portal workflow, run the local file watcher with `npm start` in `agent\`, then run `python -m analytics.worker` from the repository root. The worker polls the same `agent\directories.json` paths, ignores videos that are still being written, and starts analysis after 20 seconds without a file modification. Each video is split into configurable intervals of up to 30 minutes (`CHUNK_MINUTES`); shorter videos produce a single partial interval.
 
-Reports are written to `CHICKENSEE_LOCAL_STORAGE\results` (defaults to `C:\Users\Kairi\Documents\ChickenSee_Local_Storage\results`). The agent watches this folder and uploads `.json` reports to the Vercel Blob `results/` prefix. They are listed in the authenticated portal's **Results** tab. Keep `agent\.env` configured with the deployed `/api/sync` URL and matching `SYNC_SECRET`. This workflow analyzes the original local video; it does not wait for or download the cloud copy.
+Reports are written to `CHICKENSEE_LOCAL_STORAGE\results` (defaults to `C:\ChickenSee_Local_Storage\results`). Completed annotated videos are written to `CHICKENSEE_LOCAL_STORAGE\videos`. The agent uploads reports and completed `*_detected.mp4` videos only when `ENABLE_CLOUD_SYNC=1` and valid Vercel credentials are configured. Original watched-folder videos are analyzed in place: they are not copied into an archive/incoming folder or uploaded. The reports and annotated outputs are listed in the authenticated portal's **Results** and **Videos** tabs.
 
 ### 1. System Health
 ```http

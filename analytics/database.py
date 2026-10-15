@@ -9,8 +9,8 @@ import hashlib
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, DateTime, 
-    ForeignKey, Text, Index, Enum as SQLEnum, select, func
+    create_engine, Column, Integer, BigInteger, String, Float, DateTime,
+    ForeignKey, Text, Index, Enum as SQLEnum, select, func, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 import enum
@@ -25,6 +25,7 @@ class JobStatus(str, enum.Enum):
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class ProcessingJob(Base):
@@ -41,7 +42,11 @@ class ProcessingJob(Base):
     
     status = Column(SQLEnum(JobStatus), default=JobStatus.QUEUED, nullable=False, index=True)
     frames_processed = Column(Integer, default=0)
+    progress_frames = Column(Integer, nullable=True)
     total_frames = Column(Integer, default=0)
+    source_size = Column(BigInteger, nullable=True)
+    source_mtime_ns = Column(BigInteger, nullable=True)
+    source_ctime_ns = Column(BigInteger, nullable=True)
     processing_time_s = Column(Float, default=0.0)
     error_message = Column(Text, nullable=True)
 
@@ -162,25 +167,79 @@ class DatabaseManager:
     def init_db(self):
         """Creates tables if they do not exist."""
         Base.metadata.create_all(bind=self.engine)
+        columns = {column["name"] for column in inspect(self.engine).get_columns("processing_jobs")}
+        migrations = {
+            "progress_frames": "INTEGER",
+            "source_size": "BIGINT",
+            "source_mtime_ns": "BIGINT",
+            "source_ctime_ns": "BIGINT",
+        }
+        with self.engine.begin() as connection:
+            for name, sql_type in migrations.items():
+                if name not in columns:
+                    connection.execute(text(
+                        f"ALTER TABLE processing_jobs ADD COLUMN {name} {sql_type}"
+                    ))
 
     def get_session(self) -> Session:
         return self.SessionLocal()
 
-    def is_file_processed(self, filename: str) -> bool:
-        """Checks if a video file has already been completed to prevent duplicate processing."""
-        with self.get_session() as session:
-            job = session.query(ProcessingJob).filter_by(
-                video_filename=filename, 
-                status=JobStatus.COMPLETED
-            ).first()
-            if not job:
-                job = session.query(ProcessingJob).filter_by(
-                    video_path=filename,
-                    status=JobStatus.COMPLETED
-                ).first()
-            return job is not None
+    @staticmethod
+    def file_signature(filepath: str) -> tuple[int, int, int]:
+        stat = Path(filepath).stat()
+        return stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
-    def lease_job(self, filename: str, filepath: str, start_dt: datetime.datetime, end_dt: datetime.datetime) -> Optional[ProcessingJob]:
+    @staticmethod
+    def file_version_matches(
+        job: ProcessingJob, signature: tuple[int, int, int]
+    ) -> bool:
+        if job.source_size is not None:
+            return (
+                job.source_size,
+                job.source_mtime_ns,
+                job.source_ctime_ns,
+            ) == signature
+        if job.completed_at is None:
+            return True
+        completed_utc = job.completed_at.replace(tzinfo=datetime.timezone.utc)
+        completed_ns = int(completed_utc.timestamp() * 1_000_000_000)
+        return signature[2] <= completed_ns
+
+    def is_file_processed(
+        self,
+        filename: str,
+        filepath: Optional[str] = None,
+        signature: Optional[tuple[int, int, int]] = None,
+    ) -> bool:
+        """Checks the completed job for this path and file version."""
+        with self.get_session() as session:
+            if filepath is None:
+                job = session.query(ProcessingJob).filter(
+                    ProcessingJob.video_filename == filename,
+                    ProcessingJob.status.in_((JobStatus.COMPLETED, JobStatus.CANCELLED)),
+                ).first()
+            else:
+                job = session.query(ProcessingJob).filter(
+                    ProcessingJob.video_path == filepath,
+                    ProcessingJob.status.in_((JobStatus.COMPLETED, JobStatus.CANCELLED)),
+                ).first()
+                if job is None and filepath == filename:
+                    job = session.query(ProcessingJob).filter(
+                        ProcessingJob.video_path == filename,
+                        ProcessingJob.status.in_((JobStatus.COMPLETED, JobStatus.CANCELLED)),
+                    ).first()
+            if job is None:
+                return False
+            return signature is None or self.file_version_matches(job, signature)
+
+    def lease_job(
+        self,
+        filename: str,
+        filepath: str,
+        start_dt: datetime.datetime,
+        end_dt: datetime.datetime,
+        signature: Optional[tuple[int, int, int]] = None,
+    ) -> Optional[ProcessingJob]:
         """Atomically leases or creates a job in PROCESSING status."""
         with self.get_session() as session:
             job = session.query(ProcessingJob).filter_by(video_path=filepath).first()
@@ -192,10 +251,24 @@ class DatabaseManager:
                     filename = f"{path_obj.stem}_{suffix}{path_obj.suffix}"
                     job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
             if job:
-                if job.status == JobStatus.COMPLETED:
-                    return None
+                if job.status in (JobStatus.COMPLETED, JobStatus.CANCELLED):
+                    if signature is None or self.file_version_matches(job, signature):
+                        return None
+                    for metric in job.half_hour_metrics:
+                        session.delete(metric)
+                    job.date_slot = start_dt.strftime("%Y-%m-%d")
+                    job.hour_slot = start_dt.strftime("%H:00")
+                    job.start_time = start_dt
+                    job.end_time = end_dt
+                    job.frames_processed = 0
+                    job.processing_time_s = 0.0
+                    job.completed_at = None
                 job.status = JobStatus.PROCESSING
                 job.error_message = None
+                job.progress_frames = 0
+                job.total_frames = 0
+                if signature is not None:
+                    job.source_size, job.source_mtime_ns, job.source_ctime_ns = signature
             else:
                 job = ProcessingJob(
                     video_filename=filename,
@@ -204,7 +277,10 @@ class DatabaseManager:
                     hour_slot=start_dt.strftime("%H:00"),
                     start_time=start_dt,
                     end_time=end_dt,
-                    status=JobStatus.PROCESSING
+                    status=JobStatus.PROCESSING,
+                    source_size=signature[0] if signature else None,
+                    source_mtime_ns=signature[1] if signature else None,
+                    source_ctime_ns=signature[2] if signature else None,
                 )
                 session.add(job)
             session.commit()
@@ -214,18 +290,43 @@ class DatabaseManager:
     def mark_job_completed(self, job_id: int, frames: int, total_frames: int, duration_s: float):
         with self.get_session() as session:
             job = session.get(ProcessingJob, job_id)
-            if job:
+            if job and job.status == JobStatus.PROCESSING:
                 job.status = JobStatus.COMPLETED
                 job.frames_processed = frames
+                job.progress_frames = total_frames
                 job.total_frames = total_frames
                 job.processing_time_s = duration_s
                 job.completed_at = datetime.datetime.utcnow()
                 session.commit()
 
+    def cancel_processing_job(self, job_id: int) -> bool:
+        """Mark an active analysis as cancelled so its worker can stop safely."""
+        with self.get_session() as session:
+            job = session.get(ProcessingJob, job_id)
+            if not job or job.status != JobStatus.PROCESSING:
+                return False
+            job.status = JobStatus.CANCELLED
+            job.error_message = "Cancelled by user."
+            session.commit()
+            return True
+
+    def is_job_cancelled(self, job_id: int) -> bool:
+        with self.get_session() as session:
+            job = session.get(ProcessingJob, job_id)
+            return job is not None and job.status == JobStatus.CANCELLED
+
+    def update_job_progress(self, job_id: int, progress_frames: int, total_frames: int):
+        with self.get_session() as session:
+            job = session.get(ProcessingJob, job_id)
+            if job and job.status == JobStatus.PROCESSING:
+                job.progress_frames = max(0, min(progress_frames, total_frames))
+                job.total_frames = max(0, total_frames)
+                session.commit()
+
     def mark_job_failed(self, job_id: int, error_msg: str):
         with self.get_session() as session:
             job = session.get(ProcessingJob, job_id)
-            if job:
+            if job and job.status == JobStatus.PROCESSING:
                 job.status = JobStatus.FAILED
                 job.error_message = str(error_msg)
                 session.commit()

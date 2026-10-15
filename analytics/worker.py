@@ -11,7 +11,6 @@ import hashlib
 import re
 import sys
 import time
-import shutil
 import sqlite3
 import datetime
 import traceback
@@ -25,7 +24,11 @@ from .tracker import ZampenYOLOTracker
 from .behavior_engine import BehaviorAnalysisEngine, BehaviorChunkSummary
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from local_store import ARCHIVE_DIR, VIDEOS_DIR, write_results_json
+from local_store import VIDEOS_DIR, write_results_json
+
+
+class AnalysisCancelled(Exception):
+    """Raised when the user cancels the active video analysis."""
 
 
 class ZampenAnalyticsWorker:
@@ -33,7 +36,7 @@ class ZampenAnalyticsWorker:
     Automated background worker running on the Dell OptiPlex server.
     Monitors the agent's configured video directories, pairs sensor data,
     produces configurable time-chunked behavior and environmental intelligence,
-    and archives processed videos locally.
+    and saves annotated detection videos and reports locally.
     """
 
     def __init__(self):
@@ -44,8 +47,6 @@ class ZampenAnalyticsWorker:
         self.current_job_id: Optional[int] = None
         self.current_progress_pct: float = 0.0
         
-        self.local_archive_dir = ARCHIVE_DIR
-        self.local_archive_dir.mkdir(parents=True, exist_ok=True)
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
     def start_daemon(self):
@@ -54,7 +55,7 @@ class ZampenAnalyticsWorker:
         print("  ZAMPEN Layer Chicken Analytics Pipeline - OptiPlex Daemon")
         print("  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack")
         print(f"  Input Video Dirs: {', '.join(str(p) for p in self._video_input_dirs())}")
-        print(f"  Local Archive   : {self.local_archive_dir}")
+        print(f"  Local Results   : {VIDEOS_DIR.parent}")
         print(f"  Detected Videos : {VIDEOS_DIR}")
         print(f"  Sensor DB       : {self.cfg.sensor_db_url}")
         print(f"  Analytics DB    : {self.cfg.analytics_db_url}")
@@ -80,20 +81,23 @@ class ZampenAnalyticsWorker:
                 traceback.print_exc()
                 time.sleep(10)
 
-    def _video_input_dirs(self) -> List[Path]:
-        directories = {Path(self.cfg.video_dir).expanduser().resolve()}
-        directories_file = Path(__file__).resolve().parent.parent / "agent" / "directories.json"
-        if directories_file.is_file():
-            try:
-                config = json.loads(directories_file.read_text(encoding="utf-8"))
-                if not isinstance(config, dict):
-                    raise ValueError("directory configuration must be an object")
-                configured = config.get("directories", [])
-                if not isinstance(configured, list) or not all(isinstance(path, str) for path in configured):
-                    raise ValueError("directories must be a list of paths")
-                directories.update(Path(path).expanduser().resolve() for path in configured)
-            except (OSError, json.JSONDecodeError, ValueError) as error:
-                print(f"[WORKER WARN] Could not read configured watch directories: {error}")
+    def _video_input_dirs(self, directories_file: Optional[Path] = None) -> List[Path]:
+        config_file = directories_file or (
+            Path(__file__).resolve().parent.parent / "agent" / "directories.json"
+        )
+        if not config_file.is_file():
+            return [Path(self.cfg.video_dir).expanduser().resolve()]
+        try:
+            config = json.loads(config_file.read_text(encoding="utf-8"))
+            if not isinstance(config, dict):
+                raise ValueError("directory configuration must be an object")
+            configured = config.get("directories", [])
+            if not isinstance(configured, list) or not all(isinstance(path, str) for path in configured):
+                raise ValueError("directories must be a list of paths")
+            directories = {Path(path).expanduser().resolve() for path in configured}
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            print(f"[WORKER WARN] Could not read configured watch directories: {error}")
+            return [Path(self.cfg.video_dir).expanduser().resolve()]
         return sorted(directories, key=str)
 
     @staticmethod
@@ -121,7 +125,12 @@ class ZampenAnalyticsWorker:
                 continue
 
             # Skip if already processed in DB
-            if DB.is_file_processed(str(p.resolve())):
+            filepath = str(p.resolve())
+            if DB.is_file_processed(
+                filepath,
+                filepath=filepath,
+                signature=DB.file_signature(filepath),
+            ):
                 continue
 
             # Ensure file is not currently being written by checking modification age
@@ -254,11 +263,14 @@ class ZampenAnalyticsWorker:
         into configured intervals, pairs sensor data, commits to analytics database,
         and saves the annotated detection video plus JSON results locally.
         """
+        file_signature = DB.file_signature(video_path)
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             err = f"Failed to open video file via OpenCV: {video_path}"
             print(f"[WORKER ERROR] {err}")
-            job = DB.lease_job(filename, video_path, start_dt, end_dt)
+            job = DB.lease_job(
+                filename, video_path, start_dt, end_dt, signature=file_signature
+            )
             if job:
                 DB.mark_job_failed(job.id, err)
             cap.release()
@@ -272,7 +284,9 @@ class ZampenAnalyticsWorker:
                 start_dt = datetime.datetime.fromtimestamp(Path(video_path).stat().st_mtime) - datetime.timedelta(seconds=duration_s)
             end_dt = start_dt + datetime.timedelta(seconds=duration_s)
 
-        job = DB.lease_job(filename, video_path, start_dt, end_dt)
+        job = DB.lease_job(
+            filename, video_path, start_dt, end_dt, signature=file_signature
+        )
         if not job:
             print(f"[WORKER] Skipping {filename} (already completed or active).")
             cap.release()
@@ -280,14 +294,23 @@ class ZampenAnalyticsWorker:
 
         self.current_job_id = job.id
         self.current_progress_pct = 0.0
+        DB.update_job_progress(job.id, 0, total_frames)
         t_start_processing = time.time()
         src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         stride = max(1, self.cfg.frame_stride)
-        writer, detected_path = self._open_detected_writer(filename, src_w, src_h, fps, stride)
+        writer, detected_path, staging_path = self._open_detected_writer(
+            filename, src_w, src_h, fps, stride
+        )
+        if writer is None or detected_path is None or staging_path is None:
+            cap.release()
+            error = f"Could not create annotated detection video for {filename}"
+            DB.mark_job_failed(job.id, error)
+            self.current_job_id = None
+            raise RuntimeError(error)
 
         try:
-            self._run_chunked_inference(
+            frames_processed, elapsed_s = self._run_chunked_inference(
                 cap=cap,
                 writer=writer,
                 detected_path=detected_path,
@@ -301,6 +324,14 @@ class ZampenAnalyticsWorker:
                 fps=fps,
                 stride=stride,
             )
+            self._raise_if_cancelled(job.id)
+            writer.release()
+            writer = None
+            os.replace(staging_path, detected_path)
+            DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
+        except AnalysisCancelled:
+            DB.cancel_processing_job(job.id)
+            print(f"[WORKER] Analysis cancelled by user: {filename}")
         except Exception as error:
             DB.mark_job_failed(job.id, str(error))
             raise
@@ -309,12 +340,22 @@ class ZampenAnalyticsWorker:
                 cap.release()
             if writer is not None:
                 writer.release()
-                if detected_path and os.path.isfile(detected_path):
-                    sz_mb = os.path.getsize(detected_path) / 1024 / 1024
-                    print(f"[LOCAL STORE] Saved annotated detection video: {detected_path} ({sz_mb:.2f} MB)")
+            if staging_path and os.path.isfile(staging_path):
+                try:
+                    os.remove(staging_path)
+                except OSError as error:
+                    print(f"[WORKER WARN] Could not remove incomplete detection video: {error}")
+            if os.path.isfile(detected_path):
+                sz_mb = os.path.getsize(detected_path) / 1024 / 1024
+                print(f"[LOCAL STORE] Saved annotated detection video: {detected_path} ({sz_mb:.2f} MB)")
+            self.current_job_id = None
 
-        self.current_job_id = None
         self.current_progress_pct = 100.0
+
+    @staticmethod
+    def _raise_if_cancelled(job_id: int) -> None:
+        if DB.is_job_cancelled(job_id):
+            raise AnalysisCancelled("Video analysis was cancelled by the user.")
 
     def _run_chunked_inference(
         self,
@@ -353,6 +394,8 @@ class ZampenAnalyticsWorker:
             )
 
             while self.running and frame_idx < last_frame:
+                if frame_idx % 25 == 0:
+                    self._raise_if_cancelled(job.id)
                 ret, frame = cap.read()
                 if not ret:
                     video_ended = True
@@ -366,12 +409,16 @@ class ZampenAnalyticsWorker:
                         writer.write(self.tracker.annotate_frame(frame, frame_out))
 
                 frame_idx += 1
-                if frame_idx % 200 == 0:
+                if frames_processed % 25 == 0:
                     self.current_progress_pct = (frame_idx / total_frames) * 100.0
+                    DB.update_job_progress(job.id, frame_idx, total_frames)
+                if frame_idx % 200 == 0:
                     print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
 
             if not self.running:
                 raise RuntimeError("Video analysis was stopped before completion")
+            self._raise_if_cancelled(job.id)
+            DB.update_job_progress(job.id, frame_idx, total_frames)
 
             actual_chunk_end = start_dt + datetime.timedelta(seconds=frame_idx / fps) if video_ended else chunk_end
             summary = self.behavior_engine.compute_chunk_summary()
@@ -410,17 +457,7 @@ class ZampenAnalyticsWorker:
         if not chunk_metrics_results:
             raise RuntimeError(f"No frames could be analyzed in {filename}")
 
-        # ── Save original + annotated video + JSON results locally ───────────
-        try:
-            destination_path = self.local_archive_dir / filename
-            if not destination_path.exists():
-                shutil.copy2(video_path, destination_path)
-                print(f"[LOCAL STORE] Archived original video to: {destination_path}")
-            else:
-                print(f"[LOCAL STORE] Original already exists in archive: {destination_path}")
-        except Exception as e:
-            print(f"[LOCAL STORE WARN] Failed to back up original video: {e}")
-
+        # ── Save analysis report for the annotated output video ───────────────
         stem = Path(filename).stem
         path_suffix = hashlib.sha256(str(Path(video_path).resolve()).encode("utf-8")).hexdigest()[:10]
         results_path = write_results_json(f"{stem}_{path_suffix}", {
@@ -441,7 +478,6 @@ class ZampenAnalyticsWorker:
         # Persist results to SQLite/SQLAlchemy database
         DB.save_30m_metrics(job.id, chunk_metrics_results, chunk_bird_records)
         elapsed_s = time.time() - t_start_processing
-        DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
 
         print(f"\n[WORKER SUCCESS] Successfully processed hourly block: {filename}")
         print(f"                Elapsed Time: {elapsed_s:.1f}s | Inferred Frames: {frames_processed}")
@@ -452,6 +488,7 @@ class ZampenAnalyticsWorker:
                 f"Inactivity: {summary.inactivity_pct:.1f}% | "
                 f"Pecking: {summary.feather_pecking_events}"
             )
+        return frames_processed, elapsed_s
 
     def _open_detected_writer(
         self,
@@ -460,21 +497,28 @@ class ZampenAnalyticsWorker:
         height: int,
         fps: float,
         stride: int,
-    ) -> Tuple[Optional[cv2.VideoWriter], Optional[str]]:
-        """Opens an MP4 writer for the annotated detection video in local storage."""
+    ) -> Tuple[Optional[cv2.VideoWriter], Optional[str], Optional[str]]:
+        """Writes to a staging file so sync only sees a completed annotated video."""
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         stem = Path(filename).stem
         out_path = str(VIDEOS_DIR / f"{stem}_detected.mp4")
+        staging_path = str(VIDEOS_DIR / f"{stem}_detected.processing.mp4")
+        if os.path.isfile(staging_path):
+            os.remove(staging_path)
         write_fps = max(5.0, (fps or 20.0) / max(1, stride))
         size = (max(2, width), max(2, height))
         for codec in ("mp4v", "XVID", "avc1"):
-            writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*codec), write_fps, size)
+            writer = cv2.VideoWriter(
+                staging_path, cv2.VideoWriter_fourcc(*codec), write_fps, size
+            )
             if writer.isOpened():
-                print(f"[RECORDER] Writing annotated video: {out_path} ({size[0]}x{size[1]} @ {write_fps:.1f}fps, {codec})")
-                return writer, out_path
+                print(f"[RECORDER] Writing annotated video: {staging_path} ({size[0]}x{size[1]} @ {write_fps:.1f}fps, {codec})")
+                return writer, out_path, staging_path
             writer.release()
+            if os.path.isfile(staging_path):
+                os.remove(staging_path)
         print("[RECORDER WARN] Could not open VideoWriter for annotated output.")
-        return None, None
+        return None, None, None
 
 
 def main():

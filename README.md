@@ -31,7 +31,13 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 │   ├── watcher.js                 # Chokidar watcher with stream upload & retry
 │   ├── package.json               # Agent dependencies (chokidar, dotenv)
 │   └── .env.example               # Agent environment template
-├── app/                           # Next.js 14 App Router
+├── startup/                       # Windows all-in-one startup supervisor
+│   ├── chickensee_desktop.py      # Tkinter Control Center
+│   ├── configuration.py           # Desktop setup and local settings
+│   ├── run-chickensee.ps1         # Starts and restarts watcher, API, and worker
+│   ├── install-startup.ps1        # Adds desktop and sign-in shortcuts
+│   └── uninstall-startup.ps1      # Removes automatic startup
+├── app/                            # Next.js 14 App Router
 │   ├── api/
 │   │   ├── auth/route.ts          # 1-User login and session management
 │   │   ├── sync/route.ts          # Authenticated Vercel Blob stream uploader
@@ -72,53 +78,26 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 ---
 
 
-### 2. Configure & Run the Local Agent (Optiplex Server)
+### 2. Install the ChickenSee Control Center on Windows
 
-Open **PowerShell** or **Command Prompt** (NOT the code blocks below — type each line one at a time):
-
-**Navigate to the agent folder:**
+On the OptiPlex, install the Python analytics and Node sync-agent dependencies:
 ```powershell
-cd agent
+python -m pip install -r analytics\requirements.txt
+Push-Location agent
+npm ci
+Pop-Location
 ```
 
-**Install dependencies:**
+Launch the desktop app:
 ```powershell
-npm install
+python startup\chickensee_desktop.py
 ```
 
-**Run the interactive setup tool** (configure directories & connection settings):
-```powershell
-npm run setup
-```
+Use the **Setup** tab to select video folders, choose local output storage, and optionally configure Vercel sync. **Initialize / repair** checks the model and fills in missing Python or Node packages. Use **Start ChickenSee** and **Stop ChickenSee** on the Dashboard to control services, use **Quick video test** to copy a sample MP4 into a watched folder, and select **Enable startup** to create the desktop shortcut and start services at Windows sign-in.
 
-The setup menu will appear. Use it to:
-- **Option 3** — Enter your Vercel Sync URL: `https://your-app.vercel.app/api/sync`
-- **Option 4** — Enter your Sync Secret (must match `SYNC_SECRET` in Vercel)
-- **Option 1** — Add the folder paths where your `.mp4` and `.sqlite` files are stored
-- **Option 5** — Save and exit
+Cloud sync is off by default. Turn it on only after entering the deployed `/api/sync` URL and matching `SYNC_SECRET`. The API runs locally at `http://localhost:8000/docs`.
 
-> 📖 See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for a full step-by-step walkthrough with screenshots.
-
-**Start the watcher:**
-```powershell
-npm start
-```
-
-**Start automatic video analysis in a second terminal from the repository root:**
-```powershell
-pip install -r analytics\requirements.txt
-python -m analytics.worker
-```
-
-The analytics worker watches the same folders configured in `agent\directories.json`. Once a video is stable, it processes it in up-to-30-minute intervals and writes a local JSON report. The agent uploads that report to Vercel Blob, where it appears in the dashboard's **Results** tab. Keep both processes running for automatic analysis and result syncing.
-
-**Run in the background permanently (recommended):**
-```powershell
-npm install -g pm2
-pm2 start watcher.js --name "chickensee-agent"
-pm2 save
-pm2 startup
-```
+See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and troubleshooting instructions.
 
 ---
 
@@ -134,7 +113,7 @@ pm2 startup
    `chokidar`'s `awaitWriteFinish` option ensures that video or database files actively being written by cameras or capture scripts are not uploaded prematurely until write locks have released.
 
 4. **Multi-Directory Watcher:**
-   The agent reads watched folder paths from `agent/directories.json` (configured via `npm run setup`), allowing it to monitor multiple separate folders simultaneously — useful when your startup application saves videos and databases in different locations.
+   The agent reads watched folder paths from `agent/directories.json` (configured in the Control Center Setup tab), allowing it to monitor multiple separate folders simultaneously — useful when your recorder saves videos and databases in different locations.
 
 ---
 
@@ -164,4 +143,3 @@ python -m edge.pipeline
 # 4. Install as persistent Windows Service (auto-start on boot):
 powershell -ExecutionPolicy Bypass -File edge/service/install-service-windows.ps1
 ```
-

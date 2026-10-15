@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       return (analysis.chunks || []).map((chunk) => ({
         result_id: `${blob.pathname}:${chunk.chunk_index}`,
         job_id: analysis.job_id,
-        video_file: analysis.source_video,
+        video_file: expectedVideoName,
         interval_label: `${new Date(chunk.chunk_start).toLocaleString()} – ${new Date(chunk.chunk_end).toLocaleTimeString()}`,
         processed_at: analysis.processed_at,
         bird_count: chunk.unique_birds_tracked,

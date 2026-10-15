@@ -323,7 +323,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 p-12 text-center">
                   <Video className="mb-4 h-12 w-12 text-slate-600" />
                   <h4 className="text-base font-semibold text-slate-300">No MP4 files synchronized yet</h4>
-                  <p className="mt-1 text-sm text-slate-500 max-w-md">Drop .mp4 files into the Optiplex <code className="text-indigo-400">./data</code> directory. The watcher will stream them here automatically.</p>
+                  <p className="mt-1 text-sm text-slate-500 max-w-md">Videos are analyzed locally first. Only the completed annotated detection video is synchronized here; original uploads are not duplicated.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

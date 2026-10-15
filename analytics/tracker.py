@@ -55,6 +55,9 @@ class ZampenYOLOTracker:
     Optimized for Dell OptiPlex multi-core CPU / Intel OpenVINO / CUDA execution.
     """
 
+    CLASS_SWITCH_MARGIN = 3
+    CLASS_HISTORY_TTL_FRAMES = 300
+
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
         self.tracker_yaml = tracker_yaml or CONFIG.tracker_config
@@ -82,6 +85,10 @@ class ZampenYOLOTracker:
 
         # Persistent ID Re-ID cache: track_id -> confirmed label
         self.track_label_cache: Dict[int, str] = {}
+        self.track_class_history: Dict[int, Dict[int, Tuple[int, float]]] = {}
+        self.track_resolved_classes: Dict[int, int] = {}
+        self.track_class_last_seen: Dict[int, int] = {}
+        self.processed_frame_count = 0
 
     def _resolve_weights(self, desired_name: str) -> str:
         """Finds or resolves the weights path, checking local files and fallbacks."""
@@ -104,10 +111,73 @@ class ZampenYOLOTracker:
         # If desired is a standard ultralytics weight name, YOLO will auto-download
         return desired_name
 
+    def _resolve_track_class(
+        self, cls_id: int, confidence: float, track_id: Optional[int]
+    ) -> Tuple[int, str, float]:
+        class_name = self.class_map.get(
+            cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
+        )
+        if track_id is None:
+            return cls_id, class_name, confidence
+
+        if class_name not in ("Chicken", "Rooster") and not class_name.startswith("Hen"):
+            self.track_class_history.pop(track_id, None)
+            self.track_resolved_classes.pop(track_id, None)
+            self.track_class_last_seen.pop(track_id, None)
+            return cls_id, class_name, confidence
+
+        class_history = self.track_class_history.setdefault(track_id, {})
+        observations, confidence_sum = class_history.get(cls_id, (0, 0.0))
+        class_history[cls_id] = (observations + 1, confidence_sum + confidence)
+        self.track_class_last_seen[track_id] = self.processed_frame_count
+
+        candidate_cls_id = max(
+            class_history,
+            key=lambda candidate_id: (
+                class_history[candidate_id][0],
+                class_history[candidate_id][1] / class_history[candidate_id][0],
+            ),
+        )
+        resolved_cls_id = self.track_resolved_classes.get(track_id, candidate_cls_id)
+        if candidate_cls_id != resolved_cls_id:
+            resolved_count = class_history.get(resolved_cls_id, (0, 0.0))[0]
+            candidate_count = class_history[candidate_cls_id][0]
+            if candidate_count >= resolved_count + self.CLASS_SWITCH_MARGIN:
+                resolved_cls_id = candidate_cls_id
+        self.track_resolved_classes[track_id] = resolved_cls_id
+
+        resolved_observations, resolved_confidence_sum = class_history[resolved_cls_id]
+        resolved_name = self.class_map.get(
+            resolved_cls_id,
+            self.model.names.get(resolved_cls_id, f"class_{resolved_cls_id}"),
+        )
+        return (
+            resolved_cls_id,
+            resolved_name,
+            resolved_confidence_sum / resolved_observations,
+        )
+
+    def _prune_track_class_history(self) -> None:
+        if self.processed_frame_count % self.CLASS_HISTORY_TTL_FRAMES:
+            return
+
+        cutoff = self.processed_frame_count - self.CLASS_HISTORY_TTL_FRAMES
+        expired = [
+            track_id
+            for track_id, last_seen in self.track_class_last_seen.items()
+            if last_seen < cutoff
+        ]
+        for track_id in expired:
+            self.track_class_history.pop(track_id, None)
+            self.track_resolved_classes.pop(track_id, None)
+            self.track_class_last_seen.pop(track_id, None)
+
     def process_frame(self, frame: np.ndarray, frame_idx: int, fps: float = 30.0) -> TrackerFrameOutput:
         """
         Executes YOLO26 Nano inference with ByteTrack persistence.
         """
+        self.processed_frame_count += 1
+        self._prune_track_class_history()
         timestamp_s = frame_idx / fps if fps > 0 else 0.0
 
         # Run ByteTrack prediction workflow
@@ -147,7 +217,9 @@ class ZampenYOLOTracker:
 
         # First pass: parse raw detections
         for box, conf, cls_id, track_id in zip(boxes, confs, classes, track_ids):
-            class_name = self.class_map.get(cls_id, self.model.names.get(cls_id, f"class_{cls_id}"))
+            cls_id, class_name, conf = self._resolve_track_class(
+                cls_id, float(conf), track_id
+            )
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
 

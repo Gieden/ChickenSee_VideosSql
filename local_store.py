@@ -1,7 +1,4 @@
-"""
-Shared local archive paths for annotated detection videos and result files.
-Keeps a durable copy outside agent/data (which is uploaded / cleaned by the cloud sync agent).
-"""
+"""Shared local paths for annotated detection videos and result files."""
 
 import os
 import json
@@ -23,19 +20,17 @@ def _configured_local_root() -> str:
             if separator and key.strip() == "CHICKENSEE_LOCAL_STORAGE":
                 return value.strip().strip('"').strip("'")
 
-    return r"C:\Users\Kairi\Documents\ChickenSee_Local_Storage"
+    return r"C:\ChickenSee_Local_Storage"
 
 
 LOCAL_ROOT = Path(_configured_local_root())
 VIDEOS_DIR = LOCAL_ROOT / "videos"
 RESULTS_DIR = LOCAL_ROOT / "results"
-ARCHIVE_DIR = LOCAL_ROOT / "archive"
 
 
 def ensure_dirs() -> None:
     VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def json_default(obj: Any):

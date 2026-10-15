@@ -9,9 +9,14 @@ Validates:
 """
 
 import sys
+import json
 import unittest
 import datetime
+import os
+import tempfile
+import time
 from pathlib import Path
+from unittest.mock import patch
 
 # Add project root to sys.path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -22,9 +27,9 @@ from analytics.database import DatabaseManager, JobStatus, ProcessingJob
 from analytics.tracker import TrackedDetection, TrackerFrameOutput
 from analytics.tracker import ZampenYOLOTracker
 from analytics.behavior_engine import BehaviorAnalysisEngine
-from analytics.worker import ZampenAnalyticsWorker
+from analytics.worker import AnalysisCancelled, ZampenAnalyticsWorker
 from fastapi.testclient import TestClient
-from analytics.api import app
+from analytics.api import _progress_percent, _queue_video_dirs, app, get_detection_queue
 
 
 class TestZampenAnalyticsPipeline(unittest.TestCase):
@@ -46,14 +51,222 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         job = self.db.lease_job(filename, "/dummy/path.mp4", now, end)
         self.assertIsNotNone(job)
         self.assertEqual(job.status, JobStatus.PROCESSING)
+        self.db.update_job_progress(job.id, 250, 1000)
+        with self.db.get_session() as session:
+            persisted = session.get(ProcessingJob, job.id)
+            self.assertEqual(persisted.progress_frames, 250)
+            self.assertEqual(persisted.total_frames, 1000)
+            self.assertEqual(_progress_percent(persisted), 25.0)
 
         # Mark completed
         self.db.mark_job_completed(job.id, 1000, 1000, 45.2)
+        with self.db.get_session() as session:
+            completed = session.get(ProcessingJob, job.id)
+            self.assertEqual(completed.progress_frames, 1000)
+            self.assertEqual(_progress_percent(completed), 100.0)
         self.assertTrue(self.db.is_file_processed(filename))
 
         # Attempt to lease again - should return None to prevent duplicate run
         duplicate_lease = self.db.lease_job(filename, "/dummy/path.mp4", now, end)
         self.assertIsNone(duplicate_lease)
+
+    def test_recreated_video_at_same_path_is_queued_for_reanalysis(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            video_path = Path(temporary) / "repeat.mp4"
+            video_path.write_bytes(b"first video")
+            first_signature = self.db.file_signature(str(video_path))
+            now = datetime.datetime.now()
+            job = self.db.lease_job(
+                video_path.name,
+                str(video_path),
+                now,
+                now + datetime.timedelta(minutes=1),
+                signature=first_signature,
+            )
+            self.db.mark_job_completed(job.id, 5, 5, 1.0)
+            self.assertTrue(
+                self.db.is_file_processed(
+                    video_path.name, str(video_path), first_signature
+                )
+            )
+
+            video_path.write_bytes(b"a different replacement video")
+            replacement_signature = self.db.file_signature(str(video_path))
+            self.assertFalse(
+                self.db.is_file_processed(
+                    video_path.name, str(video_path), replacement_signature
+                )
+            )
+            replacement_job = self.db.lease_job(
+                video_path.name,
+                str(video_path),
+                now,
+                now + datetime.timedelta(minutes=1),
+                signature=replacement_signature,
+            )
+
+        self.assertEqual(replacement_job.id, job.id)
+        self.assertEqual(replacement_job.status, JobStatus.PROCESSING)
+        self.assertEqual(replacement_job.source_size, replacement_signature[0])
+
+    def test_queue_shows_replaced_video_even_when_path_was_completed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video_path = root / "previous.mp4"
+            video_path.write_bytes(b"old")
+            old_signature = self.db.file_signature(str(video_path))
+            now = datetime.datetime.now()
+            job = self.db.lease_job(
+                video_path.name,
+                str(video_path),
+                now,
+                now + datetime.timedelta(minutes=1),
+                signature=old_signature,
+            )
+            self.db.mark_job_completed(job.id, 2, 2, 0.5)
+            video_path.write_bytes(b"new replacement video")
+            os.utime(video_path, (time.time() - 60, time.time() - 60))
+
+            with patch("analytics.api.DB", self.db), patch(
+                "analytics.api._queue_video_dirs", return_value=[root]
+            ):
+                response = get_detection_queue(limit=100)
+
+        item = next(item for item in response["items"] if item["video_path"] == str(video_path))
+        self.assertEqual(item["status"], "QUEUED")
+        self.assertIn("queued for reanalysis", item["details"])
+        self.assertIsNone(item["progress_percent"])
+
+    def test_queue_progress_does_not_exceed_video_length(self):
+        job = ProcessingJob(
+            status=JobStatus.PROCESSING,
+            progress_frames=1200,
+            total_frames=1000,
+        )
+        self.assertEqual(_progress_percent(job), 100.0)
+        job.progress_frames = None
+        self.assertIsNone(_progress_percent(job))
+
+    def test_queue_response_returns_persisted_live_progress(self):
+        now = datetime.datetime.now()
+        job = self.db.lease_job("camera.mp4", "/test/camera.mp4", now, now)
+        self.assertIsNotNone(job)
+        self.db.update_job_progress(job.id, 125, 500)
+
+        with patch("analytics.api.DB", self.db), patch(
+            "analytics.api._queue_video_dirs", return_value=[]
+        ):
+            response = get_detection_queue(limit=100)
+
+        item = response["items"][0]
+        self.assertEqual(item["status"], "PROCESSING")
+        self.assertEqual(item["progress_frames"], 125)
+        self.assertEqual(item["total_frames"], 500)
+        self.assertEqual(item["progress_percent"], 25.0)
+
+    def test_cancel_active_job_and_reject_repeat_cancellation(self):
+        now = datetime.datetime.now()
+        job = self.db.lease_job("cancel.mp4", "/test/cancel.mp4", now, now)
+
+        self.assertTrue(self.db.cancel_processing_job(job.id))
+        self.assertTrue(self.db.is_job_cancelled(job.id))
+        self.assertFalse(self.db.cancel_processing_job(job.id))
+
+        with self.db.get_session() as session:
+            cancelled = session.get(ProcessingJob, job.id)
+            self.assertEqual(cancelled.status, JobStatus.CANCELLED)
+            self.assertEqual(cancelled.error_message, "Cancelled by user.")
+
+        self.assertTrue(self.db.is_file_processed(
+            "cancel.mp4", "/test/cancel.mp4"
+        ))
+        self.assertIsNone(self.db.lease_job(
+            "cancel.mp4", "/test/cancel.mp4", now, now
+        ))
+        self.db.mark_job_failed(job.id, "late worker error")
+        with self.db.get_session() as session:
+            self.assertEqual(session.get(ProcessingJob, job.id).status, JobStatus.CANCELLED)
+
+    def test_worker_cancel_checkpoint_raises_for_cancelled_job(self):
+        now = datetime.datetime.now()
+        job = self.db.lease_job("cancel.mp4", "/test/cancel.mp4", now, now)
+        self.db.cancel_processing_job(job.id)
+
+        with patch("analytics.worker.DB", self.db):
+            with self.assertRaises(AnalysisCancelled):
+                ZampenAnalyticsWorker._raise_if_cancelled(job.id)
+
+    def test_cancel_api_only_cancels_processing_jobs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            cancel_db = DatabaseManager(
+                db_url=f"sqlite:///{Path(temporary) / 'cancel-test.db'}"
+            )
+            now = datetime.datetime.now()
+            job = cancel_db.lease_job("cancel.mp4", "/test/cancel.mp4", now, now)
+
+            with TestClient(app) as client, patch("analytics.api.DB", cancel_db):
+                response = client.post(f"/jobs/{job.id}/cancel")
+                missing = client.post("/jobs/999/cancel")
+                already_cancelled = client.post(f"/jobs/{job.id}/cancel")
+            cancel_db.engine.dispose()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "CANCELLED")
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(already_cancelled.status_code, 409)
+
+    def test_queue_discovers_stable_and_still_writing_videos(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stable_video = root / "stable.mp4"
+            writing_video = root / "writing.mp4"
+            detected_video = root / "stable_detected.mp4"
+            for video in (stable_video, writing_video, detected_video):
+                video.write_bytes(b"video")
+            os.utime(stable_video, (time.time() - 30, time.time() - 30))
+            os.utime(detected_video, (time.time() - 30, time.time() - 30))
+
+            with patch("analytics.api.DB", self.db), patch(
+                "analytics.api._queue_video_dirs", return_value=[root]
+            ):
+                response = get_detection_queue(limit=100)
+
+        items = {item["video_filename"]: item for item in response["items"]}
+        self.assertEqual(items["stable.mp4"]["status"], "QUEUED")
+        self.assertIsNone(items["stable.mp4"]["progress_percent"])
+        self.assertEqual(items["writing.mp4"]["status"], "WAITING")
+        self.assertIsNone(items["writing.mp4"]["progress_percent"])
+        self.assertNotIn("stable_detected.mp4", items)
+
+    def test_queue_reports_currently_saved_watch_directories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch("analytics.api.DB", self.db), patch(
+                "analytics.api._queue_video_dirs",
+                return_value=[root, root / "removed-folder"],
+            ):
+                response = get_detection_queue(limit=100)
+
+        self.assertEqual(response["watch_directories"], [str(root)])
+        self.assertEqual(response["missing_watch_directories"], [str(root / "removed-folder")])
+
+    def test_saved_watch_directories_replace_default_folder_for_queue_and_worker(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            configured_dir = root / "new-watch-folder"
+            config_file = root / "directories.json"
+            config_file.write_text(
+                json.dumps({"directories": [str(configured_dir)]}),
+                encoding="utf-8",
+            )
+
+            queue_dirs = _queue_video_dirs(config_file)
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker_dirs = worker._video_input_dirs(config_file)
+
+        expected = [configured_dir.resolve()]
+        self.assertEqual(queue_dirs, expected)
+        self.assertEqual(worker_dirs, expected)
 
     def test_video_chunk_ranges_support_variable_lengths(self):
         self.assertEqual(
@@ -69,6 +282,26 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
             [],
         )
 
+    def test_detected_writer_uses_non_syncable_staging_file(self):
+        class OpenWriter:
+            def isOpened(self):
+                return True
+
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "analytics.worker.VIDEOS_DIR", Path(temporary)
+        ), patch("analytics.worker.cv2.VideoWriter", return_value=OpenWriter()), patch(
+            "analytics.worker.cv2.VideoWriter_fourcc", return_value=0
+        ):
+            worker = object.__new__(ZampenAnalyticsWorker)
+            writer, detected_path, staging_path = worker._open_detected_writer(
+                "recording.mp4", 640, 360, 30.0, 2
+            )
+
+        self.assertIsNotNone(writer)
+        self.assertEqual(Path(detected_path).name, "recording_detected.mp4")
+        self.assertEqual(Path(staging_path).name, "recording_detected.processing.mp4")
+        self.assertNotEqual(detected_path, staging_path)
+
     def test_timestamped_camera_filename_is_parsed(self):
         worker = object.__new__(ZampenAnalyticsWorker)
         start, end = worker._extract_timestamps_from_file(
@@ -83,6 +316,39 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
             Path(tracker._resolve_weights("yolo26n.pt")),
             Path(CONFIG.custom_weights_path).resolve(),
         )
+
+    def test_tracker_does_not_carry_chicken_track_class_into_equipment(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.class_map = {
+            0: "Chicken",
+            1: "Drinker",
+            2: "Feeder",
+            8: "Rooster",
+        }
+        tracker.model = type("Model", (), {"names": tracker.class_map})()
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 1
+
+        for _ in range(8):
+            resolved = tracker._resolve_track_class(0, 0.78, 53)
+        self.assertEqual(resolved[:2], (0, "Chicken"))
+        self.assertAlmostEqual(resolved[2], 0.78)
+
+        for _ in range(5):
+            resolved = tracker._resolve_track_class(1, 0.607, 53)
+        self.assertEqual(resolved[:2], (1, "Drinker"))
+        self.assertAlmostEqual(resolved[2], 0.607)
+        self.assertNotIn(53, tracker.track_class_history)
+        self.assertNotIn(53, tracker.track_resolved_classes)
+
+        resolved = tracker._resolve_track_class(2, 0.91, 53)
+        self.assertEqual(resolved[:2], (2, "Feeder"))
+        self.assertAlmostEqual(resolved[2], 0.91)
+        resolved = tracker._resolve_track_class(8, 0.94, 53)
+        self.assertEqual(resolved[:2], (8, "Rooster"))
+        self.assertAlmostEqual(resolved[2], 0.94)
 
     def test_same_named_videos_in_separate_folders_get_distinct_jobs(self):
         now = datetime.datetime.now()

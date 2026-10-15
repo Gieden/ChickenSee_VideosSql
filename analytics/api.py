@@ -10,8 +10,12 @@ Exposes endpoints for external front-ends and dashboards:
 """
 
 import os
+import json
+import hashlib
 import psutil
 import datetime
+import time
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,7 +150,10 @@ def list_jobs(limit: int = Query(default=20, le=100)):
                 "hour_slot": j.hour_slot,
                 "status": j.status.value,
                 "frames_processed": j.frames_processed,
+                "progress_frames": j.progress_frames,
                 "total_frames": j.total_frames,
+                "progress_percent": _progress_percent(j),
+                "video_path": j.video_path,
                 "processing_time_s": round(j.processing_time_s, 1),
                 "created_at": j.created_at.isoformat() if j.created_at else None,
                 "completed_at": j.completed_at.isoformat() if j.completed_at else None,
@@ -154,6 +161,179 @@ def list_jobs(limit: int = Query(default=20, le=100)):
             }
             for j in jobs
         ]
+
+
+def _progress_percent(job: ProcessingJob) -> Optional[float]:
+    if job.status == JobStatus.COMPLETED:
+        return 100.0
+    if not job.total_frames or job.progress_frames is None:
+        return None
+    progress = max(0, min(job.progress_frames, job.total_frames))
+    return round(progress * 100.0 / job.total_frames, 1)
+
+
+def _queue_video_dirs(directories_file: Optional[Path] = None) -> List[Path]:
+    config_file = directories_file or (
+        Path(__file__).resolve().parent.parent / "agent" / "directories.json"
+    )
+    if not config_file.is_file():
+        return [Path(CONFIG.video_dir).expanduser().resolve()]
+    try:
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=500, detail=f"Could not read video watch folders: {error}")
+    if not isinstance(config, dict):
+        raise HTTPException(status_code=500, detail="Video watch-folder configuration must be an object.")
+    configured = config.get("directories", [])
+    if not isinstance(configured, list) or not all(isinstance(path, str) for path in configured):
+        raise HTTPException(status_code=500, detail="Video watch folders must be a list of paths.")
+    directories = {Path(path).expanduser().resolve() for path in configured}
+    return sorted(directories, key=str)
+
+
+@app.get("/queue", tags=["Job State Manager"])
+def get_detection_queue(limit: int = Query(default=100, le=500)):
+    """Return persisted jobs and stable or still-writing videos in worker discovery order."""
+    warnings: List[str] = []
+    now = time.time()
+    video_dirs = _queue_video_dirs()
+    active_video_dirs = [str(directory) for directory in video_dirs if directory.is_dir()]
+    missing_video_dirs = [str(directory) for directory in video_dirs if not directory.is_dir()]
+    discovered: Dict[str, Dict[str, Any]] = {}
+    for video_dir in video_dirs:
+        if not video_dir.is_dir():
+            continue
+        try:
+            paths = video_dir.rglob("*.mp4")
+            for path in paths:
+                if "_detected" in path.stem.lower():
+                    continue
+                try:
+                    resolved = path.resolve()
+                    stat = resolved.stat()
+                    modified_at = stat.st_mtime
+                except OSError as error:
+                    warnings.append(f"Could not inspect {path}: {error}")
+                    continue
+                key = os.path.normcase(str(resolved))
+                discovered[key] = {
+                    "video_path": str(resolved),
+                    "video_filename": resolved.name,
+                    "modified_at": modified_at,
+                    "signature": (
+                        stat.st_size,
+                        stat.st_mtime_ns,
+                        stat.st_ctime_ns,
+                    ),
+                    "status": "QUEUED" if now - modified_at >= 20.0 else "WAITING",
+                }
+        except OSError as error:
+            warnings.append(f"Could not scan {video_dir}: {error}")
+
+    with DB.get_session() as session:
+        jobs = (
+            session.query(ProcessingJob)
+            .order_by(ProcessingJob.id.desc())
+            .limit(limit)
+            .all()
+        )
+        completed_jobs = (
+            session.query(ProcessingJob)
+            .filter(ProcessingJob.status == JobStatus.COMPLETED)
+            .order_by(ProcessingJob.id.desc())
+            .all()
+        )
+
+    completed_versions = {}
+    for job in completed_jobs:
+        key = os.path.normcase(os.path.abspath(job.video_path))
+        completed_versions.setdefault(key, job)
+    job_paths = set()
+    job_items = []
+    for job in jobs:
+        key = os.path.normcase(os.path.abspath(job.video_path))
+        job_paths.add(key)
+        candidate = discovered.get(key)
+        state = job.status.value
+        details = job.error_message
+        if job.status == JobStatus.FAILED and candidate:
+            state = candidate["status"]
+            if state == "QUEUED":
+                details = f"Retry pending. Previous error: {job.error_message}"
+            else:
+                details = f"Waiting for the file to finish writing. Previous error: {job.error_message}"
+        elif (
+            job.status == JobStatus.COMPLETED
+            and candidate
+            and not DB.file_version_matches(job, candidate["signature"])
+        ):
+            state = candidate["status"]
+            details = "File changed since its previous analysis; queued for reanalysis."
+        job_items.append({
+            "item_id": f"job-{job.id}",
+            "job_id": job.id,
+            "video_filename": job.video_filename,
+            "video_path": job.video_path,
+            "status": state,
+            "progress_frames": job.progress_frames,
+            "total_frames": job.total_frames,
+            "progress_percent": _progress_percent(job) if state == job.status.value else None,
+            "details": details,
+            "modified_at": candidate["modified_at"] if candidate else None,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+        })
+
+    discovered_items = [
+        {
+            "item_id": f"file-{hashlib.sha256(key.encode('utf-8')).hexdigest()[:20]}",
+            "video_path": candidate["video_path"],
+            "video_filename": candidate["video_filename"],
+            "modified_at": candidate["modified_at"],
+            "status": candidate["status"],
+            "progress_frames": None,
+            "total_frames": None,
+            "progress_percent": None,
+            "details": None,
+            "created_at": None,
+        }
+        for key, candidate in discovered.items()
+        if key not in job_paths and (
+            key not in completed_versions
+            or not DB.file_version_matches(
+                completed_versions[key], candidate["signature"]
+            )
+        )
+    ]
+    active_items = [item for item in job_items if item["status"] == JobStatus.PROCESSING.value]
+    pending_items = [
+        item for item in job_items + discovered_items
+        if item["status"] in ("QUEUED", "WAITING")
+    ]
+    pending_items.sort(key=lambda item: item["modified_at"] or now)
+    history_items = [
+        item for item in job_items
+        if item["status"] in (
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.CANCELLED.value,
+        )
+    ]
+    history_items.sort(key=lambda item: item["created_at"] or "", reverse=True)
+    items = (active_items + pending_items + history_items)[:limit]
+    return {
+        "items": items,
+        "warnings": warnings,
+        "watch_directories": active_video_dirs,
+        "missing_watch_directories": missing_video_dirs,
+        "summary": {
+            "processing": sum(item["status"] == "PROCESSING" for item in items),
+            "queued": sum(item["status"] == "QUEUED" for item in items),
+            "waiting": sum(item["status"] == "WAITING" for item in items),
+            "completed": sum(item["status"] == "COMPLETED" for item in items),
+            "failed": sum(item["status"] == "FAILED" for item in items),
+            "cancelled": sum(item["status"] == "CANCELLED" for item in items),
+        },
+    }
 
 
 @app.post("/jobs/trigger", tags=["Job State Manager"])
@@ -172,7 +352,10 @@ def trigger_process_file(
             detail=f"File {video_filename} not found in {CONFIG.video_dir}"
         )
 
-    if not force and DB.is_file_processed(video_filename):
+    signature = DB.file_signature(video_path)
+    if not force and DB.is_file_processed(
+        video_filename, video_path, signature
+    ):
         return {"message": f"File {video_filename} is already completed.", "status": "COMPLETED"}
 
     from .worker import ZampenAnalyticsWorker
@@ -188,6 +371,28 @@ def trigger_process_file(
         "video_filename": video_filename,
         "status": "QUEUED"
     }
+
+
+@app.post("/jobs/{job_id}/cancel", tags=["Job State Manager"])
+def cancel_processing_job(job_id: int):
+    """Request cancellation of an active video analysis."""
+    if DB.cancel_processing_job(job_id):
+        return {
+            "job_id": job_id,
+            "status": JobStatus.CANCELLED.value,
+            "message": "Cancellation requested. The worker will stop at its next checkpoint.",
+        }
+    with DB.get_session() as session:
+        job = session.get(ProcessingJob, job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis job {job_id} was not found.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Analysis job {job_id} is {job.status.value.lower()} and cannot be cancelled.",
+        )
 
 
 def start_server():

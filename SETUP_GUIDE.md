@@ -1,249 +1,86 @@
-# 🚀 ChickenSee Portal — Local Agent Setup & Testing Guide
+# ChickenSee Control Center — OptiPlex Setup Guide
 
-This guide walks you through running the **local Optiplex watcher agent** to sync video and SQLite files to your live Vercel dashboard.
+ChickenSee Control Center is a Windows desktop app for setting up and running the local video watcher, analytics API, and video-analysis worker. It can also start those services automatically when your Windows account signs in.
 
----
+## Requirements
 
-## Prerequisites
+- Windows 10/11
+- Python 3.10+ added to `PATH`, including the `pythonw.exe` windowed launcher
+- Node.js 18+ added to `PATH`
+- The `custom_poultry.pt` weights file in the project root
+- Internet access during dependency installation and, optionally, cloud sync
 
-- Node.js 18+ installed on your local machine / Optiplex server
-- Your Vercel app is already deployed and live
-- You know your Vercel app URL (e.g. `https://chicken-see-videos-sql.vercel.app`)
+## 1. Install and initialize
 
----
-
-## Step 1 — Navigate to the Agent Folder
-
-Open a terminal (PowerShell or Command Prompt) and go to the `agent` folder:
+Open PowerShell in the project root:
 
 ```powershell
-cd "C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\agent"
+python -m pip install -r analytics\requirements.txt
+Push-Location agent
+npm ci
+Pop-Location
 ```
 
-> 💡 Change this path to wherever you cloned/downloaded this project.
-
----
-
-## Step 2 — Install Dependencies
+Start the desktop app:
 
 ```powershell
-npm install
+python startup\chickensee_desktop.py
 ```
 
----
+The Setup tab also has an **Initialize / repair** button that verifies the model and installs missing Python or agent packages.
 
-## Step 3 — Run the Interactive Setup (Configure Directories)
+## 2. Complete Setup
 
-Instead of manually editing config files, run the built-in setup tool:
+In the app’s **Setup** tab:
 
-```powershell
-npm run setup
-```
+1. Add every existing folder where your recorder saves videos. Adding or removing a folder saves the watch list immediately; restart ChickenSee services to apply folder changes. The queue reads the saved folders and refreshes every couple of seconds.
+2. Choose a local storage folder for analysis reports, annotated detection videos, and service logs. Default: `C:\ChickenSee_Local_Storage`.
+3. Leave cloud sync off for local-only operation. To upload to Vercel, enable cloud sync and enter the Vercel `/api/sync` URL and the exact `SYNC_SECRET` value configured for that deployment.
+4. Select **Save settings** after changing local storage or cloud-sync settings. The sync secret is stored in `agent\.env`, which is ignored by Git.
+5. Select **Initialize / repair** if you have not initialized the dependencies yet.
 
-You will see an interactive menu like this:
+Cloud sync is opt-in and off by default. Enabling it requires a valid HTTPS URL and secret.
 
-```
-╔══════════════════════════════════════════════════════╗
-║       ChickenSee Agent — Directory Configurator       ║
-╚══════════════════════════════════════════════════════╝
+## 3. Test Video Analysis
 
-  Vercel Sync URL : (not set)
-  Sync Secret     : (not set)
+After Windows sign-in, open the **ChickenSee Control Center** desktop shortcut. Its Dashboard displays the status of the startup-managed services. Use **Start ChickenSee** or **Stop ChickenSee** to start or stop the watcher, analytics API, and video analyzer without closing the Control Center.
 
-  Watched Directories: (none configured)
+1. Under **Quick video test**, select one of your configured watch folders, then choose a short MP4 sample.
+2. ChickenSee copies the sample into the selected folder; the source video is left unchanged.
+3. Wait until the copied video has stopped changing for about 20 seconds. The worker then analyzes it. Longer recordings take longer.
+4. The **Queue** tab shows videos being processed, stable videos waiting in oldest-first order, and recent completed, failed, or cancelled jobs. Use **Cancel analysis** to stop the current video; the original stays in its watch folder and the incomplete detected output is discarded. The active percentage is calculated from video frames actually read; files waiting to become stable do not get a made-up percentage.
+5. The Dashboard shows service state. Check the configured local storage folder for `results` (JSON reports), `videos` (annotated MP4s), and `logs`. The original video stays in its watched folder; ChickenSee does not create a second local archive copy.
+6. If cloud sync is enabled, only the completed `_detected.mp4` and analysis JSON are uploaded. Verify the upload messages in the watcher logs and the Results/Videos tabs in your portal.
 
-  [1] Add a directory to watch
-  [2] Remove a directory
-  [3] Set Vercel Sync URL
-  [4] Set Sync Secret
-  [5] Save & Exit
-```
+The local API is available at `http://localhost:8000/docs`; `/health`, `/jobs`, and `/queue` show health, job state, and the detection queue.
 
-### What to configure:
+## 4. Enable Automatic Startup
 
-| Option | What to enter |
-|---|---|
-| **[3] Set Vercel Sync URL** | `https://YOUR-APP-NAME.vercel.app/api/sync` |
-| **[4] Set Sync Secret** | The same `SYNC_SECRET` value you set in Vercel env vars |
-| **[1] Add a directory to watch** | Full path to any folder containing your `.mp4` or `.sqlite` files |
+Select **Enable startup** in the Setup tab. The installer:
 
-### Example — adding your separate startup app's data folders:
+- Adds a **ChickenSee Control Center** shortcut to the Windows desktop.
+- Adds a background service launcher to the current user's Startup folder.
+- Starts the watcher, analytics API, and worker after that user signs in.
+- Restarts a service if it exits unexpectedly.
 
-Press `1` and enter your folder path when prompted:
-```
-C:\ChickenSee\Recordings
-```
-Press `1` again to add more folders (you can add as many as you like):
-```
-D:\Camera\Videos
-C:\Users\Kairi\AppData\Local\ChickenApp\data
-```
+Sign out and back in (or restart Windows and sign in) to check automatic startup. This runs after sign-in, not at the Windows login screen. Open the Control Center desktop shortcut to see service status, stop the supervised services, test a video, view logs, or change setup.
 
-When done, press **`5`** to save and exit. Your settings are saved to:
-- `agent/.env` — connection settings (URL + secret)
-- `agent/directories.json` — list of all watched folders
+Select **Remove startup** to disable automatic service startup. It leaves the desktop app shortcut in place and does not immediately stop services that are already running. Use **Stop ChickenSee** to stop services and **Start ChickenSee** to start them again manually.
 
-> ⚠️ **Important:** The `SYNC_SECRET` must **exactly match** the `SYNC_SECRET` you set in your Vercel project environment variables.
+## Configuration files and logs
 
----
-
-## Step 4 — Start the Watcher
-
-```powershell
-npm start
-```
-
-You should see all your configured directories listed:
-
-```
-[START] ══════════════════════════════════════════════════
-[START]   ChickenSee Sync Agent
-[START] ══════════════════════════════════════════════════
-[START] Sync target : https://your-app.vercel.app/api/sync
-[START] Directories : 3 configured
-[START]   → C:\ChickenSee\Recordings
-[START]   → D:\Camera\Videos
-[START]   → C:\Users\Kairi\AppData\Local\ChickenApp\data
-[START] ══════════════════════════════════════════════════
-```
-
-The agent is now watching **all your configured folders simultaneously**.
-
----
-
-## Step 5 — Start Automatic Video Analysis
-
-Video syncing and video analysis run as separate local processes. Leave the watcher running, then open a second PowerShell window in the repository root and start the analytics worker:
-
-```powershell
-pip install -r analytics\requirements.txt
-python -m analytics.worker
-```
-
-The worker reads the same `agent\directories.json` folder list as the watcher. It waits until a video has been unchanged for 20 seconds, analyzes it locally in up-to-30-minute intervals, and writes a JSON report under:
-
-```text
-CHICKENSEE_LOCAL_STORAGE\results
-```
-
-The watcher automatically uploads those report files to Vercel Blob, and they appear in the dashboard's **Results** tab. Ensure `agent\.env` has the correct `VERCEL_SYNC_URL` and `SYNC_SECRET`, and that the model weights required by the analytics worker are installed in the repository.
-
-The worker also saves an annotated copy named `<original>_detected.mp4` in the local storage `videos` folder. The watcher uploads it, and the Results tab provides a **Play detected video** link after upload completes. Original uploads are not modified.
-
----
-
-## Step 6 — Test It
-
-The agent auto-detects any `.mp4`, `.sqlite`, or `.db` file dropped into any of your watched folders. You can test by copying a file:
-
-```powershell
-# Copy a test video into any watched folder
-copy "C:\path\to\any\video.mp4" "C:\ChickenSee\Recordings\test_video.mp4"
-```
-
-The terminal will immediately respond:
-
-```
-[DETECT] New file ready: test_video.mp4  (C:\ChickenSee\Recordings)
-[Attempt 1/3] Uploading "test_video.mp4" (25.4 MB)...
-[SUCCESS] Synced "test_video.mp4" → https://...blob.vercel-storage.com/videos/test_video.mp4
-```
-
----
-
-## Step 7 — View on the Dashboard
-
-1. Open your Vercel app URL in a browser
-2. Log in with your `DASHBOARD_PASSWORD`
-3. The **Videos** tab shows your uploaded MP4 files with a built-in streaming player
-4. The **SQLite Tables** tab shows your database tables with paginated rows
-
----
-
-## Updating Directories Later
-
-To add or remove watched folders at any time, just re-run the setup:
-
-```powershell
-npm run setup
-```
-
-Changes take effect the **next time you start** the watcher (`npm start`).
-
----
-
-## Running the Agent Permanently (Auto-Start on Boot)
-
-### Option A: Windows Auto-Start on Boot (Recommended for Windows)
-
-The agent includes a built-in silent Windows startup installer. This configures the agent to automatically run in the background every time your PC turns on or you log in, without keeping an open terminal window on your screen:
-
-```powershell
-# From the agent folder:
-npm run startup:install
-```
-
-You'll see:
-```text
-==========================================================
- [SUCCESS] ChickenSee Agent registered for Auto-Start!
-==========================================================
-Shortcut created at:
-  C:\Users\...\Startup\ChickenSeeAgent.lnk
-```
-
-To remove or disable auto-start at any time:
-```powershell
-npm run startup:uninstall
-```
-
----
-
-### Option B: Background Service via PM2
-
-Alternatively, you can manage the process using **PM2**:
-
-```powershell
-# Install PM2 globally
-npm install -g pm2
-
-# Start the agent as a background service
-pm2 start watcher.js --name "chickensee-agent"
-
-# Save the process list so it auto-starts on reboot
-pm2 save
-pm2 startup
-```
-
-To check logs at any time:
-```powershell
-pm2 logs chickensee-agent
-```
-
-To stop the agent:
-```powershell
-pm2 stop chickensee-agent
-```
-
----
+- `agent\directories.json` — video watch folders.
+- `agent\.env` — local storage, cloud sync URL and secret, and sync options.
+- `<local storage>\results` — analysis JSON files.
+- `<local storage>\videos` — completed annotated `_detected.mp4` outputs only.
+- `<local storage>\logs` — worker, API, watcher, and startup supervisor logs.
 
 ## Troubleshooting
 
-| Problem | Likely Cause | Fix |
-|---|---|---|
-| `401 Unauthorized` in terminal | SYNC_SECRET mismatch | Re-run `npm run setup` → option 4 and match the Vercel env var exactly |
-| `fetch failed` / network error | Wrong Vercel URL | Re-run `npm run setup` → option 3 and double-check your URL |
-| File not detected | File type not supported | Only `.mp4`, `.sqlite`, `.db` files are watched |
-| Folder not being watched | Path not configured | Re-run `npm run setup` → option 1 and add the correct path |
-| File uploaded but not in dashboard | Vercel Blob not attached | Attach Blob storage in Vercel project → Storage tab |
-| Video shows but won't play | Blob Access set to Private | Re-create Blob store with **Public** access |
-
----
-
-## 7-Day Automated Video Retention Policy
-
-To keep your cloud storage within free tier limits, an automated **7-day retention policy** is now active:
-
-* **Daily Automated Cron (`03:00 UTC`)**: Vercel automatically runs `/api/cron/cleanup?days=7` every day. Any `.mp4` video older than 7 days is deleted from Vercel Blob.
-* **Telemetry & Analytics are Permanent**: SQLite databases (`chicken_telemetry.db`), numerical behavior rows, and sensor metrics are **never deleted**. Only the heavy video files are pruned after 7 days.
-* **Manual One-Click Cleanup**: You can click the **Clean >7d** button in the dashboard header at any time to run the cleanup immediately.
+| Problem | What to check |
+|---|---|
+| A service shows Stopped | Open **Open logs** in the Dashboard and check the service's error log. Use **Initialize / repair** if packages are missing. |
+| No video is discovered | Confirm the exact folder is listed in Setup and the MP4 copy has stopped changing for at least 20 seconds. |
+| Startup shortcut does not work | Confirm Python and Node.js are on `PATH`, `pythonw.exe` is next to `python.exe`, and the project folder has not moved since startup was installed. Run **Enable startup** again after moving the project. |
+| Portal uploads fail | Confirm cloud sync is enabled and the Vercel URL and `SYNC_SECRET` match. Local reports remain available even when cloud uploads are off. |
+| Port 8000 is already in use | Another analytics API may be running. Stop the duplicate service before starting ChickenSee. |

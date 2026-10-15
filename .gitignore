@@ -22,6 +22,8 @@ agent/.env
 
 # Local agent sync state & data
 agent/.sync-state.json
+agent/.stop-request
+agent/.supervisor-state.json
 agent/data/*
 !agent/data/.gitkeep
 
@@ -43,4 +45,3 @@ __pycache__/
 # System files
 .DS_Store
 Thumbs.db
-
