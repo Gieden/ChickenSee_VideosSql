@@ -49,6 +49,10 @@ function resolveWatchDirs() {
     dirs.add(path.resolve(process.env.WATCH_DIR || './data'));
   }
 
+  // Analysis reports are written outside the source folders and need syncing too.
+  dirs.add(path.resolve(LOCAL_STORAGE_ROOT, 'results'));
+  // Annotated detection videos are written separately from the original uploads.
+  dirs.add(path.resolve(LOCAL_STORAGE_ROOT, 'videos'));
   return Array.from(dirs);
 }
 
@@ -152,7 +156,11 @@ async function uploadDirectWithToken(filePath, filename, ext, stats) {
     throw new Error('No clientToken returned by server');
   }
 
-  const mimeType = ext === '.mp4' ? 'video/mp4' : 'application/x-sqlite3';
+  const mimeType = ext === '.mp4'
+    ? 'video/mp4'
+    : ext === '.json'
+      ? 'application/json'
+      : 'application/x-sqlite3';
   const fileStream = fs.createReadStream(filePath);
 
   // 2. Upload directly to Vercel Blob with multipart: true
@@ -170,7 +178,11 @@ async function uploadDirectWithToken(filePath, filename, ext, stats) {
 
 // ─── Fallback Direct Streaming Upload ─────────────────────────────────────────
 async function uploadViaServerStream(filePath, filename, ext, stats) {
-  const mimeType = ext === '.mp4' ? 'video/mp4' : 'application/x-sqlite3';
+  const mimeType = ext === '.mp4'
+    ? 'video/mp4'
+    : ext === '.json'
+      ? 'application/json'
+      : 'application/x-sqlite3';
   const fileStream = fs.createReadStream(filePath);
 
   const response = await fetch(SYNC_URL, {
@@ -219,7 +231,7 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
 
     log('SUCCESS', `Synced "${filename}" →`, result.url || result.pathname);
 
-    syncState[filename] = {
+    syncState[path.resolve(filePath)] = {
       size: stats.size,
       mtime: stats.mtimeMs,
       uploadedAt: new Date().toISOString(),
@@ -239,6 +251,12 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
       return uploadFileWithRetry(filePath, attempt + 1);
     } else {
       log('ERROR', `Max retries exceeded for "${filename}". Will retry on next file change.`);
+      setTimeout(() => {
+        if (!cloudSyncDisabledReason && shouldSync(filePath)) {
+          log('INFO', `Retrying upload for "${filename}" after the retry delay.`);
+          enqueueUpload(filePath);
+        }
+      }, 60_000);
     }
   }
 }
@@ -246,14 +264,18 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
 function shouldSync(filePath) {
   const filename = path.basename(filePath);
   const ext = path.extname(filename).toLowerCase();
+  const resolvedPath = path.resolve(filePath);
+  const resultsDir = path.resolve(LOCAL_STORAGE_ROOT, 'results');
+  const isAnalysisResult = ext === '.json'
+    && resolvedPath.toLowerCase().startsWith(resultsDir.toLowerCase() + path.sep);
 
-  if (!['.mp4', '.sqlite', '.db'].includes(ext)) return false;
+  if (!['.mp4', '.sqlite', '.db'].includes(ext) && !isAnalysisResult) return false;
   if (filename.startsWith('.') || filename.endsWith('.tmp') || filename.endsWith('.part')) return false;
 
-  if (!fs.existsSync(filePath)) return false;
+  if (!fs.existsSync(resolvedPath)) return false;
 
-  const stats = fs.statSync(filePath);
-  const prev = syncState[filename];
+  const stats = fs.statSync(resolvedPath);
+  const prev = syncState[resolvedPath];
 
   // Already synced and hasn't changed
   if (prev && prev.size === stats.size && prev.mtime === stats.mtimeMs) {

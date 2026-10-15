@@ -111,7 +111,28 @@ The agent is now watching **all your configured folders simultaneously**.
 
 ---
 
-## Step 5 — Test It
+## Step 5 — Start Automatic Video Analysis
+
+Video syncing and video analysis run as separate local processes. Leave the watcher running, then open a second PowerShell window in the repository root and start the analytics worker:
+
+```powershell
+pip install -r analytics\requirements.txt
+python -m analytics.worker
+```
+
+The worker reads the same `agent\directories.json` folder list as the watcher. It waits until a video has been unchanged for 20 seconds, analyzes it locally in up-to-30-minute intervals, and writes a JSON report under:
+
+```text
+CHICKENSEE_LOCAL_STORAGE\results
+```
+
+The watcher automatically uploads those report files to Vercel Blob, and they appear in the dashboard's **Results** tab. Ensure `agent\.env` has the correct `VERCEL_SYNC_URL` and `SYNC_SECRET`, and that the model weights required by the analytics worker are installed in the repository.
+
+The worker also saves an annotated copy named `<original>_detected.mp4` in the local storage `videos` folder. The watcher uploads it, and the Results tab provides a **Play detected video** link after upload completes. Original uploads are not modified.
+
+---
+
+## Step 6 — Test It
 
 The agent auto-detects any `.mp4`, `.sqlite`, or `.db` file dropped into any of your watched folders. You can test by copying a file:
 
@@ -130,7 +151,7 @@ The terminal will immediately respond:
 
 ---
 
-## Step 6 — View on the Dashboard
+## Step 7 — View on the Dashboard
 
 1. Open your Vercel app URL in a browser
 2. Log in with your `DASHBOARD_PASSWORD`
@@ -226,4 +247,3 @@ To keep your cloud storage within free tier limits, an automated **7-day retenti
 * **Daily Automated Cron (`03:00 UTC`)**: Vercel automatically runs `/api/cron/cleanup?days=7` every day. Any `.mp4` video older than 7 days is deleted from Vercel Blob.
 * **Telemetry & Analytics are Permanent**: SQLite databases (`chicken_telemetry.db`), numerical behavior rows, and sensor metrics are **never deleted**. Only the heavy video files are pruned after 7 days.
 * **Manual One-Click Cleanup**: You can click the **Clean >7d** button in the dashboard header at any time to run the cleanup immediately.
-

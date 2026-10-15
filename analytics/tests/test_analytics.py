@@ -20,7 +20,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from analytics.config import CONFIG
 from analytics.database import DatabaseManager, JobStatus, ProcessingJob
 from analytics.tracker import TrackedDetection, TrackerFrameOutput
+from analytics.tracker import ZampenYOLOTracker
 from analytics.behavior_engine import BehaviorAnalysisEngine
+from analytics.worker import ZampenAnalyticsWorker
 from fastapi.testclient import TestClient
 from analytics.api import app
 
@@ -52,6 +54,46 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         # Attempt to lease again - should return None to prevent duplicate run
         duplicate_lease = self.db.lease_job(filename, "/dummy/path.mp4", now, end)
         self.assertIsNone(duplicate_lease)
+
+    def test_video_chunk_ranges_support_variable_lengths(self):
+        self.assertEqual(
+            ZampenAnalyticsWorker._chunk_frame_ranges(3000, 30.0, 1),
+            [(0, 1800), (1800, 3000)],
+        )
+        self.assertEqual(
+            ZampenAnalyticsWorker._chunk_frame_ranges(300, 30.0, 1),
+            [(0, 300)],
+        )
+        self.assertEqual(
+            ZampenAnalyticsWorker._chunk_frame_ranges(0, 30.0, 1),
+            [],
+        )
+
+    def test_timestamped_camera_filename_is_parsed(self):
+        worker = object.__new__(ZampenAnalyticsWorker)
+        start, end = worker._extract_timestamps_from_file(
+            Path("20260914_102808_tp00010.mp4")
+        )
+        self.assertEqual(start, datetime.datetime(2026, 9, 14, 10, 28, 8))
+        self.assertEqual(end, start + datetime.timedelta(hours=1))
+
+    def test_tracker_resolves_custom_model_weights(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        self.assertEqual(
+            Path(tracker._resolve_weights("yolo26n.pt")),
+            Path(CONFIG.custom_weights_path).resolve(),
+        )
+
+    def test_same_named_videos_in_separate_folders_get_distinct_jobs(self):
+        now = datetime.datetime.now()
+        end = now + datetime.timedelta(minutes=5)
+        first = self.db.lease_job("recording.mp4", "/camera-a/recording.mp4", now, end)
+        self.assertIsNotNone(first)
+        self.db.mark_job_completed(first.id, 100, 100, 3.0)
+
+        second = self.db.lease_job("recording.mp4", "/camera-b/recording.mp4", now, end)
+        self.assertIsNotNone(second)
+        self.assertNotEqual(first.video_filename, second.video_filename)
 
     def test_behavior_drinking_and_inactivity(self):
         """Test drinking in waterer zone and inactivity detection."""

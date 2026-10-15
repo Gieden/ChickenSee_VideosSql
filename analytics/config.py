@@ -34,10 +34,9 @@ class AnalyticsConfig(BaseModel):
     imgsz: int = Field(default=640, description="Inference input image resolution")
     frame_stride: int = Field(default=2, description="Process every Nth frame (2 = 15fps from 30fps input)")
 
-    # Processing & Lag Pipeline
-    lag_hours: int = Field(default=1, description="Rolling delay in hours (process completed 1-hr file from prev hour)")
-    chunk_minutes: int = Field(default=30, description="Chunk interval for averages (30-min intervals)")
-    poll_interval_s: int = Field(default=60, description="Worker daemon polling interval in seconds")
+    # Processing & video discovery
+    chunk_minutes: int = Field(default_factory=lambda: int(os.getenv("CHUNK_MINUTES", "30")), description="Maximum duration of each analysis interval")
+    poll_interval_s: int = Field(default_factory=lambda: int(os.getenv("VIDEO_POLL_INTERVAL_S", "10")), description="Worker video discovery interval in seconds")
 
     # Paths
     video_dir: str = str(VIDEO_INPUT_DIR)

@@ -11,17 +11,17 @@ Designed and optimized for local edge deployment on a **Dell OptiPlex server**, 
 ```
                       PRODUCER LAYER (Existing / Hardware)
   ┌────────────────────────────────────────────────────────────────────────┐
-  │  • Video Recorder: Writes 1-hour .mp4 segments (e.g. 06:00 to 07:00)   │
+  │  • Video Recorder: Writes MP4 clips of varying lengths                │
   │  • Sensor Hub: Logs environment readings to SQLite (chicken_telemetry) │
   └──────────────────────────────────┬─────────────────────────────────────┘
-                                     │ (1-Hour Rolling Delay)
+                                     │ (20s stable-file check)
                                      ▼
                    ANALYSIS & AGGREGATION LAYER (Worker Daemon)
   ┌────────────────────────────────────────────────────────────────────────┐
-  │  • Ingests completed 1-hour MP4 & matching SQL range with 1-hr lag     │
-  │  • Splits 1-hour block into two 30-Minute Chunks:                      │
-  │      Chunk 1: 06:00:00 - 06:30:00  |  Chunk 2: 06:30:00 - 07:00:00     │
-  │  • Computes 30-min rolling sensor averages (Temp, RH, NH3, Lux, THI)   │
+  │  • Ingests stable MP4 files from the configured agent watch folders    │
+  │  • Splits each video into configurable intervals (30m default)         │
+  │  • Keeps a shorter final interval for videos of varying lengths         │
+  │  • Computes interval sensor averages (Temp, RH, NH3, Lux, THI)          │
   │  • Runs YOLO26 Nano (yolo26n.pt) + ByteTrack persistent inference      │
   │  • Quantifies Behaviors:                                               │
   │      1. Reduce Eating  |  2. Drinking  |  3. Inactivity  |  4. Pecking │
@@ -32,8 +32,8 @@ Designed and optimized for local edge deployment on a **Dell OptiPlex server**, 
                     API CONSUMER LAYER (FastAPI Wrapper)
   ┌────────────────────────────────────────────────────────────────────────┐
   │  • GET /health         → Worker status, CPU/RAM, model availability    │
-  │  • GET /results/latest → Most recent hourly block & two 30-min chunks  │
-  │  • GET /results/range  → Historical 30-min metrics by timestamp query  │
+  │  • GET /results/latest → Most recent video analysis intervals          │
+  │  • GET /results/range  → Historical interval metrics by timestamp       │
   │  • GET /jobs           → Queue states (QUEUED, PROCESSING, COMPLETED)  │
   └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -78,7 +78,7 @@ analytics/
 ├── database.py               # SQLAlchemy ORM models & job state manager
 ├── tracker.py                # YOLO26 Nano + ByteTrack inference engine
 ├── behavior_engine.py        # Spatial behavior quantification engine
-├── worker.py                 # 1-hour lag polling loop & 30-min chunk daemon
+├── worker.py                 # Watched-folder polling & variable video chunks
 ├── api.py                    # FastAPI REST endpoints
 ├── requirements.txt          # Pinned dependencies
 ├── bootstrap.ps1             # 1-Click Windows PowerShell launcher
@@ -126,6 +126,12 @@ docker compose up -d --build
 
 Once started, the interactive OpenAPI documentation is available at:
 👉 **`http://localhost:8000/docs`**
+
+## Automatic analysis from the sync agent's folders
+
+For the portal workflow, run the local file watcher with `npm start` in `agent\`, then run `python -m analytics.worker` from the repository root. The worker polls the same `agent\directories.json` paths, ignores videos that are still being written, and starts analysis after 20 seconds without a file modification. Each video is split into configurable intervals of up to 30 minutes (`CHUNK_MINUTES`); shorter videos produce a single partial interval.
+
+Reports are written to `CHICKENSEE_LOCAL_STORAGE\results` (defaults to `C:\Users\Kairi\Documents\ChickenSee_Local_Storage\results`). The agent watches this folder and uploads `.json` reports to the Vercel Blob `results/` prefix. They are listed in the authenticated portal's **Results** tab. Keep `agent\.env` configured with the deployed `/api/sync` URL and matching `SYNC_SECRET`. This workflow analyzes the original local video; it does not wait for or download the cloud copy.
 
 ### 1. System Health
 ```http

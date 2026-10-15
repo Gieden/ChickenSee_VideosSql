@@ -1,11 +1,13 @@
 """
 analytics/worker.py
 Core Worker Daemon for ZAMPEN Layer Chicken Video & Sensor Analytics.
-Manages the 1-hour rolling delay polling loop, OpenCV video frame decoding,
-YOLO26 Nano + ByteTrack inference, 30-minute sensor aggregation, and behavior metric persistence.
+Manages watched-folder polling, OpenCV video decoding, YOLO26 Nano + ByteTrack inference,
+interval sensor aggregation, and behavior metric persistence.
 """
 
 import os
+import json
+import hashlib
 import re
 import sys
 import time
@@ -29,8 +31,8 @@ from local_store import ARCHIVE_DIR, VIDEOS_DIR, write_results_json
 class ZampenAnalyticsWorker:
     """
     Automated background worker running on the Dell OptiPlex server.
-    Monitors video directory with a 1-hour lag, pairs sensor data,
-    produces 30-minute chunked behavior & environmental intelligence,
+    Monitors the agent's configured video directories, pairs sensor data,
+    produces configurable time-chunked behavior and environmental intelligence,
     and archives processed videos locally.
     """
 
@@ -51,12 +53,12 @@ class ZampenAnalyticsWorker:
         print("═══════════════════════════════════════════════════════════════")
         print("  ZAMPEN Layer Chicken Analytics Pipeline - OptiPlex Daemon")
         print("  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack")
-        print(f"  Input Video Dir : {self.cfg.video_dir}")
+        print(f"  Input Video Dirs: {', '.join(str(p) for p in self._video_input_dirs())}")
         print(f"  Local Archive   : {self.local_archive_dir}")
         print(f"  Detected Videos : {VIDEOS_DIR}")
         print(f"  Sensor DB       : {self.cfg.sensor_db_url}")
         print(f"  Analytics DB    : {self.cfg.analytics_db_url}")
-        print(f"  Rolling Delay   : {self.cfg.lag_hours} hour(s) | Chunks: {self.cfg.chunk_minutes}m")
+        print(f"  File stability  : 20s | Analysis chunks: {self.cfg.chunk_minutes}m")
         print("═══════════════════════════════════════════════════════════════")
 
         while self.running:
@@ -64,7 +66,7 @@ class ZampenAnalyticsWorker:
                 candidate = self._find_next_completed_hourly_video()
                 if candidate:
                     filepath, filename, start_dt, end_dt = candidate
-                    print(f"\n[DAEMON] Discovered 1-hour video eligible for processing: {filename}")
+                    print(f"\n[DAEMON] Discovered stable video for processing: {filename}")
                     print(f"        Window: {start_dt.strftime('%Y-%m-%d %H:%M')} → {end_dt.strftime('%H:%M')}")
                     self._process_hourly_segment(filepath, filename, start_dt, end_dt)
                 else:
@@ -78,22 +80,38 @@ class ZampenAnalyticsWorker:
                 traceback.print_exc()
                 time.sleep(10)
 
+    def _video_input_dirs(self) -> List[Path]:
+        directories = {Path(self.cfg.video_dir).expanduser().resolve()}
+        directories_file = Path(__file__).resolve().parent.parent / "agent" / "directories.json"
+        if directories_file.is_file():
+            try:
+                config = json.loads(directories_file.read_text(encoding="utf-8"))
+                if not isinstance(config, dict):
+                    raise ValueError("directory configuration must be an object")
+                configured = config.get("directories", [])
+                if not isinstance(configured, list) or not all(isinstance(path, str) for path in configured):
+                    raise ValueError("directories must be a list of paths")
+                directories.update(Path(path).expanduser().resolve() for path in configured)
+            except (OSError, json.JSONDecodeError, ValueError) as error:
+                print(f"[WORKER WARN] Could not read configured watch directories: {error}")
+        return sorted(directories, key=str)
+
+    @staticmethod
+    def _chunk_frame_ranges(total_frames: int, fps: float, chunk_minutes: int) -> List[Tuple[int, int]]:
+        chunk_frames = max(1, round(max(fps, 0.001) * max(1, chunk_minutes) * 60))
+        return [
+            (first_frame, min(first_frame + chunk_frames, total_frames))
+            for first_frame in range(0, max(0, total_frames), chunk_frames)
+        ]
+
     def _find_next_completed_hourly_video(self) -> Optional[Tuple[str, str, datetime.datetime, datetime.datetime]]:
-        """
-        Scans video directory for completed hourly MP4 files respecting the 1-hour rolling lag.
-        Files must be at least 1-hour old or have completed writing.
-        """
-        video_dir = Path(self.cfg.video_dir)
-        if not video_dir.exists():
-            return None
+        """Finds the oldest stable MP4 from the configured agent folders."""
+        mp4_files = []
+        for video_dir in self._video_input_dirs():
+            if video_dir.is_dir():
+                mp4_files.extend(video_dir.rglob("*.mp4"))
 
-        mp4_files = sorted(
-            list(video_dir.glob("*.mp4")),
-            key=lambda p: p.stat().st_mtime
-        )
-
-        now_dt = datetime.datetime.now()
-        min_age_seconds = self.cfg.lag_hours * 3600  # 1-hour lag window
+        mp4_files.sort(key=lambda path: path.stat().st_mtime)
 
         for p in mp4_files:
             filename = p.name
@@ -103,7 +121,7 @@ class ZampenAnalyticsWorker:
                 continue
 
             # Skip if already processed in DB
-            if DB.is_file_processed(filename):
+            if DB.is_file_processed(str(p.resolve())):
                 continue
 
             # Ensure file is not currently being written by checking modification age
@@ -117,7 +135,6 @@ class ZampenAnalyticsWorker:
             # Parse start and end timestamps from filename or modification time
             start_dt, end_dt = self._extract_timestamps_from_file(p)
 
-            # Enforce 1-hour rolling delay if desired, or process if historical
             return str(p), filename, start_dt, end_dt
 
         return None
@@ -147,9 +164,7 @@ class ZampenAnalyticsWorker:
 
         # Fallback: based on file modification timestamp
         mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
-        end_dt = mtime
-        start_dt = end_dt - datetime.timedelta(hours=1)
-        return start_dt, end_dt
+        return mtime, mtime
 
     def _pull_sensor_averages_for_range(
         self, 
@@ -157,7 +172,7 @@ class ZampenAnalyticsWorker:
         chunk_end: datetime.datetime
     ) -> Dict[str, Any]:
         """
-        Queries raw sensor records from the SQLite database for the 30-minute chunk
+        Queries raw sensor records from the SQLite database for the analysis interval
         and computes arithmetic averages, extrema, THI, and heat stress alerts.
         """
         sensor_db = Path(self.cfg.sensor_db_url.replace("sqlite:///", ""))
@@ -235,32 +250,40 @@ class ZampenAnalyticsWorker:
         end_dt: datetime.datetime
     ):
         """
-        Executes frame-by-frame YOLO26 Nano + ByteTrack inference, splits into two
-        30-minute chunks, pairs sensor data, commits to analytics database,
+        Executes frame-by-frame YOLO26 Nano + ByteTrack inference, splits the video
+        into configured intervals, pairs sensor data, commits to analytics database,
         and saves the annotated detection video plus JSON results locally.
         """
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            err = f"Failed to open video file via OpenCV: {video_path}"
+            print(f"[WORKER ERROR] {err}")
+            job = DB.lease_job(filename, video_path, start_dt, end_dt)
+            if job:
+                DB.mark_job_failed(job.id, err)
+            cap.release()
+            return
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+        fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+        if total_frames > 1 and fps > 0:
+            duration_s = total_frames / fps
+            if start_dt == end_dt:
+                start_dt = datetime.datetime.fromtimestamp(Path(video_path).stat().st_mtime) - datetime.timedelta(seconds=duration_s)
+            end_dt = start_dt + datetime.timedelta(seconds=duration_s)
+
         job = DB.lease_job(filename, video_path, start_dt, end_dt)
         if not job:
             print(f"[WORKER] Skipping {filename} (already completed or active).")
+            cap.release()
             return
 
         self.current_job_id = job.id
         self.current_progress_pct = 0.0
         t_start_processing = time.time()
-
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            err = f"Failed to open video file via OpenCV: {video_path}"
-            print(f"[WORKER ERROR] {err}")
-            DB.mark_job_failed(job.id, err)
-            return
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-        fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
         src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         stride = max(1, self.cfg.frame_stride)
-        half_frame_cutoff = total_frames // 2
         writer, detected_path = self._open_detected_writer(filename, src_w, src_h, fps, stride)
 
         try:
@@ -277,8 +300,10 @@ class ZampenAnalyticsWorker:
                 total_frames=total_frames,
                 fps=fps,
                 stride=stride,
-                half_frame_cutoff=half_frame_cutoff,
             )
+        except Exception as error:
+            DB.mark_job_failed(job.id, str(error))
+            raise
         finally:
             if cap is not None:
                 cap.release()
@@ -305,121 +330,85 @@ class ZampenAnalyticsWorker:
         total_frames,
         fps,
         stride,
-        half_frame_cutoff,
     ):
-        # 30-Minute Chunk Time Windows
-        mid_dt = start_dt + datetime.timedelta(minutes=30)
-
-        print(f"[WORKER] Video: {filename} | Total Frames: {total_frames} @ {fps:.1f} FPS")
-        print(f"        Chunk 1: {start_dt.strftime('%H:%M:%S')} → {mid_dt.strftime('%H:%M:%S')}")
-        print(f"        Chunk 2: {mid_dt.strftime('%H:%M:%S')} → {end_dt.strftime('%H:%M:%S')}")
-
+        fps = fps if fps > 0 else 20.0
+        frame_ranges = self._chunk_frame_ranges(total_frames, fps, self.cfg.chunk_minutes)
         chunk_metrics_results = []
         chunk_bird_records = []
-
+        chunk_summaries = []
         frame_idx = 0
         frames_processed = 0
-        dt = stride / fps if fps > 0 else (1.0 / 15.0)
+        dt = stride / fps
+        video_ended = False
 
-        # ── Chunk 1 Execution ───────────────────────────────────────────────
-        self.behavior_engine.reset_chunk()
-        print("[WORKER] >>> Processing Chunk 1 (00-30 min)...")
+        print(f"[WORKER] Video: {filename} | Total Frames: {total_frames} @ {fps:.1f} FPS")
 
-        while self.running and frame_idx < half_frame_cutoff:
-            ret, frame = cap.read()
-            if not ret:
+        for chunk_index, (first_frame, last_frame) in enumerate(frame_ranges, start=1):
+            chunk_start = start_dt + datetime.timedelta(seconds=first_frame / fps)
+            chunk_end = min(end_dt, start_dt + datetime.timedelta(seconds=last_frame / fps))
+            self.behavior_engine.reset_chunk()
+            print(
+                f"[WORKER] >>> Processing interval {chunk_index}: "
+                f"{chunk_start.strftime('%Y-%m-%d %H:%M:%S')} – {chunk_end.strftime('%H:%M:%S')}"
+            )
+
+            while self.running and frame_idx < last_frame:
+                ret, frame = cap.read()
+                if not ret:
+                    video_ended = True
+                    break
+
+                if frame_idx % stride == 0:
+                    frame_out = self.tracker.process_frame(frame, frame_idx, fps)
+                    self.behavior_engine.process_frame(frame_out, dt)
+                    frames_processed += 1
+                    if writer is not None:
+                        writer.write(self.tracker.annotate_frame(frame, frame_out))
+
+                frame_idx += 1
+                if frame_idx % 200 == 0:
+                    self.current_progress_pct = (frame_idx / total_frames) * 100.0
+                    print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
+
+            if not self.running:
+                raise RuntimeError("Video analysis was stopped before completion")
+
+            actual_chunk_end = start_dt + datetime.timedelta(seconds=frame_idx / fps) if video_ended else chunk_end
+            summary = self.behavior_engine.compute_chunk_summary()
+            sensors = self._pull_sensor_averages_for_range(chunk_start, actual_chunk_end)
+            chunk_record = {
+                "date_slot": chunk_start.strftime("%Y-%m-%d"),
+                "hour_slot": chunk_start.strftime("%H:00"),
+                "chunk_index": chunk_index,
+                "chunk_start": chunk_start,
+                "chunk_end": actual_chunk_end,
+                **sensors,
+                "unique_birds_tracked": summary.unique_birds,
+                "avg_birds_in_frame": summary.avg_birds_present,
+                "flock_mobility_px_s": summary.flock_mobility_px_s,
+                "feeding_time_total_s": summary.feeding_time_total_s,
+                "feeding_bouts": summary.feeding_bouts,
+                "reduced_eating_events": summary.reduced_eating_events,
+                "reduced_eating_index": summary.reduced_eating_index,
+                "drinking_time_total_s": summary.drinking_time_total_s,
+                "drinking_bouts": summary.drinking_bouts,
+                "drinking_frequency_per_bird": summary.drinking_frequency_per_bird,
+                "inactivity_time_total_s": summary.inactivity_time_total_s,
+                "inactivity_pct": summary.inactivity_pct,
+                "lethargic_birds_flagged": summary.lethargic_birds_flagged,
+                "feather_pecking_events": summary.feather_pecking_events,
+                "agitation_score": summary.agitation_score,
+            }
+            chunk_metrics_results.append(chunk_record)
+            chunk_bird_records.append(summary.bird_records)
+            chunk_summaries.append(summary)
+
+            if video_ended:
+                end_dt = actual_chunk_end
                 break
 
-            if frame_idx % stride == 0:
-                frame_out = self.tracker.process_frame(frame, frame_idx, fps)
-                self.behavior_engine.process_frame(frame_out, dt)
-                frames_processed += 1
-                if writer is not None:
-                    writer.write(self.tracker.annotate_frame(frame, frame_out))
-
-            frame_idx += 1
-            if frame_idx % 200 == 0:
-                self.current_progress_pct = (frame_idx / total_frames) * 100.0
-                print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
-
-        chunk1_summary = self.behavior_engine.compute_chunk_summary()
-        chunk1_sensors = self._pull_sensor_averages_for_range(start_dt, mid_dt)
-
-        chunk1_record = {
-            "date_slot": start_dt.strftime("%Y-%m-%d"),
-            "hour_slot": start_dt.strftime("%H:00"),
-            "chunk_index": 1,
-            "chunk_start": start_dt,
-            "chunk_end": mid_dt,
-            **chunk1_sensors,
-            "unique_birds_tracked": chunk1_summary.unique_birds,
-            "avg_birds_in_frame": chunk1_summary.avg_birds_present,
-            "flock_mobility_px_s": chunk1_summary.flock_mobility_px_s,
-            "feeding_time_total_s": chunk1_summary.feeding_time_total_s,
-            "feeding_bouts": chunk1_summary.feeding_bouts,
-            "reduced_eating_events": chunk1_summary.reduced_eating_events,
-            "reduced_eating_index": chunk1_summary.reduced_eating_index,
-            "drinking_time_total_s": chunk1_summary.drinking_time_total_s,
-            "drinking_bouts": chunk1_summary.drinking_bouts,
-            "drinking_frequency_per_bird": chunk1_summary.drinking_frequency_per_bird,
-            "inactivity_time_total_s": chunk1_summary.inactivity_time_total_s,
-            "inactivity_pct": chunk1_summary.inactivity_pct,
-            "lethargic_birds_flagged": chunk1_summary.lethargic_birds_flagged,
-            "feather_pecking_events": chunk1_summary.feather_pecking_events,
-            "agitation_score": chunk1_summary.agitation_score,
-        }
-        chunk_metrics_results.append(chunk1_record)
-        chunk_bird_records.append(chunk1_summary.bird_records)
-
-        # ── Chunk 2 Execution ───────────────────────────────────────────────
-        self.behavior_engine.reset_chunk()
-        print("[WORKER] >>> Processing Chunk 2 (30-60 min)...")
-
-        while self.running and frame_idx < total_frames:
-            ret, frame = cap.read()
-            if not ret:
-                break
-
-            if frame_idx % stride == 0:
-                frame_out = self.tracker.process_frame(frame, frame_idx, fps)
-                self.behavior_engine.process_frame(frame_out, dt)
-                frames_processed += 1
-                if writer is not None:
-                    writer.write(self.tracker.annotate_frame(frame, frame_out))
-
-            frame_idx += 1
-            if frame_idx % 200 == 0:
-                self.current_progress_pct = (frame_idx / total_frames) * 100.0
-                print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
-
-        chunk2_summary = self.behavior_engine.compute_chunk_summary()
-        chunk2_sensors = self._pull_sensor_averages_for_range(mid_dt, end_dt)
-
-        chunk2_record = {
-            "date_slot": start_dt.strftime("%Y-%m-%d"),
-            "hour_slot": start_dt.strftime("%H:00"),
-            "chunk_index": 2,
-            "chunk_start": mid_dt,
-            "chunk_end": end_dt,
-            **chunk2_sensors,
-            "unique_birds_tracked": chunk2_summary.unique_birds,
-            "avg_birds_in_frame": chunk2_summary.avg_birds_present,
-            "flock_mobility_px_s": chunk2_summary.flock_mobility_px_s,
-            "feeding_time_total_s": chunk2_summary.feeding_time_total_s,
-            "feeding_bouts": chunk2_summary.feeding_bouts,
-            "reduced_eating_events": chunk2_summary.reduced_eating_events,
-            "reduced_eating_index": chunk2_summary.reduced_eating_index,
-            "drinking_time_total_s": chunk2_summary.drinking_time_total_s,
-            "drinking_bouts": chunk2_summary.drinking_bouts,
-            "drinking_frequency_per_bird": chunk2_summary.drinking_frequency_per_bird,
-            "inactivity_time_total_s": chunk2_summary.inactivity_time_total_s,
-            "inactivity_pct": chunk2_summary.inactivity_pct,
-            "lethargic_birds_flagged": chunk2_summary.lethargic_birds_flagged,
-            "feather_pecking_events": chunk2_summary.feather_pecking_events,
-            "agitation_score": chunk2_summary.agitation_score,
-        }
-        chunk_metrics_results.append(chunk2_record)
-        chunk_bird_records.append(chunk2_summary.bird_records)
+        if not chunk_metrics_results:
+            raise RuntimeError(f"No frames could be analyzed in {filename}")
 
         # ── Save original + annotated video + JSON results locally ───────────
         try:
@@ -432,22 +421,22 @@ class ZampenAnalyticsWorker:
         except Exception as e:
             print(f"[LOCAL STORE WARN] Failed to back up original video: {e}")
 
-        try:
-            stem = Path(filename).stem
-            results_path = write_results_json(stem, {
-                "source_video": filename,
-                "source_path": video_path,
-                "detected_video": str(detected_path) if detected_path else None,
-                "window": {
-                    "start": start_dt.isoformat(),
-                    "end": end_dt.isoformat(),
-                },
-                "chunks": chunk_metrics_results,
-                "bird_records": chunk_bird_records,
-            })
-            print(f"[LOCAL STORE] Saved detection results JSON: {results_path}")
-        except Exception as e:
-            print(f"[LOCAL STORE WARN] Failed to write results JSON: {e}")
+        stem = Path(filename).stem
+        path_suffix = hashlib.sha256(str(Path(video_path).resolve()).encode("utf-8")).hexdigest()[:10]
+        results_path = write_results_json(f"{stem}_{path_suffix}", {
+            "job_id": job.id,
+            "source_video": filename,
+            "source_path": video_path,
+            "detected_video": str(detected_path) if detected_path else None,
+            "processed_at": datetime.datetime.now().isoformat(),
+            "window": {
+                "start": start_dt.isoformat(),
+                "end": end_dt.isoformat(),
+            },
+            "chunks": chunk_metrics_results,
+            "bird_records": chunk_bird_records,
+        })
+        print(f"[LOCAL STORE] Saved detection results JSON: {results_path}")
 
         # Persist results to SQLite/SQLAlchemy database
         DB.save_30m_metrics(job.id, chunk_metrics_results, chunk_bird_records)
@@ -456,8 +445,13 @@ class ZampenAnalyticsWorker:
 
         print(f"\n[WORKER SUCCESS] Successfully processed hourly block: {filename}")
         print(f"                Elapsed Time: {elapsed_s:.1f}s | Inferred Frames: {frames_processed}")
-        print(f"                Chunk 1: {chunk1_summary.unique_birds} birds | Inactivity: {chunk1_summary.inactivity_pct:.1f}% | Pecking: {chunk1_summary.feather_pecking_events}")
-        print(f"                Chunk 2: {chunk2_summary.unique_birds} birds | Inactivity: {chunk2_summary.inactivity_pct:.1f}% | Pecking: {chunk2_summary.feather_pecking_events}")
+        print(f"                Analysis intervals: {len(chunk_summaries)}")
+        for index, summary in enumerate(chunk_summaries, start=1):
+            print(
+                f"                Interval {index}: {summary.unique_birds} birds | "
+                f"Inactivity: {summary.inactivity_pct:.1f}% | "
+                f"Pecking: {summary.feather_pecking_events}"
+            )
 
     def _open_detected_writer(
         self,

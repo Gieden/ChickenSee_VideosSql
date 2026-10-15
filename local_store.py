@@ -11,12 +11,22 @@ from datetime import datetime, date
 from typing import Any, Optional
 
 
-LOCAL_ROOT = Path(
-    os.getenv(
-        "CHICKENSEE_LOCAL_STORAGE",
-        r"C:\Users\Kairi\Documents\ChickenSee_Local_Storage",
-    )
-)
+def _configured_local_root() -> str:
+    configured = os.getenv("CHICKENSEE_LOCAL_STORAGE")
+    if configured:
+        return configured
+
+    agent_env = Path(__file__).resolve().parent / "agent" / ".env"
+    if agent_env.is_file():
+        for line in agent_env.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == "CHICKENSEE_LOCAL_STORAGE":
+                return value.strip().strip('"').strip("'")
+
+    return r"C:\Users\Kairi\Documents\ChickenSee_Local_Storage"
+
+
+LOCAL_ROOT = Path(_configured_local_root())
 VIDEOS_DIR = LOCAL_ROOT / "videos"
 RESULTS_DIR = LOCAL_ROOT / "results"
 ARCHIVE_DIR = LOCAL_ROOT / "archive"

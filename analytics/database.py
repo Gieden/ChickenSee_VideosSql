@@ -1,10 +1,12 @@
 """
 analytics/database.py
 SQLAlchemy schema and job state manager for the ZAMPEN Behavior & Sensor Analytics Pipeline.
-Prevents duplicate execution of hourly files and stores 30-minute chunked metrics.
+Prevents duplicate video analysis and stores interval metrics.
 """
 
 import datetime
+import hashlib
+from pathlib import Path
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
     create_engine, Column, Integer, String, Float, DateTime, 
@@ -26,7 +28,7 @@ class JobStatus(str, enum.Enum):
 
 
 class ProcessingJob(Base):
-    """Tracks hourly video analysis jobs to guarantee idempotency and prevent duplicate processing."""
+    """Tracks video analysis jobs to guarantee idempotency and prevent duplicate processing."""
     __tablename__ = "processing_jobs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -52,8 +54,8 @@ class ProcessingJob(Base):
 
 class HalfHourMetrics(Base):
     """
-    Stores 30-minute chunked sensor and vision behavior metrics.
-    Every 1-hour video file produces exactly two 30-minute chunk records (e.g., 06:00-06:30 and 06:30-07:00).
+    Stores time-chunked sensor and vision behavior metrics.
+    Each video produces one or more records based on its duration and configured chunk length.
     """
     __tablename__ = "half_hour_metrics"
 
@@ -171,12 +173,24 @@ class DatabaseManager:
                 video_filename=filename, 
                 status=JobStatus.COMPLETED
             ).first()
+            if not job:
+                job = session.query(ProcessingJob).filter_by(
+                    video_path=filename,
+                    status=JobStatus.COMPLETED
+                ).first()
             return job is not None
 
     def lease_job(self, filename: str, filepath: str, start_dt: datetime.datetime, end_dt: datetime.datetime) -> Optional[ProcessingJob]:
         """Atomically leases or creates a job in PROCESSING status."""
         with self.get_session() as session:
-            job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
+            job = session.query(ProcessingJob).filter_by(video_path=filepath).first()
+            if not job:
+                job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
+                if job and job.video_path != filepath:
+                    suffix = hashlib.sha256(filepath.encode("utf-8")).hexdigest()[:12]
+                    path_obj = Path(filename)
+                    filename = f"{path_obj.stem}_{suffix}{path_obj.suffix}"
+                    job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
             if job:
                 if job.status == JobStatus.COMPLETED:
                     return None
@@ -217,7 +231,7 @@ class DatabaseManager:
                 session.commit()
 
     def save_30m_metrics(self, job_id: int, metrics_list: List[Dict[str, Any]], bird_records_list: List[List[Dict[str, Any]]]):
-        """Persists the two 30-minute metric records and associated individual bird profiles."""
+        """Persists interval metric records and associated individual bird profiles."""
         with self.get_session() as session:
             for m_dict, birds in zip(metrics_list, bird_records_list):
                 metric = HalfHourMetrics(job_id=job_id, **m_dict)
@@ -230,7 +244,7 @@ class DatabaseManager:
             session.commit()
 
     def get_latest_metrics(self) -> Optional[Dict[str, Any]]:
-        """Returns the most recent hourly block with its two 30-minute chunks."""
+        """Returns the most recent video analysis and its intervals."""
         with self.get_session() as session:
             latest_job = session.query(ProcessingJob).filter_by(
                 status=JobStatus.COMPLETED

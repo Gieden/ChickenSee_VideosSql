@@ -104,6 +104,14 @@ The setup menu will appear. Use it to:
 npm start
 ```
 
+**Start automatic video analysis in a second terminal from the repository root:**
+```powershell
+pip install -r analytics\requirements.txt
+python -m analytics.worker
+```
+
+The analytics worker watches the same folders configured in `agent\directories.json`. Once a video is stable, it processes it in up-to-30-minute intervals and writes a local JSON report. The agent uploads that report to Vercel Blob, where it appears in the dashboard's **Results** tab. Keep both processes running for automatic analysis and result syncing.
+
 **Run in the background permanently (recommended):**
 ```powershell
 npm install -g pm2
@@ -156,5 +164,4 @@ python -m edge.pipeline
 # 4. Install as persistent Windows Service (auto-start on boot):
 powershell -ExecutionPolicy Bypass -File edge/service/install-service-windows.ps1
 ```
-
 

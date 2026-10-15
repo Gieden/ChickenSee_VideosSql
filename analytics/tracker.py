@@ -12,7 +12,7 @@ from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
 from ultralytics import YOLO
 
-from .config import CONFIG
+from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 
 
 LABEL_COLORS_BGR = {
@@ -88,13 +88,13 @@ class ZampenYOLOTracker:
         # 1. Exact path or in current/root directory
         candidates = [
             Path(desired_name),
-            CONFIG.PROJECT_ROOT / desired_name,
-            CONFIG.BASE_DIR / desired_name,
+            PROJECT_ROOT / desired_name,
+            BASE_DIR / desired_name,
             Path(CONFIG.custom_weights_path),
-            CONFIG.PROJECT_ROOT / "custom_poultry.pt",
-            CONFIG.PROJECT_ROOT / "yolo26n.pt",
-            CONFIG.PROJECT_ROOT / "yolo11n.pt",
-            CONFIG.PROJECT_ROOT / "yolov8n.pt",
+            PROJECT_ROOT / "custom_poultry.pt",
+            PROJECT_ROOT / "yolo26n.pt",
+            PROJECT_ROOT / "yolo11n.pt",
+            PROJECT_ROOT / "yolov8n.pt",
         ]
 
         for cand in candidates:

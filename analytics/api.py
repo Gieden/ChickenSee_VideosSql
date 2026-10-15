@@ -22,7 +22,7 @@ from .database import DB, ProcessingJob, HalfHourMetrics, JobStatus
 
 app = FastAPI(
     title="ZAMPEN Native Layer Chicken Behavior & Sensor Analytics API",
-    description="Automated 1-hour lag behavior analysis and 30-minute sensor aggregation pipeline using YOLO26n + ByteTrack.",
+    description="Automatic watched-folder video analysis with interval sensor aggregation using YOLO26n + ByteTrack.",
     version="1.0.0"
 )
 
@@ -90,7 +90,7 @@ def get_health():
 def get_latest_results():
     """
     Instantly fetch the most recent hourly processed metrics block.
-    Returns both 30-minute chunk intervals with paired environmental sensor averages and vision behaviors.
+    Returns the latest video's analysis intervals with paired environmental sensor averages and vision behaviors.
     """
     latest = DB.get_latest_metrics()
     if not latest:
@@ -135,7 +135,7 @@ def get_results_by_range(
 
 @app.get("/jobs", tags=["Job State Manager"])
 def list_jobs(limit: int = Query(default=20, le=100)):
-    """List recent hourly video processing jobs and their state."""
+    """List recent video analysis jobs and their state."""
     with DB.get_session() as session:
         jobs = session.query(ProcessingJob).order_by(ProcessingJob.id.desc()).limit(limit).all()
         return [

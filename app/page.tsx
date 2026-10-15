@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Video,
@@ -43,6 +43,7 @@ interface QueryResult {
 }
 
 interface BehaviorResult {
+  result_id: string;
   job_id: number;
   video_file: string;
   interval_label: string;
@@ -52,10 +53,13 @@ interface BehaviorResult {
   eating_count: number;
   drinking_count: number;
   inactive_count: number;
+  inactivity_pct: number;
   feather_pecking_count: number;
   avg_velocity: number;
   temp_avg: number | null;
   humidity_avg: number | null;
+  result_file: string;
+  detected_video: string | null;
 }
 
 export default function DashboardPage() {
@@ -79,8 +83,6 @@ export default function DashboardPage() {
   const [results, setResults] = useState<BehaviorResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
-  const [analyticsBaseUrl, setAnalyticsBaseUrl] = useState('http://localhost:8080');
-
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
 
@@ -167,20 +169,21 @@ export default function DashboardPage() {
     }
   }
 
-  async function fetchResults() {
+  const fetchResults = useCallback(async () => {
     try {
       setLoadingResults(true);
       setResultsError(null);
-      const res = await fetch(`${analyticsBaseUrl}/results/latest?limit=50`);
+      const res = await fetch('/api/results');
+      if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
-      setResults(Array.isArray(data) ? data : data.results || []);
+      setResults(Array.isArray(data.results) ? data.results : []);
     } catch (err: any) {
-      setResultsError(err.message || 'Could not reach analytics server.');
+      setResultsError(err.message || 'Could not load uploaded analysis results.');
     } finally {
       setLoadingResults(false);
     }
-  }
+  }, [router]);
 
   async function refreshAll() {
     setIsRefreshing(true);
@@ -191,7 +194,12 @@ export default function DashboardPage() {
   }
 
   useEffect(() => { fetchVideos(); fetchDatabaseData(); }, []);
-  useEffect(() => { if (activeTab === 'results' && results.length === 0) fetchResults(); }, [activeTab]);
+  useEffect(() => {
+    if (activeTab !== 'results') return;
+    fetchResults();
+    const refreshTimer = setInterval(() => { fetchResults(); }, 30_000);
+    return () => clearInterval(refreshTimer);
+  }, [activeTab, fetchResults]);
 
   async function handleLogout() {
     await fetch('/api/auth', { method: 'DELETE' });
@@ -431,15 +439,13 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 sm:flex-row sm:items-end sm:justify-between sm:p-6">
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Analytics API URL (OptiPlex)</label>
                 <div className="flex items-center gap-2">
-                  <input type="text" value={analyticsBaseUrl} onChange={(e) => setAnalyticsBaseUrl(e.target.value.replace(/\/$/, ''))} placeholder="http://localhost:8080" className="rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-mono text-slate-200 outline-none focus:border-violet-500 w-64" />
                   <button onClick={fetchResults} disabled={loadingResults} className="flex items-center gap-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-xs font-semibold text-violet-300 transition hover:bg-violet-500/20">
                     <RefreshCw className={`h-3.5 w-3.5 ${loadingResults ? 'animate-spin' : ''}`} />
-                    Load Results
+                    Refresh Results
                   </button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">Run on OptiPlex: <code className="text-violet-400">cd analytics && uvicorn api:app --host 0.0.0.0 --port 8080</code></p>
+                <p className="mt-1.5 text-[11px] text-slate-500">Analysis results uploaded from watched video folders.</p>
               </div>
               {results.length > 0 && (
                 <span className="rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-slate-400">
@@ -452,7 +458,7 @@ export default function DashboardPage() {
               <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
                 <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-300">Cannot reach analytics server</p>
+                  <p className="text-sm font-semibold text-amber-300">Cannot load uploaded results</p>
                   <p className="mt-1 text-xs text-slate-400">{resultsError}</p>
                 </div>
               </div>
@@ -506,14 +512,14 @@ export default function DashboardPage() {
                     <table className="w-full text-left border-collapse text-xs">
                       <thead className="sticky top-0 z-10 bg-slate-950 shadow-sm">
                         <tr>
-                          {['Job','Video File','Interval','Processed At','Birds','Eating','Drinking','Inactive','Pecking','Avg Vel (px/s)','Temp (C)','Humidity (%)'].map((h) => (
+                          {['Job','Video File','Interval','Processed At','Birds','Eating Bouts','Drinking Bouts','Inactive Birds','Inactive %','Pecking','Avg Vel (px/s)','Temp (C)','Humidity (%)','Result File','Detected Video'].map((h) => (
                             <th key={h} className="border-b border-slate-800 px-4 py-3 font-semibold tracking-wider text-slate-400 whitespace-nowrap">{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-800/60">
                         {results.map((r) => (
-                          <tr key={`${r.job_id}-${r.interval_label}`} className="hover:bg-slate-800/40 transition-colors">
+                          <tr key={r.result_id} className="hover:bg-slate-800/40 transition-colors">
                             <td className="px-4 py-3 font-mono text-slate-500">#{r.job_id}</td>
                             <td className="px-4 py-3 max-w-[180px] truncate text-slate-200" title={r.video_file}>{r.video_file}</td>
                             <td className="px-4 py-3 whitespace-nowrap text-slate-300">{r.interval_label}</td>
@@ -526,12 +532,26 @@ export default function DashboardPage() {
                             <td className="px-4 py-3 text-center"><span className="inline-flex rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 text-emerald-300 font-semibold">{r.eating_count ?? '-'}</span></td>
                             <td className="px-4 py-3 text-center"><span className="inline-flex rounded-full bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 text-blue-300 font-semibold">{r.drinking_count ?? '-'}</span></td>
                             <td className="px-4 py-3 text-center"><span className="inline-flex rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-amber-300 font-semibold">{r.inactive_count ?? '-'}</span></td>
+                            <td className="px-4 py-3 text-center font-mono text-slate-300">{r.inactivity_pct != null ? `${r.inactivity_pct.toFixed(1)}%` : '-'}</td>
                             <td className="px-4 py-3 text-center">
                               <span className={`inline-flex rounded-full px-2 py-0.5 font-semibold border ${(r.feather_pecking_count || 0) > 0 ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-slate-800 border-slate-700 text-slate-500'}`}>{r.feather_pecking_count ?? '-'}</span>
                             </td>
                             <td className="px-4 py-3 text-center font-mono text-slate-300">{r.avg_velocity != null ? r.avg_velocity.toFixed(1) : '-'}</td>
                             <td className="px-4 py-3 text-center font-mono text-slate-300">{r.temp_avg != null ? r.temp_avg.toFixed(1) : '-'}</td>
                             <td className="px-4 py-3 text-center font-mono text-slate-300">{r.humidity_avg != null ? r.humidity_avg.toFixed(1) : '-'}</td>
+                            <td className="px-4 py-3 whitespace-nowrap font-mono text-slate-400">{r.result_file}</td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              {r.detected_video ? (
+                                <a
+                                  href={`/api/video-proxy?pathname=${encodeURIComponent(r.detected_video)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-semibold text-violet-300 hover:text-violet-200"
+                                >
+                                  Play detected video
+                                </a>
+                              ) : <span className="text-slate-500">Uploading…</span>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
