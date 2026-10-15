@@ -20,6 +20,10 @@ from .behavior import BehaviorAnalyzer, FrameBehaviorSummary
 from .sensors import SensorHub, SensorReading
 from .aggregator import HourlyTelemetryAggregator, HourlyAggregationRecord
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from local_store import copy_video_locally
+
 
 class EdgePipelineManager:
     """
@@ -194,6 +198,12 @@ class EdgePipelineManager:
                 base_name = os.path.basename(self.current_video_path)
                 print(f"[RECORDER] Finalized detection video: {base_name} ({sz_mb:.2f} MB)")
                 print(f"           → Saved in agent/data/ (watcher.js will automatically sync to Vercel!)")
+                try:
+                    local_copy = copy_video_locally(self.current_video_path)
+                    if local_copy:
+                        print(f"           → Local copy: {local_copy}")
+                except Exception as e:
+                    print(f"[RECORDER WARN] Failed to copy detection video to local storage: {e}")
             self.current_video_slot = None
             self.current_video_path = None
 

@@ -21,6 +21,10 @@ from .detector import FrameInferenceResult
 from .behavior import FrameBehaviorSummary, BirdBehaviorState
 from .sensors import SensorReading
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from local_store import copy_result_file
+
 
 @dataclass
 class HourlyAggregationRecord:
@@ -486,6 +490,7 @@ class HourlyTelemetryAggregator:
             }
             with open(json_path, "w", encoding="utf-8") as jf:
                 json.dump(payload, jf, indent=2, default=json_serializer)
+            copy_result_file(str(json_path))
         except Exception as e:
             print(f"[AGGREGATOR] JSON export notice: {e}")
 
@@ -496,5 +501,6 @@ class HourlyTelemetryAggregator:
                 writer = csv.DictWriter(cf, fieldnames=list(rec_dict.keys()))
                 writer.writeheader()
                 writer.writerow(rec_dict)
+            copy_result_file(str(csv_path))
         except Exception as e:
             print(f"[AGGREGATOR] CSV export notice: {e}")

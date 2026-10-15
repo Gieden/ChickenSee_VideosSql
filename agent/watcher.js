@@ -11,8 +11,13 @@ const SYNC_SECRET = process.env.SYNC_SECRET;
 const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '2500', 10);
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '500', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
+const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '1').toLowerCase() !== '0';
+const LOCAL_STORAGE_ROOT = process.env.CHICKENSEE_LOCAL_STORAGE
+  || 'C:\\Users\\Kairi\\Documents\\ChickenSee_Local_Storage';
 const STATE_FILE = path.resolve('./.sync-state.json');
 const CONFIG_FILE = path.resolve('./directories.json');
+
+let cloudSyncDisabledReason = ENABLE_CLOUD_SYNC ? null : 'disabled by ENABLE_CLOUD_SYNC=0';
 
 // ─── Resolve watch directories ────────────────────────────────────────────────
 // Priority: directories.json > WATCH_DIRS env (comma-separated) > WATCH_DIR > ./data
@@ -70,6 +75,59 @@ function saveState() {
 function log(level, message, meta = '') {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [${level}] ${message} ${meta}`.trim());
+}
+
+function isPermanentCloudError(message) {
+  const m = String(message || '').toLowerCase();
+  return (
+    m.includes('has been suspended')
+    || m.includes('store has been suspended')
+    || m.includes('payment required')
+    || m.includes('blob store') && m.includes('suspend')
+  );
+}
+
+function localSubdirFor(ext) {
+  if (ext === '.mp4') return 'incoming';
+  if (ext === '.sqlite' || ext === '.db') return 'databases';
+  return 'misc';
+}
+
+function archiveLocally(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const resolved = path.resolve(filePath);
+    const localRoot = path.resolve(LOCAL_STORAGE_ROOT);
+    if (resolved.toLowerCase().startsWith(localRoot.toLowerCase() + path.sep)) {
+      return null;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const destDir = path.join(localRoot, localSubdirFor(ext));
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const destPath = path.join(destDir, path.basename(filePath));
+    const srcStats = fs.statSync(filePath);
+    if (fs.existsSync(destPath)) {
+      const destStats = fs.statSync(destPath);
+      if (destStats.size === srcStats.size) {
+        return destPath;
+      }
+    }
+    fs.copyFileSync(filePath, destPath);
+    log('LOCAL', `Saved "${path.basename(filePath)}" → ${destPath}`);
+    return destPath;
+  } catch (err) {
+    log('WARN', `Local archive failed for "${path.basename(filePath)}": ${err.message}`);
+    return null;
+  }
+}
+
+function disableCloudSync(reason) {
+  if (cloudSyncDisabledReason) return;
+  cloudSyncDisabledReason = reason;
+  log('WARN', `Cloud upload disabled for this session: ${reason}`);
+  log('WARN', 'Files will continue to be stored locally. Unsuspend / reconnect Vercel Blob to resume uploads.');
 }
 
 // ─── Direct Large-File Upload using Token ─────────────────────────────────────
@@ -142,6 +200,11 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
   const ext = path.extname(filename).toLowerCase();
   const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
+  if (cloudSyncDisabledReason) {
+    log('SKIP', `Cloud upload skipped for "${filename}" (${cloudSyncDisabledReason})`);
+    return;
+  }
+
   log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Uploading "${filename}" (${sizeMB} MB)...`);
 
   try {
@@ -165,6 +228,10 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
     saveState();
   } catch (error) {
     log('ERROR', `Upload failed for "${filename}": ${error.message}`);
+    if (isPermanentCloudError(error.message)) {
+      disableCloudSync('Vercel Blob store is suspended');
+      return;
+    }
     if (attempt < MAX_RETRIES) {
       const delayMs = Math.pow(2, attempt) * 1000;
       log('INFO', `Retrying in ${delayMs / 1000}s...`);
@@ -224,6 +291,7 @@ async function processQueue() {
     const nextFile = uploadQueue.shift();
     if (shouldSync(nextFile)) {
       log('QUEUE', `Processing (${uploadQueue.length} remaining): "${path.basename(nextFile)}"`);
+      archiveLocally(nextFile);
       await uploadFileWithRetry(nextFile);
     }
   }
@@ -239,6 +307,8 @@ function startWatcher() {
   console.log('[START]   ChickenSee Sync Agent (Sequential Queue)');
   console.log('[START] ══════════════════════════════════════════════════');
   console.log(`[START] Sync target : ${SYNC_URL || '(not set - check .env)'}`);
+  console.log(`[START] Cloud sync  : ${cloudSyncDisabledReason ? `OFF (${cloudSyncDisabledReason})` : 'ON'}`);
+  console.log(`[START] Local store : ${LOCAL_STORAGE_ROOT}`);
   console.log(`[START] Directories : ${watchDirs.length} configured`);
   watchDirs.forEach((d) => console.log(`[START]   → ${d}`));
   console.log('[START] ══════════════════════════════════════════════════');

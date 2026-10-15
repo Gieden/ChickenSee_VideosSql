@@ -22,6 +22,9 @@ from .database import DB, JobStatus
 from .tracker import ZampenYOLOTracker
 from .behavior_engine import BehaviorAnalysisEngine, BehaviorChunkSummary
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from local_store import ARCHIVE_DIR, VIDEOS_DIR, write_results_json
+
 
 class ZampenAnalyticsWorker:
     """
@@ -39,9 +42,9 @@ class ZampenAnalyticsWorker:
         self.current_job_id: Optional[int] = None
         self.current_progress_pct: float = 0.0
         
-        # Local storage directory for saving processed video files
-        self.local_archive_dir = Path(r"C:\Users\Kairi\Documents\ChickenSee_Local_Storage\archive")
+        self.local_archive_dir = ARCHIVE_DIR
         self.local_archive_dir.mkdir(parents=True, exist_ok=True)
+        VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
     def start_daemon(self):
         """Main polling loop running continuously as an OptiPlex background service."""
@@ -50,6 +53,7 @@ class ZampenAnalyticsWorker:
         print("  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack")
         print(f"  Input Video Dir : {self.cfg.video_dir}")
         print(f"  Local Archive   : {self.local_archive_dir}")
+        print(f"  Detected Videos : {VIDEOS_DIR}")
         print(f"  Sensor DB       : {self.cfg.sensor_db_url}")
         print(f"  Analytics DB    : {self.cfg.analytics_db_url}")
         print(f"  Rolling Delay   : {self.cfg.lag_hours} hour(s) | Chunks: {self.cfg.chunk_minutes}m")
@@ -93,7 +97,11 @@ class ZampenAnalyticsWorker:
 
         for p in mp4_files:
             filename = p.name
-            
+            stem = p.stem.lower()
+            # Skip videos we already wrote as annotated output
+            if stem.endswith("_detected") or "_detected" in stem:
+                continue
+
             # Skip if already processed in DB
             if DB.is_file_processed(filename):
                 continue
@@ -229,7 +237,7 @@ class ZampenAnalyticsWorker:
         """
         Executes frame-by-frame YOLO26 Nano + ByteTrack inference, splits into two
         30-minute chunks, pairs sensor data, commits to analytics database,
-        and saves the processed video to local archive storage.
+        and saves the annotated detection video plus JSON results locally.
         """
         job = DB.lease_job(filename, video_path, start_dt, end_dt)
         if not job:
@@ -249,15 +257,58 @@ class ZampenAnalyticsWorker:
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         stride = max(1, self.cfg.frame_stride)
         half_frame_cutoff = total_frames // 2
+        writer, detected_path = self._open_detected_writer(filename, src_w, src_h, fps, stride)
 
+        try:
+            self._run_chunked_inference(
+                cap=cap,
+                writer=writer,
+                detected_path=detected_path,
+                video_path=video_path,
+                filename=filename,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                job=job,
+                t_start_processing=t_start_processing,
+                total_frames=total_frames,
+                fps=fps,
+                stride=stride,
+                half_frame_cutoff=half_frame_cutoff,
+            )
+        finally:
+            if cap is not None:
+                cap.release()
+            if writer is not None:
+                writer.release()
+                if detected_path and os.path.isfile(detected_path):
+                    sz_mb = os.path.getsize(detected_path) / 1024 / 1024
+                    print(f"[LOCAL STORE] Saved annotated detection video: {detected_path} ({sz_mb:.2f} MB)")
+
+        self.current_job_id = None
+        self.current_progress_pct = 100.0
+
+    def _run_chunked_inference(
+        self,
+        cap,
+        writer,
+        detected_path,
+        video_path,
+        filename,
+        start_dt,
+        end_dt,
+        job,
+        t_start_processing,
+        total_frames,
+        fps,
+        stride,
+        half_frame_cutoff,
+    ):
         # 30-Minute Chunk Time Windows
         mid_dt = start_dt + datetime.timedelta(minutes=30)
-        chunk_windows = [
-            (1, start_dt, mid_dt),
-            (2, mid_dt, end_dt)
-        ]
 
         print(f"[WORKER] Video: {filename} | Total Frames: {total_frames} @ {fps:.1f} FPS")
         print(f"        Chunk 1: {start_dt.strftime('%H:%M:%S')} → {mid_dt.strftime('%H:%M:%S')}")
@@ -283,6 +334,8 @@ class ZampenAnalyticsWorker:
                 frame_out = self.tracker.process_frame(frame, frame_idx, fps)
                 self.behavior_engine.process_frame(frame_out, dt)
                 frames_processed += 1
+                if writer is not None:
+                    writer.write(self.tracker.annotate_frame(frame, frame_out))
 
             frame_idx += 1
             if frame_idx % 200 == 0:
@@ -331,13 +384,13 @@ class ZampenAnalyticsWorker:
                 frame_out = self.tracker.process_frame(frame, frame_idx, fps)
                 self.behavior_engine.process_frame(frame_out, dt)
                 frames_processed += 1
+                if writer is not None:
+                    writer.write(self.tracker.annotate_frame(frame, frame_out))
 
             frame_idx += 1
             if frame_idx % 200 == 0:
                 self.current_progress_pct = (frame_idx / total_frames) * 100.0
                 print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
-
-        cap.release()
 
         chunk2_summary = self.behavior_engine.compute_chunk_summary()
         chunk2_sensors = self._pull_sensor_averages_for_range(mid_dt, end_dt)
@@ -368,16 +421,33 @@ class ZampenAnalyticsWorker:
         chunk_metrics_results.append(chunk2_record)
         chunk_bird_records.append(chunk2_summary.bird_records)
 
-        # ── Save Processed Video Locally ─────────────────────────────────────
+        # ── Save original + annotated video + JSON results locally ───────────
         try:
             destination_path = self.local_archive_dir / filename
             if not destination_path.exists():
                 shutil.copy2(video_path, destination_path)
-                print(f"[LOCAL STORE] Archived video locally to: {destination_path}")
+                print(f"[LOCAL STORE] Archived original video to: {destination_path}")
             else:
-                print(f"[LOCAL STORE] Video already exists in local archive: {destination_path}")
+                print(f"[LOCAL STORE] Original already exists in archive: {destination_path}")
         except Exception as e:
-            print(f"[LOCAL STORE WARN] Failed to back up video locally: {e}")
+            print(f"[LOCAL STORE WARN] Failed to back up original video: {e}")
+
+        try:
+            stem = Path(filename).stem
+            results_path = write_results_json(stem, {
+                "source_video": filename,
+                "source_path": video_path,
+                "detected_video": str(detected_path) if detected_path else None,
+                "window": {
+                    "start": start_dt.isoformat(),
+                    "end": end_dt.isoformat(),
+                },
+                "chunks": chunk_metrics_results,
+                "bird_records": chunk_bird_records,
+            })
+            print(f"[LOCAL STORE] Saved detection results JSON: {results_path}")
+        except Exception as e:
+            print(f"[LOCAL STORE WARN] Failed to write results JSON: {e}")
 
         # Persist results to SQLite/SQLAlchemy database
         DB.save_30m_metrics(job.id, chunk_metrics_results, chunk_bird_records)
@@ -388,9 +458,29 @@ class ZampenAnalyticsWorker:
         print(f"                Elapsed Time: {elapsed_s:.1f}s | Inferred Frames: {frames_processed}")
         print(f"                Chunk 1: {chunk1_summary.unique_birds} birds | Inactivity: {chunk1_summary.inactivity_pct:.1f}% | Pecking: {chunk1_summary.feather_pecking_events}")
         print(f"                Chunk 2: {chunk2_summary.unique_birds} birds | Inactivity: {chunk2_summary.inactivity_pct:.1f}% | Pecking: {chunk2_summary.feather_pecking_events}")
-        
-        self.current_job_id = None
-        self.current_progress_pct = 100.0
+
+    def _open_detected_writer(
+        self,
+        filename: str,
+        width: int,
+        height: int,
+        fps: float,
+        stride: int,
+    ) -> Tuple[Optional[cv2.VideoWriter], Optional[str]]:
+        """Opens an MP4 writer for the annotated detection video in local storage."""
+        VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+        stem = Path(filename).stem
+        out_path = str(VIDEOS_DIR / f"{stem}_detected.mp4")
+        write_fps = max(5.0, (fps or 20.0) / max(1, stride))
+        size = (max(2, width), max(2, height))
+        for codec in ("mp4v", "XVID", "avc1"):
+            writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*codec), write_fps, size)
+            if writer.isOpened():
+                print(f"[RECORDER] Writing annotated video: {out_path} ({size[0]}x{size[1]} @ {write_fps:.1f}fps, {codec})")
+                return writer, out_path
+            writer.release()
+        print("[RECORDER WARN] Could not open VideoWriter for annotated output.")
+        return None, None
 
 
 def main():

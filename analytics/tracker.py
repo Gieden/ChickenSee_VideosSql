@@ -15,6 +15,20 @@ from ultralytics import YOLO
 from .config import CONFIG
 
 
+LABEL_COLORS_BGR = {
+    "Rooster": (0, 0, 255),
+    "Chicken": (0, 165, 255),
+    "Hen1 (Green)": (0, 255, 0),
+    "Hen2 (White)": (255, 255, 255),
+    "Hen3 (Violet)": (226, 43, 138),
+    "Hen4 (Yellow)": (0, 255, 255),
+    "Hen5 (Pink)": (180, 105, 255),
+    "Feeder": (0, 200, 255),
+    "Drinker": (255, 128, 0),
+    "Default": (128, 128, 128),
+}
+
+
 @dataclass
 class TrackedDetection:
     box: List[int]                     # [x1, y1, x2, y2]
@@ -191,3 +205,38 @@ class ZampenYOLOTracker:
             feeders=feeders,
             drinkers=drinkers
         )
+
+    def annotate_frame(self, frame: np.ndarray, frame_out: TrackerFrameOutput) -> np.ndarray:
+        """Draws bounding boxes, track IDs, and a detection HUD onto a copy of the frame."""
+        vis = frame.copy()
+        w = vis.shape[1]
+
+        def _draw(det: TrackedDetection, fallback_name: str):
+            x1, y1, x2, y2 = det.box
+            label = det.bird_label if det.bird_label else det.class_name or fallback_name
+            color = LABEL_COLORS_BGR.get(label, LABEL_COLORS_BGR.get(det.class_name, LABEL_COLORS_BGR["Default"]))
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+            tid = f"#{det.track_id} " if det.track_id is not None else ""
+            text = f"{tid}{label} ({det.confidence:.2f})"
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            y_text = max(th + 4, y1)
+            cv2.rectangle(vis, (x1, y_text - th - 6), (x1 + tw + 6, y_text + 2), color, -1)
+            ink = (0, 0, 0) if sum(color) > 400 else (255, 255, 255)
+            cv2.putText(vis, text, (x1 + 3, y_text - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ink, 1)
+
+        for bird in frame_out.birds:
+            _draw(bird, "Chicken")
+        for feeder in frame_out.feeders:
+            _draw(feeder, "Feeder")
+        for drinker in frame_out.drinkers:
+            _draw(drinker, "Drinker")
+
+        overlay = vis.copy()
+        cv2.rectangle(overlay, (0, 0), (w, 36), (20, 24, 30), -1)
+        cv2.addWeighted(overlay, 0.85, vis, 0.15, 0, vis)
+        hud = (
+            f"FRAME {frame_out.frame_idx} | BIRDS: {len(frame_out.birds)} | "
+            f"FEEDERS: {len(frame_out.feeders)} | DRINKERS: {len(frame_out.drinkers)}"
+        )
+        cv2.putText(vis, hud, (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+        return vis
