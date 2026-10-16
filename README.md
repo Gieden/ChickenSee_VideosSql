@@ -44,9 +44,9 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 │   │   ├── videos/route.ts        # MP4 Blob metadata lister
 │   │   └── database/route.ts      # SQLite WebAssembly query executor (sql.js)
 │   ├── login/page.tsx             # Protected password login screen
-│   ├── page.tsx                   # Dark-mode dashboard (Videos + SQLite Tables)
+│   ├── page.tsx                   # Light orange-accent portal with behavior/environment reports
 │   ├── layout.tsx                 # Root layout & styling
-│   └── globals.css                # Tailwind CSS & custom dark scrollbars
+│   └── globals.css                # Tailwind CSS & portal theme
 ├── lib/
 │   ├── auth.ts                    # Password verification & session tokens
 │   ├── blob.ts                    # Vercel Blob SDK wrappers

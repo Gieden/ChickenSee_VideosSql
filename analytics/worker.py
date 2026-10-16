@@ -186,17 +186,18 @@ class ZampenAnalyticsWorker:
         """
         sensor_db = Path(self.cfg.sensor_db_url.replace("sqlite:///", ""))
         defaults = {
-            "temp_avg_c": 28.5,
-            "temp_min_c": 27.8,
-            "temp_max_c": 29.2,
-            "humidity_avg_pct": 68.0,
-            "humidity_min_pct": 65.0,
-            "humidity_max_pct": 72.0,
-            "ammonia_ppm_avg": 8.4,
-            "ammonia_ppm_max": 11.2,
-            "lux_avg": 340.0,
-            "thi_avg": 78.2,
-            "heat_stress_level": "Normal",
+            "temp_avg_c": None,
+            "temp_min_c": None,
+            "temp_max_c": None,
+            "humidity_avg_pct": None,
+            "humidity_min_pct": None,
+            "humidity_max_pct": None,
+            "ammonia_ppm_avg": None,
+            "ammonia_ppm_max": None,
+            "lux_avg": None,
+            "thi_avg": None,
+            "heat_stress_level": "Unavailable",
+            "sensor_data_available": False,
         }
 
         if not sensor_db.exists():
@@ -218,13 +219,17 @@ class ZampenAnalyticsWorker:
                         AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,
                         AVG(lux) as lux_avg, AVG(thi) as thi_avg
                     FROM environmental_logs_raw
-                    WHERE timestamp >= ? AND timestamp <= ?
+                    WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) <= datetime(?)
                 """, (start_iso, end_iso))
                 row = cursor.fetchone()
 
-                if row and row["t_avg"] is not None:
-                    thi = float(row["thi_avg"] or 0.0)
-                    if thi >= 84.0:
+                if row and any(row[key] is not None for key in (
+                    "t_avg", "h_avg", "nh3_avg", "lux_avg", "thi_avg"
+                )):
+                    thi = float(row["thi_avg"]) if row["thi_avg"] is not None else None
+                    if thi is None:
+                        heat_level = "Unavailable"
+                    elif thi >= 84.0:
                         heat_level = "Emergency"
                     elif thi >= 79.0:
                         heat_level = "Severe"
@@ -234,17 +239,18 @@ class ZampenAnalyticsWorker:
                         heat_level = "Normal"
 
                     return {
-                        "temp_avg_c": round(float(row["t_avg"]), 2),
-                        "temp_min_c": round(float(row["t_min"]), 2),
-                        "temp_max_c": round(float(row["t_max"]), 2),
-                        "humidity_avg_pct": round(float(row["h_avg"]), 1),
-                        "humidity_min_pct": round(float(row["h_min"]), 1),
-                        "humidity_max_pct": round(float(row["h_max"]), 1),
-                        "ammonia_ppm_avg": round(float(row["nh3_avg"]), 2),
-                        "ammonia_ppm_max": round(float(row["nh3_max"]), 2),
-                        "lux_avg": round(float(row["lux_avg"]), 1),
-                        "thi_avg": round(thi, 2),
+                        "temp_avg_c": round(float(row["t_avg"]), 2) if row["t_avg"] is not None else None,
+                        "temp_min_c": round(float(row["t_min"]), 2) if row["t_min"] is not None else None,
+                        "temp_max_c": round(float(row["t_max"]), 2) if row["t_max"] is not None else None,
+                        "humidity_avg_pct": round(float(row["h_avg"]), 1) if row["h_avg"] is not None else None,
+                        "humidity_min_pct": round(float(row["h_min"]), 1) if row["h_min"] is not None else None,
+                        "humidity_max_pct": round(float(row["h_max"]), 1) if row["h_max"] is not None else None,
+                        "ammonia_ppm_avg": round(float(row["nh3_avg"]), 2) if row["nh3_avg"] is not None else None,
+                        "ammonia_ppm_max": round(float(row["nh3_max"]), 2) if row["nh3_max"] is not None else None,
+                        "lux_avg": round(float(row["lux_avg"]), 1) if row["lux_avg"] is not None else None,
+                        "thi_avg": round(thi, 2) if thi is not None else None,
                         "heat_stress_level": heat_level,
+                        "sensor_data_available": True,
                     }
         except Exception as e:
             print(f"[WORKER SENSOR WARN] Failed to query sensor DB: {e}")

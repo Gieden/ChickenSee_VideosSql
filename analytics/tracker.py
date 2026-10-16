@@ -7,12 +7,18 @@ Executes model.track(..., tracker="bytetrack.yaml", persist=True) for temporal b
 import os
 import cv2
 import numpy as np
+from collections import Counter, deque
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
 from ultralytics import YOLO
 
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
+from legband import (
+    BAND_CLASS_TO_HEN,
+    detect_leg_band_color,
+    suppress_overlapping_equipment,
+)
 
 
 LABEL_COLORS_BGR = {
@@ -20,11 +26,11 @@ LABEL_COLORS_BGR = {
     "Chicken": (0, 165, 255),
     "Hen1 (Green)": (0, 255, 0),
     "Hen2 (White)": (255, 255, 255),
-    "Hen3 (Violet)": (226, 43, 138),
+    "Hen3 (Blue)": (255, 0, 0),
     "Hen4 (Yellow)": (0, 255, 255),
     "Hen5 (Pink)": (180, 105, 255),
-    "Feeder": (0, 200, 255),
-    "Drinker": (255, 128, 0),
+    "Feeder": (0, 0, 0),
+    "Drinker": (0, 0, 0),
     "Default": (128, 128, 128),
 }
 
@@ -85,10 +91,24 @@ class ZampenYOLOTracker:
 
         # Persistent ID Re-ID cache: track_id -> confirmed label
         self.track_label_cache: Dict[int, str] = {}
+        self.track_label_votes: Dict[int, deque] = {}
+        self.track_label_last_seen: Dict[int, int] = {}
         self.track_class_history: Dict[int, Dict[int, Tuple[int, float]]] = {}
         self.track_resolved_classes: Dict[int, int] = {}
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
+
+    def _record_track_label(self, track_id: int, label: str) -> None:
+        last_seen = self.track_label_last_seen.get(track_id)
+        votes = self.track_label_votes.setdefault(track_id, deque(maxlen=5))
+        if last_seen is not None and self.processed_frame_count - last_seen > 30:
+            votes.clear()
+        votes.append(label)
+        self.track_label_last_seen[track_id] = self.processed_frame_count
+        vote_counts = Counter(votes)
+        resolved_label, count = vote_counts.most_common(1)[0]
+        if count >= 3:
+            self.track_label_cache[track_id] = resolved_label
 
     def _resolve_weights(self, desired_name: str) -> str:
         """Finds or resolves the weights path, checking local files and fallbacks."""
@@ -171,6 +191,9 @@ class ZampenYOLOTracker:
             self.track_class_history.pop(track_id, None)
             self.track_resolved_classes.pop(track_id, None)
             self.track_class_last_seen.pop(track_id, None)
+            self.track_label_cache.pop(track_id, None)
+            self.track_label_votes.pop(track_id, None)
+            self.track_label_last_seen.pop(track_id, None)
 
     def process_frame(self, frame: np.ndarray, frame_idx: int, fps: float = 30.0) -> TrackerFrameOutput:
         """
@@ -244,14 +267,6 @@ class ZampenYOLOTracker:
                 band_dets.append(([x1, y1, x2, y2], class_name))
 
         # Re-ID lock for leg bands if present
-        BAND_TO_HEN = {
-            "Leg_Band_Green": "Hen1 (Green)",
-            "Leg_Band_White": "Hen2 (White)",
-            "Leg_Band_Violet": "Hen3 (Violet)",
-            "Leg_Band_Yellow": "Hen4 (Yellow)",
-            "Leg_Band_Pink": "Hen5 (Pink)",
-        }
-
         for band_box, band_name in band_dets:
             bx1, by1, bx2, by2 = band_box
             bcx, bcy = (bx1 + bx2) // 2, (by1 + by2) // 2
@@ -260,15 +275,34 @@ class ZampenYOLOTracker:
                     continue
                 x1, y1, x2, y2 = bird.box
                 if (x1 - 15 <= bcx <= x2 + 15) and (y1 - 15 <= bcy <= y2 + 15):
-                    hen_label = BAND_TO_HEN.get(band_name, bird.bird_label)
-                    self.track_label_cache[bird.track_id] = hen_label
-                    bird.bird_label = hen_label
+                    hen_label = BAND_CLASS_TO_HEN.get(band_name)
+                    if hen_label:
+                        self._record_track_label(bird.track_id, hen_label)
                     break
 
-        # Apply cached Re-ID labels to persistent ByteTrack IDs
+        for bird in birds:
+            if bird.track_id is None or bird.class_name == "Rooster":
+                continue
+            hen_label = detect_leg_band_color(frame, bird.box)
+            if hen_label:
+                self._record_track_label(bird.track_id, hen_label)
+
         for bird in birds:
             if bird.track_id is not None and bird.track_id in self.track_label_cache:
                 bird.bird_label = self.track_label_cache[bird.track_id]
+
+        equipment = suppress_overlapping_equipment(
+            [
+                (detection.box, detection.confidence, detection.class_name, detection)
+                for detection in feeders + drinkers
+            ]
+        )
+        feeders = [
+            detection for _, _, label, detection in equipment if label == "Feeder"
+        ]
+        drinkers = [
+            detection for _, _, label, detection in equipment if label == "Drinker"
+        ]
 
         return TrackerFrameOutput(
             frame_idx=frame_idx,

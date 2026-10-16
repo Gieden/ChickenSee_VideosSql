@@ -1,0 +1,45 @@
+{
+  "categories": [
+    {
+      "id": 0,
+      "name": "Chicken"
+    },
+    {
+      "id": 1,
+      "name": "Drinker"
+    },
+    {
+      "id": 2,
+      "name": "Feeder"
+    },
+    {
+      "id": 3,
+      "name": "Leg_Band_Green"
+    },
+    {
+      "id": 4,
+      "name": "Leg_Band_Pink"
+    },
+    {
+      "id": 5,
+      "name": "Leg_Band_Violet"
+    },
+    {
+      "id": 6,
+      "name": "Leg_Band_White"
+    },
+    {
+      "id": 7,
+      "name": "Leg_Band_Yellow"
+    },
+    {
+      "id": 8,
+      "name": "Rooster"
+    }
+  ],
+  "info": {
+    "year": 2026,
+    "version": "1.0",
+    "contributor": "Label Studio"
+  }
+}

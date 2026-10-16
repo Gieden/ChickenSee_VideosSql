@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'ChickenSee Synced Portal | Optiplex & Vercel Blob',
-  description: 'Automated video & SQLite database synchronization portal from local Optiplex server to Vercel',
+  description: 'Vercel portal for synchronized poultry behavior reports, environmental sensor readings, videos, and SQLite data',
 };
 
 export default function RootLayout({
@@ -12,8 +12,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#090d16] text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+    <html lang="en">
+      <body className="min-h-screen bg-[#f7f8fa] text-slate-900 antialiased selection:bg-orange-200 selection:text-orange-950">
         {children}
       </body>
     </html>

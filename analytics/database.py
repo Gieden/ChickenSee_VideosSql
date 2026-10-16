@@ -335,7 +335,18 @@ class DatabaseManager:
         """Persists interval metric records and associated individual bird profiles."""
         with self.get_session() as session:
             for m_dict, birds in zip(metrics_list, bird_records_list):
-                metric = HalfHourMetrics(job_id=job_id, **m_dict)
+                database_metrics = dict(m_dict)
+                for field in (
+                    "temp_avg_c", "temp_min_c", "temp_max_c",
+                    "humidity_avg_pct", "humidity_min_pct", "humidity_max_pct",
+                    "ammonia_ppm_avg", "ammonia_ppm_max", "lux_avg", "thi_avg",
+                ):
+                    if database_metrics.get(field) is None:
+                        database_metrics[field] = 0.0
+                if database_metrics.get("heat_stress_level") is None:
+                    database_metrics["heat_stress_level"] = "Unavailable"
+                database_metrics.pop("sensor_data_available", None)
+                metric = HalfHourMetrics(job_id=job_id, **database_metrics)
                 session.add(metric)
                 session.flush()
 

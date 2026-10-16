@@ -22,9 +22,14 @@ Designed and optimized for local edge deployment on a **Dell OptiPlex server**, 
   │  • Splits each video into configurable intervals (30m default)         │
   │  • Keeps a shorter final interval for videos of varying lengths         │
   │  • Computes interval sensor averages (Temp, RH, NH3, Lux, THI)          │
+  │  • Marks unmatched sensor intervals unavailable; never substitutes     │
+  │    estimated readings for missing telemetry                           │
   │  • Runs YOLO26 Nano (yolo26n.pt) + ByteTrack persistent inference      │
   │  • Stabilizes class labels across each track to limit frame-to-frame  │
   │    Chicken / Feeder / Drinker label flips                              │
+  │  • Resolves hen bands from full-resolution HSV crops with temporal     │
+  │    voting; maps the trained Violet class to the displayed Blue hen     │
+  │  • Suppresses overlapping Feeder / Drinker boxes to avoid double counts│
   │  • Quantifies Behaviors:                                               │
   │      1. Reduce Eating  |  2. Drinking  |  3. Inactivity  |  4. Pecking │
   │  • Persists to SQLite / SQLAlchemy (zampen_analytics.db)               │

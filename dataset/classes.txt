@@ -1,0 +1,9 @@
+Chicken
+Drinker
+Feeder
+Leg_Band_Green
+Leg_Band_Pink
+Leg_Band_Violet
+Leg_Band_White
+Leg_Band_Yellow
+Rooster

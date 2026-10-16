@@ -13,40 +13,29 @@ from dataclasses import dataclass, field
 from ultralytics import YOLO
 
 from .config import CONFIG, VisionConfig
+from legband import (
+    BAND_CLASS_TO_HEN,
+    detect_leg_band_color,
+    suppress_overlapping_equipment,
+)
 
 
 # ---------------------------------------------------------------------------
 # Leg Band HSV Ranges & Color Specifications
 # ---------------------------------------------------------------------------
-LEG_BAND_HSV_RANGES = {
-    "Hen1 (Green)":  ([35,  80,  60],  [85,  255, 255]),
-    "Hen2 (White)":  ([0,   0,   180], [180, 45,  255]),
-    "Hen3 (Violet)": ([120, 80,  60],  [150, 255, 255]),
-    "Hen4 (Yellow)": ([18,  90,  90],  [38,  255, 255]),
-    "Hen5 (Pink)":   ([140, 70,  80],  [175, 255, 255]),
-}
 
 COLOR_MAP = {
     "Rooster":       {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
     "Chicken":       {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
     "Hen1 (Green)":  {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
     "Hen2 (White)":  {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen3 (Violet)": {"hex": "#8A2BE2", "rgb": (138, 43, 226),  "bgr": (226, 43, 138)},
+    "Hen3 (Blue)":   {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
     "Hen4 (Yellow)": {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
     "Hen5 (Pink)":   {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
-    "Feeder":        {"hex": "#3B82F6", "rgb": (59, 130, 246),  "bgr": (246, 130, 59)},
-    "Drinker":       {"hex": "#06B6D4", "rgb": (6, 182, 212),   "bgr": (212, 182, 6)},
+    "Feeder":        {"hex": "#000000", "rgb": (0, 0, 0),       "bgr": (0, 0, 0)},
+    "Drinker":       {"hex": "#000000", "rgb": (0, 0, 0),       "bgr": (0, 0, 0)},
     "Default":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
 }
-
-BAND_CLASS_TO_HEN = {
-    "Leg_Band_Green":  "Hen1 (Green)",
-    "Leg_Band_White":  "Hen2 (White)",
-    "Leg_Band_Violet": "Hen3 (Violet)",
-    "Leg_Band_Yellow": "Hen4 (Yellow)",
-    "Leg_Band_Pink":   "Hen5 (Pink)",
-}
-
 
 @dataclass
 class Detection:
@@ -266,6 +255,7 @@ class PoultryInferenceEngine:
                 band_raw.append((box, name))
             elif name in ("Feeder", "Drinker"):
                 infra_raw.append(entry)
+        infra_raw = suppress_overlapping_equipment(infra_raw)
 
         # ------------------------------------------------------------------
         # 2. Leg Band Association & Re-ID for Hens
@@ -290,38 +280,20 @@ class PoultryInferenceEngine:
                     break
 
         # ------------------------------------------------------------------
-        # 3. Strict HSV Fallback on Feet Crop (Bottom 20% of Unidentified Birds)
+        # 3. HSV fallback on the original-resolution feet crop
         # ------------------------------------------------------------------
-        cur_h, cur_w = work_frame.shape[:2]
         for (cbox, _, _, track_id, _) in chicken_raw:
             if track_id is None or (track_id in self.track_states and self.track_states[track_id]["label"] != "Chicken"):
                 continue
 
-            cx1, cy1, cx2, cy2 = cbox
-            ch = cy2 - cy1
-            scan_y1 = max(0, int(cy1 + ch * 0.80))
-            scan_y2 = min(cur_h - 1, int(cy2))
-            scan_x1 = max(0, int(cx1))
-            scan_x2 = min(cur_w - 1, int(cx2))
-
-            if scan_y2 <= scan_y1 or scan_x2 <= scan_x1:
-                continue
-
-            feet_crop = work_frame[scan_y1:scan_y2, scan_x1:scan_x2]
-            if feet_crop is None or feet_crop.size == 0:
-                continue
-
-            hsv_crop = cv2.cvtColor(feet_crop, cv2.COLOR_BGR2HSV)
-            best_name, best_score = None, 0
-
-            for hen_name, (lower, upper) in LEG_BAND_HSV_RANGES.items():
-                mask = cv2.inRange(hsv_crop, np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
-                score = int(cv2.countNonZero(mask))
-                if score > best_score:
-                    best_score = score
-                    best_name = hen_name
-
-            if best_name and best_score >= 8:
+            source_box = (
+                cbox[0] * scale_w,
+                cbox[1] * scale_h,
+                cbox[2] * scale_w,
+                cbox[3] * scale_h,
+            )
+            best_name = detect_leg_band_color(frame, source_box)
+            if best_name:
                 self.track_states[track_id] = {
                     "label": best_name,
                     "last_seen_frame": self.frame_count

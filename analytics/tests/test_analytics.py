@@ -13,9 +13,11 @@ import json
 import unittest
 import datetime
 import os
+import sqlite3
 import tempfile
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 # Add project root to sys.path
@@ -23,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from analytics.config import CONFIG
-from analytics.database import DatabaseManager, JobStatus, ProcessingJob
+from analytics.database import DatabaseManager, HalfHourMetrics, JobStatus, ProcessingJob
 from analytics.tracker import TrackedDetection, TrackerFrameOutput
 from analytics.tracker import ZampenYOLOTracker
 from analytics.behavior_engine import BehaviorAnalysisEngine
@@ -310,6 +312,122 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(start, datetime.datetime(2026, 9, 14, 10, 28, 8))
         self.assertEqual(end, start + datetime.timedelta(hours=1))
 
+    def test_missing_sensor_interval_is_reported_unavailable_not_as_defaults(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database_path = Path(temporary) / "sensors.db"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE environmental_logs_raw (
+                        timestamp TEXT,
+                        temperature_c REAL,
+                        humidity_pct REAL,
+                        ammonia_ppm REAL,
+                        lux REAL,
+                        thi REAL
+                    )
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO environmental_logs_raw VALUES (?, ?, ?, ?, ?, ?)",
+                    ("2026-10-16T12:00:00", 26.0, 70.0, 5.0, 100.0, 75.0),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker.cfg = SimpleNamespace(
+                sensor_db_url=f"sqlite:///{database_path.as_posix()}"
+            )
+            result = worker._pull_sensor_averages_for_range(
+                datetime.datetime(2026, 10, 15, 12, 0),
+                datetime.datetime(2026, 10, 15, 13, 0),
+            )
+
+        self.assertFalse(result["sensor_data_available"])
+        self.assertIsNone(result["temp_avg_c"])
+        self.assertIsNone(result["humidity_avg_pct"])
+        self.assertIsNone(result["ammonia_ppm_avg"])
+        self.assertEqual(result["heat_stress_level"], "Unavailable")
+
+    def test_sensor_interval_exports_measured_values_and_availability(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database_path = Path(temporary) / "sensors.db"
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE environmental_logs_raw (
+                        timestamp TEXT,
+                        temperature_c REAL,
+                        humidity_pct REAL,
+                        ammonia_ppm REAL,
+                        lux REAL,
+                        thi REAL
+                    )
+                    """
+                )
+                connection.executemany(
+                    "INSERT INTO environmental_logs_raw VALUES (?, ?, ?, ?, ?, ?)",
+                    [
+                        ("2026-10-15T12:10:00", 26.0, 70.0, 5.0, 100.0, 75.0),
+                        ("2026-10-15T12:20:00", 28.0, 74.0, 7.0, 200.0, 77.0),
+                    ],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker.cfg = SimpleNamespace(
+                sensor_db_url=f"sqlite:///{database_path.as_posix()}"
+            )
+            result = worker._pull_sensor_averages_for_range(
+                datetime.datetime(2026, 10, 15, 12, 0),
+                datetime.datetime(2026, 10, 15, 13, 0),
+            )
+
+        self.assertTrue(result["sensor_data_available"])
+        self.assertEqual(result["temp_avg_c"], 27.0)
+        self.assertEqual(result["humidity_avg_pct"], 72.0)
+        self.assertEqual(result["ammonia_ppm_avg"], 6.0)
+        self.assertEqual(result["lux_avg"], 150.0)
+        self.assertEqual(result["heat_stress_level"], "Moderate")
+
+    def test_unavailable_sensor_values_can_be_saved_in_analytics_database(self):
+        start = datetime.datetime(2026, 10, 15, 12, 0)
+        end = start + datetime.timedelta(minutes=30)
+        job = self.db.lease_job("no-sensor.mp4", "/no-sensor.mp4", start, end)
+        self.assertIsNotNone(job)
+        metrics = {
+            "date_slot": "2026-10-15",
+            "hour_slot": "12:00",
+            "chunk_index": 1,
+            "chunk_start": start,
+            "chunk_end": end,
+            "temp_avg_c": None,
+            "temp_min_c": None,
+            "temp_max_c": None,
+            "humidity_avg_pct": None,
+            "humidity_min_pct": None,
+            "humidity_max_pct": None,
+            "ammonia_ppm_avg": None,
+            "ammonia_ppm_max": None,
+            "lux_avg": None,
+            "thi_avg": None,
+            "heat_stress_level": "Unavailable",
+            "sensor_data_available": False,
+        }
+
+        self.db.save_30m_metrics(job.id, [metrics], [[]])
+
+        with self.db.get_session() as session:
+            saved = session.query(HalfHourMetrics).filter_by(job_id=job.id).one()
+            self.assertEqual(saved.temp_avg_c, 0.0)
+            self.assertEqual(saved.heat_stress_level, "Unavailable")
+
     def test_tracker_resolves_custom_model_weights(self):
         tracker = object.__new__(ZampenYOLOTracker)
         self.assertEqual(
@@ -405,7 +523,7 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         # Bird sits in feeder zone completely stationary
         stationary_bird = TrackedDetection(
             box=[320, 320, 360, 360], centroid=(340, 340), confidence=0.85,
-            class_id=0, class_name="Chicken", track_id=202, bird_label="Hen3 (Violet)"
+            class_id=0, class_name="Chicken", track_id=202, bird_label="Hen3 (Blue)"
         )
 
         dt = 1.0

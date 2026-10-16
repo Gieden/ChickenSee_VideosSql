@@ -2,20 +2,14 @@ import os
 import cv2
 import numpy as np
 import base64
-from collections import deque
+from collections import Counter, deque
 from ultralytics import YOLO
-
-# ---------------------------------------------------------------------------
-# Leg Band HSV Ranges & Exact Bounding Box Colors
-# ---------------------------------------------------------------------------
-
-LEG_BAND_COLORS = {
-    "Hen1 (Green)":  ([35,  80,  60],  [85,  255, 255]),
-    "Hen2 (White)":  ([0,   0,   180], [180, 45,  255]),
-    "Hen3 (Violet)": ([120, 80,  60],  [150, 255, 255]),
-    "Hen4 (Yellow)": ([18,  90,  90],  [38,  255, 255]),
-    "Hen5 (Pink)":   ([140, 70,  80],  [175, 255, 255]),
-}
+from legband import (
+    BAND_CLASS_TO_HEN,
+    detect_leg_band_color,
+    equipment_boxes_overlap,
+    suppress_overlapping_equipment,
+)
 
 # Strict display colors requested:
 # Rooster -> Red
@@ -26,9 +20,11 @@ COLOR_MAP = {
     "Chicken":       {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
     "Hen1 (Green)":  {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
     "Hen2 (White)":  {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen3 (Violet)": {"hex": "#8A2BE2", "rgb": (138, 43, 226),  "bgr": (226, 43, 138)},
+    "Hen3 (Blue)":   {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
     "Hen4 (Yellow)": {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
     "Hen5 (Pink)":   {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
+    "Feeder":        {"hex": "#000000", "rgb": (0, 0, 0),       "bgr": (0, 0, 0)},
+    "Drinker":       {"hex": "#000000", "rgb": (0, 0, 0),       "bgr": (0, 0, 0)},
     "Default":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
 }
 
@@ -40,46 +36,44 @@ class ChickenDetector:
     def __init__(self, model_path=None):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir  = os.path.dirname(current_dir)
-        
-        # Check current directory first, then parent directory
+
         custom_candidates = [
             os.path.join(current_dir, "custom_poultry.pt"),
             os.path.join(parent_dir, "custom_poultry.pt")
         ]
-        
-        custom_pt = next((p for p in custom_candidates if os.path.isfile(p)), None)
         tracker_cand = [
             os.path.join(current_dir, "bytetrack_poultry.yaml"),
             os.path.join(parent_dir, "bytetrack_poultry.yaml")
         ]
         self.tracker_yaml = next((p for p in tracker_cand if os.path.isfile(p)), "bytetrack.yaml")
 
-        if custom_pt:
-            print(f"[MODEL] Loading custom poultry model: {custom_pt}")
-            self.model     = YOLO(custom_pt)
-            self.is_custom = True
+        if model_path:
+            requested_model = os.path.abspath(model_path)
+            if not os.path.isfile(requested_model):
+                raise FileNotFoundError(f"Model weights not found: {requested_model}")
+            print(f"[MODEL] Loading requested model: {requested_model}")
+            self.model = YOLO(requested_model)
+            self.is_custom = os.path.basename(requested_model).lower() == "custom_poultry.pt"
         else:
-            fallback_pt = os.path.join(current_dir, "yolo26n.pt")
-            print(f"[MODEL] custom_poultry.pt not found — fallback: {fallback_pt}")
-            self.model     = YOLO(fallback_pt)
-            self.is_custom = False
+            custom_pt = next((p for p in custom_candidates if os.path.isfile(p)), None)
+            if custom_pt:
+                print(f"[MODEL] Loading custom poultry model: {custom_pt}")
+                self.model = YOLO(custom_pt)
+                self.is_custom = True
+            else:
+                fallback_pt = os.path.join(current_dir, "yolo26n.pt")
+                print(f"[MODEL] custom_poultry.pt not found — fallback: {fallback_pt}")
+                self.model = YOLO(fallback_pt)
+                self.is_custom = False
 
-        self.class_names = {
-            0: "Chicken",
-            1: "Drinker",
-            2: "Feeder",
-            3: "Leg_Band_Green",
-            4: "Leg_Band_Pink",
-            5: "Leg_Band_Violet",
-            6: "Leg_Band_White",
-            7: "Leg_Band_Yellow",
-            8: "Rooster",
-        }
+        self.class_names = self.model.names
 
-        self.current_mode     = "speed"
+        self.current_mode     = "accuracy"
         self.frame_count      = 0
         self.position_history = {}
         self.track_states     = {}   # track_id -> {"label": str, "last_seen_frame": int}
+        self.track_band_votes = {}
+        self.track_band_last_seen = {}
         self.cumulative_count = set()
         self.ghost_tracks     = {}
         self.smoothed_boxes   = {}
@@ -90,8 +84,41 @@ class ChickenDetector:
         self.current_mode = mode
         return mode
 
+    def _record_track_band_label(self, track_id, label: str) -> None:
+        if track_id is None:
+            return
+        last_seen = self.track_band_last_seen.get(track_id)
+        votes = self.track_band_votes.setdefault(track_id, deque(maxlen=5))
+        if last_seen is not None and self.frame_count - last_seen > 30:
+            votes.clear()
+        votes.append(label)
+        self.track_band_last_seen[track_id] = self.frame_count
+        if Counter(votes).most_common(1)[0][1] >= 3:
+            self.track_states[track_id] = {
+                "label": Counter(votes).most_common(1)[0][0],
+                "last_seen_frame": self.frame_count,
+            }
+
+    def _prune_track_band_state(self) -> None:
+        expired_states = [
+            track_id
+            for track_id, state in self.track_states.items()
+            if self.frame_count - state["last_seen_frame"] > 300
+        ]
+        expired_votes = [
+            track_id
+            for track_id, last_seen in self.track_band_last_seen.items()
+            if self.frame_count - last_seen > 300
+        ]
+        for track_id in expired_states:
+            self.track_states.pop(track_id, None)
+        for track_id in set(expired_states + expired_votes):
+            self.track_band_votes.pop(track_id, None)
+            self.track_band_last_seen.pop(track_id, None)
+
     def detect(self, frame):
         self.frame_count += 1
+        self._prune_track_band_state()
 
         if isinstance(frame, str):
             try:
@@ -106,17 +133,19 @@ class ChickenDetector:
         if frame is None or not isinstance(frame, np.ndarray):
             return self._empty_result()
 
+        source_frame = frame
         frame_h, frame_w = frame.shape[:2]
         orig_w, orig_h = frame_w, frame_h
 
-        TARGET_W = 320
+        target_width = 640 if self.current_mode == "accuracy" else 320
+        TARGET_W = target_width
         if frame_w > TARGET_W:
             scale_r   = TARGET_W / frame_w
             target_h  = int(frame_h * scale_r)
             frame     = cv2.resize(frame, (TARGET_W, target_h), interpolation=cv2.INTER_AREA)
             frame_h, frame_w = frame.shape[:2]
 
-        infer_sz = 640 if self.current_mode == "accuracy" else 320
+        infer_sz = 320
 
         try:
             results = self.model.track(
@@ -124,7 +153,7 @@ class ChickenDetector:
                 persist=True,
                 tracker=self.tracker_yaml,
                 verbose=False,
-                conf=0.03,
+                conf=0.15,
                 iou=0.45,
                 agnostic_nms=False,
                 imgsz=infer_sz,
@@ -134,7 +163,7 @@ class ChickenDetector:
                 results = self.model(
                     frame,
                     verbose=False,
-                    conf=0.03,
+                    conf=0.15,
                     iou=0.45,
                     agnostic_nms=False,
                     imgsz=infer_sz,
@@ -142,52 +171,76 @@ class ChickenDetector:
             except Exception:
                 return self._empty_result()
 
-        n_boxes = len(results.boxes) if results.boxes is not None else 0
-        if n_boxes == 0:
-            return self._build_result([])
+        inference_results = [(results, False)]
+        if self.current_mode == "accuracy":
+            try:
+                high_resolution_result = self.model.predict(
+                    frame,
+                    verbose=False,
+                    conf=0.15,
+                    iou=0.45,
+                    agnostic_nms=False,
+                    imgsz=640,
+                )[0]
+                inference_results.append((high_resolution_result, True))
+            except Exception as error:
+                print(f"[MODEL WARN] High-resolution equipment pass failed: {error}")
 
-        boxes     = results.boxes.xyxy.cpu().numpy()
-        confs     = results.boxes.conf.cpu().numpy()
-        cls_ids   = results.boxes.cls.int().cpu().tolist()
-        track_ids = (
-            results.boxes.id.int().cpu().tolist()
-            if results.boxes.id is not None
-            else [None] * n_boxes
-        )
+        if not any(result.boxes is not None and len(result.boxes) for result, _ in inference_results):
+            return self._build_result([])
 
         chicken_dets = []
         rooster_dets = []
         band_dets    = []
-        infra_dets   = []
+        low_resolution_infra = []
+        high_resolution_infra = []
 
-        for box, conf_val, cls_id, track_id in zip(boxes, confs, cls_ids, track_ids):
-            name = self.class_names.get(cls_id, f"class_{cls_id}")
-
-            if name == "Chicken" and float(conf_val) < 0.07:
+        for result, is_high_resolution in inference_results:
+            if result.boxes is None or len(result.boxes) == 0:
                 continue
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confs = result.boxes.conf.cpu().numpy()
+            cls_ids = result.boxes.cls.int().cpu().tolist()
+            track_ids = (
+                result.boxes.id.int().cpu().tolist()
+                if not is_high_resolution and result.boxes.id is not None
+                else [None] * len(boxes)
+            )
 
-            entry = (box, float(round(conf_val, 2)), name, track_id)
+            for box, conf_val, cls_id, track_id in zip(boxes, confs, cls_ids, track_ids):
+                name = self.class_names.get(cls_id, f"class_{cls_id}")
+                entry = (box, float(round(conf_val, 2)), name, track_id)
 
-            if name == "Chicken":
-                chicken_dets.append(entry)
-            elif name == "Rooster":
-                rooster_dets.append(entry)  # Rooster is kept separate
-            elif name.startswith("Leg_Band_"):
-                band_dets.append((box, name))
-            elif name in ("Feeder", "Drinker"):
-                infra_dets.append(entry)
+                if is_high_resolution:
+                    if name in ("Feeder", "Drinker"):
+                        high_resolution_infra.append(entry)
+                    continue
+
+                if name == "Chicken":
+                    chicken_dets.append(entry)
+                elif name == "Rooster":
+                    rooster_dets.append(entry)
+                elif name.startswith("Leg_Band_"):
+                    band_dets.append((box, name))
+                elif name in ("Feeder", "Drinker"):
+                    low_resolution_infra.append(entry)
+
+        high_resolution_infra = suppress_overlapping_equipment(
+            high_resolution_infra
+        )
+        infra_dets = high_resolution_infra + [
+            detection
+            for detection in low_resolution_infra
+            if not any(
+                equipment_boxes_overlap(detection[0], high_detection[0])
+                for high_detection in high_resolution_infra
+            )
+        ]
+        infra_dets = suppress_overlapping_equipment(infra_dets)
 
         # ------------------------------------------------------------------
         # 1. Re-ID ONLY for Hens (Chickens) — Never touch Roosters!
         # ------------------------------------------------------------------
-        BAND_CLASS_TO_HEN = {
-            "Leg_Band_Green":  "Hen1 (Green)",
-            "Leg_Band_White":  "Hen2 (White)",
-            "Leg_Band_Violet": "Hen3 (Violet)",
-            "Leg_Band_Yellow": "Hen4 (Yellow)",
-            "Leg_Band_Pink":   "Hen5 (Pink)",
-        }
-
         for (band_box, band_class) in band_dets:
             bx1, by1, bx2, by2 = band_box
             band_cx = (bx1 + bx2) / 2
@@ -208,55 +261,27 @@ class ChickenDetector:
                 if not color_name:
                     continue
 
-                # Lock the label once recognized
-                if track_id not in self.track_states or self.track_states[track_id]["label"] == "Chicken":
-                    self.track_states[track_id] = {
-                        "label": color_name,
-                        "last_seen_frame": self.frame_count
-                    }
-                else:
-                    self.track_states[track_id]["last_seen_frame"] = self.frame_count
+                self._record_track_band_label(track_id, color_name)
                 break
 
         # ------------------------------------------------------------------
         # 2. Strict HSV Fallback — ONLY run on unidentified Chickens
         # ------------------------------------------------------------------
+        scale_x = orig_w / frame_w if frame_w > 0 else 1.0
+        scale_y = orig_h / frame_h if frame_h > 0 else 1.0
         for (cbox, _, _, track_id) in chicken_dets:
             if track_id is None or (track_id in self.track_states and self.track_states[track_id]["label"] != "Chicken"):
                 continue
 
-            cx1, cy1, cx2, cy2 = cbox
-            ch = cy2 - cy1
-            
-            # Scan STRICTLY the bottom 20% of the box (feet area only)
-            scan_y1 = max(0, int(cy1 + ch * 0.80))
-            scan_y2 = min(frame_h - 1, int(cy2))
-            scan_x1 = max(0, int(cx1))
-            scan_x2 = min(frame_w - 1, int(cx2))
-
-            if scan_y2 <= scan_y1 or scan_x2 <= scan_x1:
-                continue
-
-            leg_crop = frame[scan_y1:scan_y2, scan_x1:scan_x2]
-            if leg_crop is None or leg_crop.size == 0:
-                continue
-
-            hsv_crop = cv2.cvtColor(leg_crop, cv2.COLOR_BGR2HSV)
-            best_name, best_score = None, 0
-
-            for hen_name, (lower, upper) in LEG_BAND_COLORS.items():
-                mask  = cv2.inRange(hsv_crop, np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8))
-                score = int(cv2.countNonZero(mask))
-                if score > best_score:
-                    best_score = score
-                    best_name  = hen_name
-
-            # Requires at least 8 matching pixels in feet crop
-            if best_name and best_score >= 8:
-                self.track_states[track_id] = {
-                    "label": best_name,
-                    "last_seen_frame": self.frame_count
-                }
+            scaled_box = (
+                cbox[0] * scale_x,
+                cbox[1] * scale_y,
+                cbox[2] * scale_x,
+                cbox[3] * scale_y,
+            )
+            band_label = detect_leg_band_color(source_frame, scaled_box)
+            if band_label:
+                self._record_track_band_label(track_id, band_label)
 
         # ------------------------------------------------------------------
         # 3. Helpers & Box Output Formatting
