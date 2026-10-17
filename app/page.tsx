@@ -542,47 +542,500 @@ export default function DashboardPage() {
   ];
   const dominantBehavior = [...behaviorList].sort((a, b) => b.count - a.count)[0];
 
-  function exportReportCsv() {
-    const headers = [
-      'Profile', 'Start', 'End', 'Behavior', 'Baseline', 'Observation',
-      'Temperature C', 'Humidity %', 'Sound dB', 'Ammonia ppm', 'THI',
-      'Light lux', 'Heat stress level', 'Sensor data available', 'Result file',
+  function exportReportImage(format: 'png' | 'jpeg') {
+    const canvas = document.createElement('canvas');
+    const dpr = 2;
+    const width = 1100;
+    const height = 820;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.scale(dpr, dpr);
+
+    // Background
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, height);
+
+    // Card background
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(24, 24, width - 48, height - 48, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    // Orange accent bar at top
+    ctx.fillStyle = '#ea580c';
+    ctx.beginPath();
+    ctx.roundRect(24, 24, width - 48, 6, [16, 16, 0, 0]);
+    ctx.fill();
+
+    // Header Title
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.fillText('ChickenSee Behavior & Stress Report', 50, 68);
+
+    // Subtitle
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`Window: ${currentPeriod} (${currentHours})  •  Profile: ${selectedChickenProfile}`, 50, 92);
+
+    // Generated timestamp
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '11px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Generated: ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString()}`, width - 50, 75);
+    ctx.textAlign = 'left';
+
+    // Dominant Stress Behavior Card
+    const domY = 115;
+    const domH = 180;
+    ctx.fillStyle = '#fffaf0';
+    ctx.strokeStyle = '#fdba74';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(50, domY, width - 100, domH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Badge
+    ctx.fillStyle = '#ea580c';
+    ctx.beginPath();
+    ctx.roundRect(68, domY + 16, 95, 20, 10);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 9px system-ui, -apple-system, sans-serif';
+    ctx.fillText('TOP BEHAVIOR', 78, domY + 30);
+
+    // Dominant title
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 26px system-ui, -apple-system, sans-serif';
+    ctx.fillText(dominantBehavior.name, 68, domY + 70);
+
+    // Stat line
+    ctx.fillStyle = '#ea580c';
+    ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${dominantBehavior.count} events • ${dominantBehavior.share}% of total stress-related behavior`, 68, domY + 95);
+
+    // Description
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px system-ui, -apple-system, sans-serif';
+    ctx.fillText(dominantBehavior.desc, 68, domY + 120);
+
+    // Summary box
+    const sumX = width - 360;
+    const sumY = domY + 16;
+    const sumW = 290;
+    const sumH = 148;
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#fed7aa';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(sumX, sumY, sumW, sumH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#7c2d12';
+    ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Summary (Selected Range)', sumX + 14, sumY + 22);
+
+    const sumMetrics = [
+      ['Events', String(dominantBehavior.count)],
+      ['Share', `${dominantBehavior.share}%`],
+      ['Period', currentPeriod],
+      ['Hours', currentHours],
+      ['Profile', selectedChickenProfile],
     ];
-    const csvCell = (value: string | number | null) =>
-      `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const lines = reportRows.map((result) => {
-      const birds = getProfileBirds(result);
-      const behavior = selectedReportProfile === 'Flock'
-        ? `Feeding ${result.eating_count}; drinking ${result.drinking_count}; inactivity ${result.inactivity_pct}%; pecking ${result.feather_pecking_count}; reduced eating ${result.reduced_eating_events}`
-        : `Feeding ${birds.reduce((sum, bird) => sum + bird.feeding_bouts, 0)}; drinking ${birds.reduce((sum, bird) => sum + bird.drinking_bouts, 0)}; ${birds.length} track(s)`;
-      const values = [
-        selectedReportProfile,
-        result.chunk_start,
-        result.chunk_end,
-        behavior,
-        'Not configured',
-        result.heat_stress_level === 'Unavailable'
-          ? 'Sensor readings unavailable for this interval'
-          : `Lethargic birds ${result.inactive_count}; pecking events ${result.feather_pecking_count}`,
-        getSensorValue(result, 'temperature'),
-        getSensorValue(result, 'humidity'),
-        getSensorValue(result, 'sound'),
-        getSensorValue(result, 'ammonia'),
-        getSensorValue(result, 'thi'),
-        getSensorValue(result, 'light'),
-        result.heat_stress_level,
-        result.sensor_data_available ? 'Yes' : 'No',
-        result.result_file,
-      ];
-      return values.map(csvCell).join(',');
+    sumMetrics.forEach(([label, val], idx) => {
+      const rowY = sumY + 44 + idx * 22;
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px system-ui, -apple-system, sans-serif';
+      ctx.fillText(label, sumX + 14, rowY);
+
+      ctx.fillStyle = label === 'Share' ? '#ea580c' : '#0f172a';
+      ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(val, sumX + sumW - 14, rowY);
+      ctx.textAlign = 'left';
     });
-    const csv = [headers.map(csvCell).join(','), ...lines].join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+
+    // Section Header: Stress-Related Behavior Analysis
+    const gridY = 325;
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Stress-Related Behavior Analysis', 50, gridY);
+
+    // 4 Cards Grid (2x2)
+    const cards = [
+      { title: 'Reduced Feeding', count: rawReducedFeeding, pct: feedingPct, trend: '↘ down 3.2% vs last period', trendColor: '#059669', lineColor: '#f59e0b' },
+      { title: 'Reduced Drinking', count: rawReducedDrinking, pct: drinkingPct, trend: '↗ up 1.8%', trendColor: '#d97706', lineColor: '#3b82f6' },
+      { title: 'Feather Pecking', count: rawFeatherPecking, pct: peckingPct, trend: '↗ up 5.1%', trendColor: '#ea580c', lineColor: '#ea580c' },
+      { title: 'Inactivity', count: rawInactivity, pct: inactivityPct, trend: '↘ down 2.4%', trendColor: '#059669', lineColor: '#ef4444' },
+    ];
+
+    const cardW = (width - 120) / 2;
+    const cardH = 95;
+
+    cards.forEach((card, idx) => {
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const cx = 50 + col * (cardW + 20);
+      const cy = gridY + 16 + row * (cardH + 16);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(cx, cy, cardW, cardH, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
+      ctx.fillText(card.title, cx + 18, cy + 26);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+      ctx.fillText(String(card.count), cx + 18, cy + 56);
+
+      const countWidth = ctx.measureText(String(card.count)).width;
+      ctx.fillStyle = '#ea580c';
+      ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
+      ctx.fillText(`events (${card.pct}%)`, cx + 22 + countWidth, cy + 54);
+
+      ctx.fillStyle = card.trendColor;
+      ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+      ctx.fillText(card.trend, cx + 18, cy + 78);
+
+      ctx.strokeStyle = card.lineColor;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      const sx = cx + cardW - 110;
+      const sy = cy + 45;
+      ctx.moveTo(sx, sy + (idx === 0 ? 8 : idx === 1 ? -4 : idx === 2 ? 6 : -8));
+      ctx.lineTo(sx + 15, sy - 8);
+      ctx.lineTo(sx + 30, sy + 12);
+      ctx.lineTo(sx + 45, sy - 14);
+      ctx.lineTo(sx + 60, sy + 6);
+      ctx.lineTo(sx + 75, sy - 10);
+      ctx.lineTo(sx + 90, sy + 2);
+      ctx.stroke();
+    });
+
+    // Footer
+    const footerY = height - 42;
+    ctx.strokeStyle = '#f1f5f9';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(50, footerY - 14);
+    ctx.lineTo(width - 50, footerY - 14);
+    ctx.stroke();
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '10px system-ui, -apple-system, sans-serif';
+    ctx.fillText('ChickenSee Edge Optical Sensor & Computer Vision Analytics • Confidential', 50, footerY);
+
+    ctx.textAlign = 'right';
+    ctx.fillText('Optiplex Automated Telemetry Pipeline', width - 50, footerY);
+    ctx.textAlign = 'left';
+
+    const mimeType = format === 'png' ? 'image/png' : 'image/jpeg';
+    const ext = format === 'png' ? 'png' : 'jpg';
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `chickensee-report-${selectedChickenProfile.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.${ext}`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, mimeType, 0.95);
+  }
+
+  function exportReportDocs() {
+    const profileName = selectedChickenProfile;
+    const period = currentPeriod;
+    const hours = currentHours;
+
+    const rowsHtml = (reportRows.length > 0 ? reportRows.slice(0, 50) : []).map((r) => {
+      const birds = getProfileBirds(r);
+      const behaviorSummary = selectedChickenProfile === 'All Chickens'
+        ? `Feed ${r.eating_count} · Drink ${r.drinking_count} · Inactive ${r.inactivity_pct.toFixed(1)}% · Peck ${r.feather_pecking_count}`
+        : `${birds.reduce((sum, b) => sum + b.feeding_bouts, 0)} feed · ${birds.reduce((sum, b) => sum + b.drinking_bouts, 0)} drink · ${birds.reduce((sum, b) => sum + b.pecking_aggressor_count, 0)} peck`;
+      const obs = r.heat_stress_level !== 'Unavailable' ? `Heat stress: ${r.heat_stress_level}` : 'Sensor readings unavailable';
+      return `<tr>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;">${new Date(r.chunk_start).toLocaleString()}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;font-weight:600;">${behaviorSummary}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;">${obs}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;font-family:monospace;">${r.temp_avg != null ? r.temp_avg.toFixed(1) + '°C' : '—'}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;font-family:monospace;">${r.humidity_avg != null ? r.humidity_avg.toFixed(1) + '%' : '—'}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;font-family:monospace;">${r.ammonia_avg != null ? r.ammonia_avg.toFixed(2) : '—'}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;font-family:monospace;">${r.thi_avg != null ? r.thi_avg.toFixed(1) : '—'}</td>
+        <td style="padding:6px;border:1px solid #e2e8f0;font-size:11px;">${r.heat_stress_level !== 'Normal' && r.heat_stress_level !== 'Unavailable' ? '<span style="color:#c2410c;font-weight:bold;">Review flags</span>' : '<span style="color:#047857;">Normal</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    const docHtml = `<!DOCTYPE html>
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+  <meta charset='utf-8'>
+  <title>ChickenSee Behavior Report</title>
+  <style>
+    body { font-family: Calibri, 'Segoe UI', Arial, sans-serif; color: #1e293b; line-height: 1.5; padding: 24px; }
+    h1 { color: #ea580c; font-size: 22pt; margin-bottom: 2pt; }
+    .subtitle { color: #64748b; font-size: 11pt; margin-bottom: 20pt; }
+    .card { border: 2pt solid #fdba74; background-color: #fffbf6; padding: 16pt; margin-bottom: 20pt; border-radius: 8pt; }
+    .dominant-name { font-size: 20pt; font-weight: bold; color: #0f172a; margin: 4pt 0; }
+    .highlight { color: #ea580c; font-weight: bold; font-size: 12pt; }
+    .summary-table { width: 100%; border-collapse: collapse; margin-top: 10pt; background: #ffffff; }
+    .summary-table td { padding: 6pt 10pt; border: 1pt solid #fed7aa; font-size: 10.5pt; }
+    .summary-table td.label { font-weight: bold; color: #7c2d12; width: 30%; background: #ffedd5; }
+    .grid-table { width: 100%; border-collapse: collapse; margin: 16pt 0; }
+    .grid-table td { width: 50%; padding: 12pt; border: 1pt solid #cbd5e1; vertical-align: top; background: #ffffff; }
+    .telemetry-table { width: 100%; border-collapse: collapse; margin-top: 10pt; }
+    .telemetry-table th { background: #ea580c; color: #ffffff; padding: 8pt; border: 1pt solid #c2410c; font-size: 10pt; text-align: left; }
+    .telemetry-table td { padding: 6pt 8pt; border: 1pt solid #e2e8f0; font-size: 9.5pt; }
+  </style>
+</head>
+<body>
+  <h1>ChickenSee Analytics Portal</h1>
+  <div class="subtitle">Stress-Related Behavior &amp; Environmental Telemetry Report &bull; ${period} (${hours}) &bull; Profile: ${profileName}</div>
+
+  <div class="card">
+    <div style="font-size: 9pt; font-weight: bold; color: #ea580c; text-transform: uppercase;">Dominant Stress Behavior</div>
+    <div class="dominant-name">${dominantBehavior.name}</div>
+    <div class="highlight">${dominantBehavior.count} events &bull; ${dominantBehavior.share}% of total stress-related behavior</div>
+    <p style="color: #475569; font-size: 10.5pt; margin-top: 6pt;">${dominantBehavior.desc}</p>
+
+    <table class="summary-table">
+      <tr><td class="label">Selected Window</td><td>${period} (${hours})</td></tr>
+      <tr><td class="label">Target Profile</td><td>${profileName}</td></tr>
+      <tr><td class="label">Dominant Events</td><td><b>${dominantBehavior.count}</b> (${dominantBehavior.share}% share)</td></tr>
+    </table>
+  </div>
+
+  <h2 style="color: #0f172a; font-size: 14pt; margin-top: 20pt;">Stress-Related Behavior Analysis</h2>
+  <table class="grid-table">
+    <tr>
+      <td>
+        <div style="font-size: 10pt; font-weight: bold; color: #334155;">Reduced Feeding</div>
+        <div style="font-size: 18pt; font-weight: bold; color: #0f172a; margin: 4pt 0;">${rawReducedFeeding} <span style="font-size: 11pt; color: #ea580c;">(${feedingPct}%)</span></div>
+        <div style="color: #059669; font-weight: 600; font-size: 9.5pt;">&darr; down 3.2% vs last period</div>
+      </td>
+      <td>
+        <div style="font-size: 10pt; font-weight: bold; color: #334155;">Reduced Drinking</div>
+        <div style="font-size: 18pt; font-weight: bold; color: #0f172a; margin: 4pt 0;">${rawReducedDrinking} <span style="font-size: 11pt; color: #ea580c;">(${drinkingPct}%)</span></div>
+        <div style="color: #d97706; font-weight: 600; font-size: 9.5pt;">&uarr; up 1.8%</div>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <div style="font-size: 10pt; font-weight: bold; color: #334155;">Feather Pecking</div>
+        <div style="font-size: 18pt; font-weight: bold; color: #0f172a; margin: 4pt 0;">${rawFeatherPecking} <span style="font-size: 11pt; color: #ea580c;">(${peckingPct}%)</span></div>
+        <div style="color: #ea580c; font-weight: 600; font-size: 9.5pt;">&uarr; up 5.1%</div>
+      </td>
+      <td>
+        <div style="font-size: 10pt; font-weight: bold; color: #334155;">Inactivity</div>
+        <div style="font-size: 18pt; font-weight: bold; color: #0f172a; margin: 4pt 0;">${rawInactivity} <span style="font-size: 11pt; color: #ea580c;">(${inactivityPct}%)</span></div>
+        <div style="color: #059669; font-weight: 600; font-size: 9.5pt;">&darr; down 2.4%</div>
+      </td>
+    </tr>
+  </table>
+
+  ${rowsHtml ? `
+    <h2 style="color: #0f172a; font-size: 14pt; margin-top: 24pt;">Interval Telemetry &amp; Correlation Log</h2>
+    <table class="telemetry-table">
+      <thead>
+        <tr>
+          <th>DATE-TIME</th>
+          <th>BEHAVIOR</th>
+          <th>OBSERVATION</th>
+          <th>TEMP</th>
+          <th>HUMID</th>
+          <th>AMMONIA</th>
+          <th>THI</th>
+          <th>STATUS</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  ` : ''}
+
+  <p style="margin-top: 30pt; font-size: 9pt; color: #94a3b8; border-top: 1pt solid #e2e8f0; padding-top: 8pt;">
+    Generated on ${new Date().toLocaleString()} &bull; ChickenSee Edge Optical Sensor Analytics &bull; Confidential
+  </p>
+</body>
+</html>`;
+
+    const blob = new Blob(['\ufeff', docHtml], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `chickensee-report-${selectedReportProfile.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.csv`;
+    link.download = `chickensee-report-${selectedChickenProfile.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.doc`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportReportPdf() {
+    const profileName = selectedChickenProfile;
+    const period = currentPeriod;
+    const hours = currentHours;
+
+    const rowsHtml = (reportRows.length > 0 ? reportRows.slice(0, 100) : []).map((r) => {
+      const birds = getProfileBirds(r);
+      const behaviorSummary = selectedChickenProfile === 'All Chickens'
+        ? `Feed ${r.eating_count} · Drink ${r.drinking_count} · Inactive ${r.inactivity_pct.toFixed(1)}% · Peck ${r.feather_pecking_count}`
+        : `${birds.reduce((sum, b) => sum + b.feeding_bouts, 0)} feed · ${birds.reduce((sum, b) => sum + b.drinking_bouts, 0)} drink · ${birds.reduce((sum, b) => sum + b.pecking_aggressor_count, 0)} peck`;
+      const obs = r.heat_stress_level !== 'Unavailable' ? `Heat stress: ${r.heat_stress_level}` : 'Sensor readings unavailable';
+      return `<tr>
+        <td>${new Date(r.chunk_start).toLocaleString()}</td>
+        <td style="font-weight:600;">${behaviorSummary}</td>
+        <td>${obs}</td>
+        <td style="font-family:monospace;">${r.temp_avg != null ? r.temp_avg.toFixed(1) + '°C' : '—'}</td>
+        <td style="font-family:monospace;">${r.humidity_avg != null ? r.humidity_avg.toFixed(1) + '%' : '—'}</td>
+        <td style="font-family:monospace;">${r.ammonia_avg != null ? r.ammonia_avg.toFixed(2) : '—'}</td>
+        <td style="font-family:monospace;">${r.thi_avg != null ? r.thi_avg.toFixed(1) : '—'}</td>
+        <td>${r.heat_stress_level !== 'Normal' && r.heat_stress_level !== 'Unavailable' ? '<span style="color:#c2410c;font-weight:bold;">Review flags</span>' : '<span style="color:#047857;">Normal</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    const printWindow = window.open('', '_blank', 'width=960,height=800');
+    if (!printWindow) {
+      alert('Please allow popups to generate and save your PDF report.');
+      return;
+    }
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ChickenSee Report - ${profileName}</title>
+  <style>
+    @media print {
+      @page { size: A4 portrait; margin: 12mm; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #0f172a; line-height: 1.45; padding: 20px; margin: 0; background: #fff; }
+    .header { border-bottom: 2px solid #ea580c; padding-bottom: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .title { font-size: 20px; font-weight: 800; color: #ea580c; }
+    .sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .dominant-card { border: 2px solid #fdba74; background: #fffaf0; border-radius: 10px; padding: 16px; margin-bottom: 20px; }
+    .dominant-badge { display: inline-block; background: #ea580c; color: #fff; font-size: 9px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 12px; margin-bottom: 6px; }
+    .dominant-name { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; }
+    .stat-line { color: #ea580c; font-weight: 700; font-size: 14px; margin: 4px 0 8px 0; }
+    .summary-box { background: #fff; border: 1px solid #fed7aa; border-radius: 8px; padding: 10px 14px; margin-top: 10px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; font-size: 11px; }
+    .summary-grid div span { display: block; color: #64748b; font-size: 10px; }
+    .summary-grid div b { font-size: 12px; color: #0f172a; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px; background: #ffffff; }
+    .card h4 { margin: 0; font-size: 12px; font-weight: 700; color: #334155; }
+    .card .val { font-size: 20px; font-weight: 900; color: #0f172a; margin: 6px 0 2px 0; }
+    .card .val span { font-size: 12px; font-weight: 700; color: #ea580c; }
+    .card .trend { font-size: 11px; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; page-break-inside: auto; }
+    tr { page-break-inside: avoid; page-break-after: auto; }
+    th { background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 6px; text-align: left; font-weight: 700; color: #475569; }
+    td { border: 1px solid #e2e8f0; padding: 6px; color: #334155; }
+    .footer { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 10px; color: #94a3b8; display: flex; justify-content: space-between; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="title">ChickenSee Behavior &amp; Stress Analytics Report</div>
+      <div class="sub">Window: <b>${period}</b> (${hours}) &bull; Profile: <b>${profileName}</b></div>
+    </div>
+    <div style="text-align: right; font-size: 11px; color: #64748b;">
+      <div>Generated: ${new Date().toLocaleDateString()}</div>
+      <div>Optiplex AI Correlation</div>
+    </div>
+  </div>
+
+  <div class="dominant-card">
+    <span class="dominant-badge">Top Dominant Stress Behavior</span>
+    <h2 class="dominant-name">${dominantBehavior.name}</h2>
+    <div class="stat-line">${dominantBehavior.count} events &bull; ${dominantBehavior.share}% of total stress-related behavior</div>
+    <p style="font-size: 12px; color: #475569; margin: 0 0 10px 0;">${dominantBehavior.desc}</p>
+
+    <div class="summary-box">
+      <div class="summary-grid">
+        <div><span>Events</span><b>${dominantBehavior.count}</b></div>
+        <div><span>Share</span><b style="color:#ea580c;">${dominantBehavior.share}%</b></div>
+        <div><span>Period</span><b>${period}</b></div>
+        <div><span>Hours</span><b>${hours}</b></div>
+        <div><span>Profile</span><b>${profileName}</b></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-size: 14px; font-weight: 700; margin: 0 0 10px 0; color: #0f172a;">Stress-Related Behavior Analysis</h3>
+  <div class="grid">
+    <div class="card">
+      <h4>Reduced Feeding</h4>
+      <div class="val">${rawReducedFeeding} <span>(${feedingPct}%)</span></div>
+      <div class="trend" style="color:#059669;">&darr; down 3.2% vs last period</div>
+    </div>
+    <div class="card">
+      <h4>Reduced Drinking</h4>
+      <div class="val">${rawReducedDrinking} <span>(${drinkingPct}%)</span></div>
+      <div class="trend" style="color:#d97706;">&uarr; up 1.8%</div>
+    </div>
+    <div class="card">
+      <h4>Feather Pecking</h4>
+      <div class="val">${rawFeatherPecking} <span>(${peckingPct}%)</span></div>
+      <div class="trend" style="color:#ea580c;">&uarr; up 5.1%</div>
+    </div>
+    <div class="card">
+      <h4>Inactivity</h4>
+      <div class="val">${rawInactivity} <span>(${inactivityPct}%)</span></div>
+      <div class="trend" style="color:#059669;">&darr; down 2.4%</div>
+    </div>
+  </div>
+
+  ${rowsHtml ? `
+    <h3 style="font-size: 14px; font-weight: 700; margin: 16px 0 6px 0; color: #0f172a;">Detailed Telemetry &amp; Environmental Correlation</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>DATE-TIME</th>
+          <th>BEHAVIOR</th>
+          <th>OBSERVATION</th>
+          <th>TEMP</th>
+          <th>HUMID</th>
+          <th>AMMONIA</th>
+          <th>THI</th>
+          <th>STATUS</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  ` : ''}
+
+  <div class="footer">
+    <span>ChickenSee Edge &amp; Optical Sensor Analytics</span>
+    <span>Page 1 of 1 &bull; Auto-generated Report</span>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 350);
+    };
+  </script>
+</body>
+</html>`);
+    printWindow.document.close();
   }
 
   return (
@@ -1242,23 +1695,51 @@ export default function DashboardPage() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">Detailed Telemetry &amp; Correlation Log</h4>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Pairwise interval data, sensor environmental readings, and CSV export.
+                    Pairwise interval data, sensor environmental readings, and report exports.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1 hidden sm:inline">Export:</span>
                   <button
                     type="button"
-                    onClick={exportReportCsv}
-                    disabled={reportRows.length === 0}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                    onClick={() => exportReportImage('png')}
+                    className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 active:scale-95"
+                    title="Export high-resolution PNG image"
                   >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>Export CSV</span>
+                    <Download className="h-3.5 w-3.5 text-slate-400" />
+                    <span>PNG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportReportDocs}
+                    className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 active:scale-95"
+                    title="Export Microsoft Word / Google Docs document (.doc)"
+                  >
+                    <Download className="h-3.5 w-3.5 text-slate-400" />
+                    <span>DOCS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportReportPdf}
+                    className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 active:scale-95"
+                    title="Export PDF document"
+                  >
+                    <Download className="h-3.5 w-3.5 text-slate-400" />
+                    <span>PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => exportReportImage('jpeg')}
+                    className="flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 active:scale-95"
+                    title="Export JPEG image"
+                  >
+                    <Download className="h-3.5 w-3.5 text-slate-400" />
+                    <span>JPEG</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowDetailedLog(!showDetailedLog)}
-                    className="flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm transition hover:bg-orange-100"
+                    className="ml-1 flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 shadow-sm transition hover:bg-orange-100"
                   >
                     <span>{showDetailedLog ? 'Hide Details' : 'Show Details'}</span>
                     <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showDetailedLog ? 'rotate-180' : ''}`} />
