@@ -50,16 +50,16 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual(EDGE_COLOR_MAP["Hen3 (Blue)"]["hex"], "#0000FF")
         self.assertEqual(LABEL_COLORS_BGR["Hen3 (Blue)"], (255, 0, 0))
 
-    def test_feeder_and_drinker_display_colors_are_black_in_all_detectors(self):
+    def test_feeder_and_drinker_display_colors_are_gray_in_all_detectors(self):
         for label in ("Feeder", "Drinker"):
             with self.subTest(label=label):
-                self.assertEqual(MODEL_COLOR_MAP[label]["hex"], "#000000")
-                self.assertEqual(MODEL_COLOR_MAP[label]["rgb"], (0, 0, 0))
-                self.assertEqual(MODEL_COLOR_MAP[label]["bgr"], (0, 0, 0))
-                self.assertEqual(EDGE_COLOR_MAP[label]["hex"], "#000000")
-                self.assertEqual(EDGE_COLOR_MAP[label]["rgb"], (0, 0, 0))
-                self.assertEqual(EDGE_COLOR_MAP[label]["bgr"], (0, 0, 0))
-                self.assertEqual(LABEL_COLORS_BGR[label], (0, 0, 0))
+                self.assertEqual(MODEL_COLOR_MAP[label]["hex"], "#808080")
+                self.assertEqual(MODEL_COLOR_MAP[label]["rgb"], (128, 128, 128))
+                self.assertEqual(MODEL_COLOR_MAP[label]["bgr"], (128, 128, 128))
+                self.assertEqual(EDGE_COLOR_MAP[label]["hex"], "#808080")
+                self.assertEqual(EDGE_COLOR_MAP[label]["rgb"], (128, 128, 128))
+                self.assertEqual(EDGE_COLOR_MAP[label]["bgr"], (128, 128, 128))
+                self.assertEqual(LABEL_COLORS_BGR[label], (128, 128, 128))
 
     def test_analytics_hen_label_requires_three_consistent_band_observations(self):
         tracker = object.__new__(ZampenYOLOTracker)

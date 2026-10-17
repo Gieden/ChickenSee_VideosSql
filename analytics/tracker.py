@@ -29,8 +29,8 @@ LABEL_COLORS_BGR = {
     "Hen3 (Blue)": (255, 0, 0),
     "Hen4 (Yellow)": (0, 255, 255),
     "Hen5 (Pink)": (180, 105, 255),
-    "Feeder": (0, 0, 0),
-    "Drinker": (0, 0, 0),
+    "Feeder": (128, 128, 128),
+    "Drinker": (128, 128, 128),
     "Default": (128, 128, 128),
 }
 
@@ -253,15 +253,19 @@ class ZampenYOLOTracker:
                 class_id=cls_id,
                 class_name=class_name,
                 track_id=track_id,
-                bird_label="Chicken"
+                bird_label=class_name,
             )
 
             if class_name in ("Chicken", "Rooster") or class_name.startswith("Hen"):
                 det.bird_label = class_name
                 birds.append(det)
             elif class_name == "Feeder":
+                det.bird_label = "Feeder"
+                det.track_id = None
                 feeders.append(det)
             elif class_name == "Drinker":
+                det.bird_label = "Drinker"
+                det.track_id = None
                 drinkers.append(det)
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name))
@@ -319,7 +323,10 @@ class ZampenYOLOTracker:
 
         def _draw(det: TrackedDetection, fallback_name: str):
             x1, y1, x2, y2 = det.box
-            label = det.bird_label if det.bird_label else det.class_name or fallback_name
+            if fallback_name in ("Feeder", "Drinker"):
+                label = fallback_name
+            else:
+                label = det.bird_label if det.bird_label else det.class_name or fallback_name
             color = LABEL_COLORS_BGR.get(label, LABEL_COLORS_BGR.get(det.class_name, LABEL_COLORS_BGR["Default"]))
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
             tid = f"#{det.track_id} " if det.track_id is not None else ""

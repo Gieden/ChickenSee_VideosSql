@@ -468,6 +468,63 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(resolved[:2], (8, "Rooster"))
         self.assertAlmostEqual(resolved[2], 0.94)
 
+    def test_equipment_feeder_and_drinker_labeled_correctly_and_drawn_gray(self):
+        import numpy as np
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.class_map = {0: "Chicken", 1: "Drinker", 2: "Feeder", 8: "Rooster"}
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 0
+        tracker.conf = 0.15
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.tracker_yaml = "bytetrack.yaml"
+
+        # Mock results from model.track
+        class MockBoxes:
+            xyxy = type("Tensor", (), {"cpu": lambda *args: type("A", (), {"numpy": lambda *args: np.array([[50, 50, 80, 80], [90, 90, 120, 120]])})()})()
+            conf = type("Tensor", (), {"cpu": lambda *args: type("A", (), {"numpy": lambda *args: np.array([0.97, 0.90])})()})()
+            cls = type("Tensor", (), {"int": lambda *args: type("A", (), {"cpu": lambda *args: type("B", (), {"tolist": lambda *args: [2, 1]})()})()})()
+            id = type("Tensor", (), {"int": lambda *args: type("A", (), {"cpu": lambda *args: type("B", (), {"tolist": lambda *args: [1, 2]})()})()})()
+            def __len__(self):
+                return 2
+
+        class MockResult:
+            boxes = MockBoxes()
+
+        tracker.model = type("MockModel", (), {
+            "names": tracker.class_map,
+            "track": lambda *args, **kwargs: [MockResult()]
+        })()
+
+        blank_frame = np.zeros((200, 200, 3), dtype=np.uint8)
+        frame_out = tracker.process_frame(blank_frame, frame_idx=0)
+
+        self.assertEqual(len(frame_out.feeders), 1)
+        self.assertEqual(len(frame_out.drinkers), 1)
+        self.assertEqual(len(frame_out.birds), 0)
+
+        feeder = frame_out.feeders[0]
+        self.assertEqual(feeder.class_name, "Feeder")
+        self.assertEqual(feeder.bird_label, "Feeder")
+        self.assertIsNone(feeder.track_id)
+
+        drinker = frame_out.drinkers[0]
+        self.assertEqual(drinker.class_name, "Drinker")
+        self.assertEqual(drinker.bird_label, "Drinker")
+        self.assertIsNone(drinker.track_id)
+
+        vis = tracker.annotate_frame(blank_frame, frame_out)
+        # Check that bounding box pixel is gray (128, 128, 128)
+        # Feeder box is [50, 50, 80, 80]
+        self.assertTrue(np.array_equal(vis[50, 50], [128, 128, 128]))
+
+
     def test_same_named_videos_in_separate_folders_get_distinct_jobs(self):
         now = datetime.datetime.now()
         end = now + datetime.timedelta(minutes=5)
