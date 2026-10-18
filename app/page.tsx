@@ -32,7 +32,41 @@ import {
   ChevronDown,
   TrendingUp,
   TrendingDown,
+  ListFilter,
+  CheckCircle2,
+  Loader2,
+  Layers,
+  Sparkles,
 } from 'lucide-react';
+
+interface QueueItem {
+  item_id: string;
+  video_filename: string;
+  status: 'PROCESSING' | 'QUEUED' | 'WAITING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | string;
+  progress_percent: number | null;
+  frames: string;
+  details: string | null;
+  created_at: string | null;
+}
+
+interface QueueStatusData {
+  source?: string;
+  synced_at?: string;
+  updated_at: string | null;
+  is_queueing: boolean;
+  active_video: string | null;
+  active_progress: number | null;
+  active_frames: string | null;
+  summary: {
+    processing: number;
+    queued: number;
+    waiting: number;
+    completed: number;
+    failed: number;
+    cancelled: number;
+  };
+  items: QueueItem[];
+}
 
 interface SyncedFileMeta {
   url: string;
@@ -158,7 +192,9 @@ const TIME_OPTIONS = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results'>('videos');
+  const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results' | 'queue'>('videos');
+  const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
+  const [loadingQueue, setLoadingQueue] = useState(false);
 
   const [videos, setVideos] = useState<SyncedFileMeta[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<SyncedFileMeta | null>(null);
@@ -300,21 +336,51 @@ export default function DashboardPage() {
     }
   }, [router]);
 
+  const fetchQueueStatus = useCallback(async () => {
+    try {
+      setLoadingQueue(true);
+      const res = await fetch('/api/queue');
+      if (res.status === 401) { router.push('/login'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setQueueStatus(data);
+    } catch (err) {
+      console.error('Failed to fetch queue status:', err);
+    } finally {
+      setLoadingQueue(false);
+    }
+  }, [router]);
+
   async function refreshAll() {
     setIsRefreshing(true);
     if (activeTab === 'videos') await fetchVideos();
     else if (activeTab === 'database') await fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset);
     else if (activeTab === 'results') await fetchResults();
+    else if (activeTab === 'queue') await fetchQueueStatus();
     setTimeout(() => setIsRefreshing(false), 400);
   }
 
-  useEffect(() => { fetchVideos(); fetchDatabaseData(); }, []);
+  useEffect(() => {
+    fetchVideos();
+    fetchDatabaseData();
+    fetchQueueStatus();
+    const bgPoll = setInterval(() => { fetchQueueStatus(); }, 12_000);
+    return () => clearInterval(bgPoll);
+  }, [fetchQueueStatus]);
+
   useEffect(() => {
     if (activeTab !== 'results') return;
     fetchResults();
     const refreshTimer = setInterval(() => { fetchResults(); }, 30_000);
     return () => clearInterval(refreshTimer);
   }, [activeTab, fetchResults]);
+
+  useEffect(() => {
+    if (activeTab !== 'queue') return;
+    fetchQueueStatus();
+    const queueTimer = setInterval(() => { fetchQueueStatus(); }, 3_000);
+    return () => clearInterval(queueTimer);
+  }, [activeTab, fetchQueueStatus]);
 
   async function handleLogout() {
     await fetch('/api/auth', { method: 'DELETE' });
@@ -1047,12 +1113,23 @@ export default function DashboardPage() {
               <img src="/favicon.png" alt="ChickenSee Logo" className="h-full w-full object-contain" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">ChickenSee Portal</h1>
-                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 border border-emerald-500/20">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 border border-emerald-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Optiplex Live
                 </span>
+                {queueStatus?.is_queueing ? (
+                  <span className="flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700 border border-orange-500/30 animate-pulse">
+                    <span className="h-1.5 w-1.5 rounded-full bg-orange-600" />
+                    Queueing: {queueStatus.active_video ? `${queueStatus.active_video} (${queueStatus.active_progress ?? 0}%)` : `${queueStatus.summary.queued} queued`}
+                  </span>
+                ) : (
+                  <span className="hidden sm:flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 border border-slate-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    Queue Idle
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 hidden sm:block">Automated Vercel Blob &amp; SQLite Bridge</p>
             </div>
@@ -1089,6 +1166,18 @@ export default function DashboardPage() {
               <BarChart2 className="h-4 w-4" />
               <span>Behavior Results</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{results.length}</span>
+            </button>
+            <button onClick={() => setActiveTab('queue')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+              <ListFilter className="h-4 w-4" />
+              <span>Detection Queue</span>
+              {queueStatus?.is_queueing ? (
+                <span className="flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-bold text-orange-700 border border-orange-500/30">
+                  <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
+                  Queueing ({(queueStatus.summary?.processing || 0) + (queueStatus.summary?.queued || 0)})
+                </span>
+              ) : (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Idle</span>
+              )}
             </button>
           </nav>
         </div>
@@ -1852,6 +1941,222 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* DETECTION QUEUE TAB */}
+        {activeTab === 'queue' && (
+          <div className="space-y-6">
+            {/* Live Queue Hero Card */}
+            {queueStatus?.is_queueing ? (
+              <div className="overflow-hidden rounded-2xl border border-orange-200/90 bg-gradient-to-r from-orange-50/90 via-amber-50/70 to-white p-6 shadow-md shadow-orange-500/5">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-2 max-w-2xl">
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1.5 rounded-full bg-orange-600 px-3 py-1 text-xs font-bold text-white shadow-sm shadow-orange-600/30">
+                        <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
+                        AI VISION INFERENCE ACTIVE
+                      </span>
+                      <span className="text-xs text-orange-800/80 font-medium">
+                        OptiPlex YOLO26n + ByteTrack
+                      </span>
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900 sm:text-xl">
+                      {queueStatus.active_video || 'Processing next video segment…'}
+                    </h2>
+                    <p className="text-xs sm:text-sm text-slate-600">
+                      {queueStatus.active_frames ? `Frame progress: ${queueStatus.active_frames}` : 'Analyzing frames and aggregating environmental telemetry…'}
+                    </p>
+                  </div>
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-1 text-right">
+                    <span className="text-3xl font-extrabold text-orange-700 sm:text-4xl">
+                      {queueStatus.active_progress != null ? `${queueStatus.active_progress}%` : 'In progress'}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {queueStatus.synced_at ? `Synced ${new Date(queueStatus.synced_at).toLocaleTimeString()}` : 'Live monitoring'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="mt-5 space-y-2">
+                  <div className="h-3 w-full overflow-hidden rounded-full bg-orange-200/60">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-orange-600 to-amber-500 transition-all duration-500 ease-out"
+                      style={{ width: `${Math.max(5, queueStatus.active_progress || 0)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+                      <CheckCircle2 className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-bold text-slate-900 sm:text-lg">Detection Queue is Idle</h2>
+                        <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                          Standing By
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs sm:text-sm text-slate-500">
+                        All discovered camera videos have been analyzed. The system is watching configured folders for new footage.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-400 sm:text-right">
+                    {queueStatus?.synced_at ? `Checked ${new Date(queueStatus.synced_at).toLocaleTimeString()}` : 'System ready'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Queue KPI Stat Cards */}
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="rounded-xl border border-orange-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Processing</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+                    <Activity className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-900">{queueStatus?.summary?.processing || 0}</span>
+                  <span className="text-xs text-slate-500">videos</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Queued</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    <Layers className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-900">{queueStatus?.summary?.queued || 0}</span>
+                  <span className="text-xs text-slate-500">ready</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-purple-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Waiting</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-purple-50 text-purple-600">
+                    <Clock className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-900">{queueStatus?.summary?.waiting || 0}</span>
+                  <span className="text-xs text-slate-500">writing</span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Completed</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-900">{queueStatus?.summary?.completed || 0}</span>
+                  <span className="text-xs text-slate-500">done</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Queue Item Table */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
+                <div>
+                  <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
+                  <p className="text-xs text-slate-500">
+                    Real-time queueing status from the OptiPlex daemon (metadata only; raw videos are not uploaded here).
+                  </p>
+                </div>
+                <button
+                  onClick={fetchQueueStatus}
+                  disabled={loadingQueue}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingQueue ? 'animate-spin' : ''}`} />
+                  <span>Refresh Queue</span>
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3.5">Video Name</th>
+                      <th className="px-6 py-3.5">Status</th>
+                      <th className="px-6 py-3.5">Progress</th>
+                      <th className="px-6 py-3.5">Frames Read / Total</th>
+                      <th className="px-6 py-3.5">Discovered / Queued</th>
+                      <th className="px-6 py-3.5">Pipeline Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {queueStatus?.items && queueStatus.items.length > 0 ? (
+                      queueStatus.items.map((item) => {
+                        const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
+                        let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
+                        if (statusUpper === 'PROCESSING') badgeColor = 'bg-orange-50 text-orange-700 border-orange-200 font-semibold';
+                        else if (statusUpper === 'QUEUED') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+                        else if (statusUpper === 'WAITING') badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+                        else if (statusUpper === 'COMPLETED') badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                        else if (statusUpper === 'FAILED') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+
+                        return (
+                          <tr key={item.item_id || item.video_filename} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="px-6 py-3.5 font-medium text-slate-900">
+                              <div className="flex items-center gap-2">
+                                <Video className="h-4 w-4 text-slate-400 shrink-0" />
+                                <span className="font-mono text-xs">{item.video_filename}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-3.5">
+                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] border ${badgeColor}`}>
+                                {statusUpper === 'PROCESSING' && (
+                                  <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
+                                )}
+                                {statusUpper}
+                              </span>
+                            </td>
+                            <td className="px-6 py-3.5 font-medium text-slate-700">
+                              {item.progress_percent != null ? `${item.progress_percent}%` : '—'}
+                            </td>
+                            <td className="px-6 py-3.5 text-slate-500 font-mono text-[11px]">
+                              {item.frames || '—'}
+                            </td>
+                            <td className="px-6 py-3.5 text-slate-500">
+                              {item.created_at ? new Date(item.created_at).toLocaleTimeString() : '—'}
+                            </td>
+                            <td className="px-6 py-3.5 text-slate-500 max-w-xs truncate" title={item.details || ''}>
+                              {item.details || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={6} className="py-12 text-center text-slate-400">
+                          <Layers className="mx-auto h-8 w-8 text-slate-300" />
+                          <p className="mt-2 font-medium text-slate-700">No videos currently in queue</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">
+                            Videos discovered in the watched folders appear here as they are queued and analyzed.
+                          </p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}

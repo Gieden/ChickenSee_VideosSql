@@ -51,6 +51,14 @@ def write_results_json(stem: str, payload: dict) -> Path:
     return path
 
 
+def write_queue_status_json(payload: dict) -> Path:
+    ensure_dirs()
+    path = RESULTS_DIR / "queue_status.json"
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2, default=json_default)
+    return path
+
+
 def copy_video_locally(src: str, dest_name: Optional[str] = None) -> Optional[Path]:
     """Copies a finished video into the local videos folder."""
     if not src or not os.path.isfile(src):

@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
       list({ prefix: 'videos/' }),
     ]);
     const resultBlobs = resultFiles
-      .filter((blob) => blob.pathname.toLowerCase().endsWith('.json'))
+      .filter((blob) => blob.pathname.toLowerCase().endsWith('.json') && !blob.pathname.includes('queue_status'))
       .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
       .slice(0, 50);
     const videoByPath = new Map(videoFiles.map((blob) => [blob.pathname, blob]));

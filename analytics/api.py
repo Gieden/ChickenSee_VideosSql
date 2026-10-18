@@ -320,19 +320,55 @@ def get_detection_queue(limit: int = Query(default=100, le=500)):
     ]
     history_items.sort(key=lambda item: item["created_at"] or "", reverse=True)
     items = (active_items + pending_items + history_items)[:limit]
+    summary = {
+        "processing": sum(item["status"] == "PROCESSING" for item in items),
+        "queued": sum(item["status"] == "QUEUED" for item in items),
+        "waiting": sum(item["status"] == "WAITING" for item in items),
+        "completed": sum(item["status"] == "COMPLETED" for item in items),
+        "failed": sum(item["status"] == "FAILED" for item in items),
+        "cancelled": sum(item["status"] == "CANCELLED" for item in items),
+    }
+
+    try:
+        from local_store import write_queue_status_json
+        active = active_items[0] if active_items else None
+        write_queue_status_json({
+            "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "is_queueing": (summary["processing"] + summary["queued"] + summary["waiting"]) > 0,
+            "active_video": active.get("video_filename") if active else None,
+            "active_progress": active.get("progress_percent") if active else None,
+            "active_frames": (
+                f"{active.get('progress_frames', 0)} / {active.get('total_frames', 0)}"
+                if active and active.get("total_frames")
+                else None
+            ),
+            "summary": summary,
+            "items": [
+                {
+                    "item_id": it.get("item_id"),
+                    "video_filename": it.get("video_filename"),
+                    "status": it.get("status"),
+                    "progress_percent": it.get("progress_percent"),
+                    "frames": (
+                        f"{it.get('progress_frames', 0)} / {it.get('total_frames', 0)}"
+                        if it.get("total_frames")
+                        else "—"
+                    ),
+                    "details": it.get("details"),
+                    "created_at": it.get("created_at"),
+                }
+                for it in items[:40]
+            ],
+        })
+    except Exception:
+        pass
+
     return {
         "items": items,
         "warnings": warnings,
         "watch_directories": active_video_dirs,
         "missing_watch_directories": missing_video_dirs,
-        "summary": {
-            "processing": sum(item["status"] == "PROCESSING" for item in items),
-            "queued": sum(item["status"] == "QUEUED" for item in items),
-            "waiting": sum(item["status"] == "WAITING" for item in items),
-            "completed": sum(item["status"] == "COMPLETED" for item in items),
-            "failed": sum(item["status"] == "FAILED" for item in items),
-            "cancelled": sum(item["status"] == "CANCELLED" for item in items),
-        },
+        "summary": summary,
     }
 
 

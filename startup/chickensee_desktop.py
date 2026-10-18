@@ -57,16 +57,23 @@ REFRESH_INTERVAL_MS = 2000
 POWERSHELL = "powershell.exe"
 
 COLORS = {
-    "background": "#f3f6fb",
+    "background": "#f8fafc",
     "surface": "#ffffff",
-    "ink": "#172033",
-    "muted": "#65738b",
-    "primary": "#3157d5",
-    "primary_hover": "#2546b8",
-    "green": "#168454",
-    "red": "#c43c4a",
-    "border": "#dce3ef",
-    "soft_blue": "#e9efff",
+    "ink": "#0f172a",
+    "muted": "#64748b",
+    "primary": "#ea580c",
+    "primary_hover": "#c2410c",
+    "primary_soft": "#fff7ed",
+    "green": "#10b981",
+    "green_hover": "#059669",
+    "green_soft": "#ecfdf5",
+    "red": "#ef4444",
+    "red_hover": "#dc2626",
+    "red_soft": "#fef2f2",
+    "amber": "#f59e0b",
+    "amber_soft": "#fffbeb",
+    "border": "#e2e8f0",
+    "soft_blue": "#fff7ed",
 }
 
 SUPERVISOR_SCRIPT = Path("startup") / "run-chickensee.ps1"
@@ -288,7 +295,7 @@ class ChickenSeeDesktop:
             "Title.TLabel",
             background=COLORS["background"],
             foreground=COLORS["ink"],
-            font=("Segoe UI Semibold", 24),
+            font=("Segoe UI Semibold", 22),
         )
         style.configure(
             "Subtitle.TLabel",
@@ -301,58 +308,132 @@ class ChickenSeeDesktop:
             padding=(12, 8),
             font=("Segoe UI Semibold", 10),
             borderwidth=0,
+            focuscolor="none",
         )
         style.configure(
             "Primary.TButton",
             background=COLORS["primary"],
             foreground="#ffffff",
+            padding=(14, 8),
+            font=("Segoe UI Semibold", 10),
         )
         style.map("Primary.TButton", background=[("active", COLORS["primary_hover"])])
+        style.configure(
+            "Secondary.TButton",
+            background="#ffffff",
+            foreground=COLORS["ink"],
+            bordercolor=COLORS["border"],
+            borderwidth=1,
+            relief="solid",
+            padding=(14, 7),
+            font=("Segoe UI Semibold", 9),
+            focuscolor="none",
+        )
+        style.map("Secondary.TButton", background=[("active", "#f8fafc")])
+        style.configure(
+            "Cancel.TButton",
+            background=COLORS["red_soft"],
+            foreground=COLORS["red"],
+            bordercolor="#fecaca",
+            borderwidth=1,
+            relief="solid",
+            padding=(10, 5),
+            font=("Segoe UI Semibold", 9),
+            focuscolor="none",
+        )
+        style.map("Cancel.TButton", background=[("active", "#fee2e2"), ("disabled", "#f1f5f9")])
         style.configure(
             "Stop.TButton",
             background=COLORS["red"],
             foreground="#ffffff",
-            padding=(16, 11),
-            font=("Segoe UI Semibold", 11),
+            padding=(16, 10),
+            font=("Segoe UI Semibold", 10),
+            focuscolor="none",
         )
         style.map(
             "Stop.TButton",
             background=[
-                ("disabled", "#b8c0cc"),
-                ("active", "#a92e3b"),
+                ("disabled", "#cbd5e1"),
+                ("active", COLORS["red_hover"]),
             ],
-            foreground=[("disabled", "#eef1f5")],
+            foreground=[("disabled", "#ffffff")],
         )
         style.configure(
             "Start.TButton",
             background=COLORS["green"],
             foreground="#ffffff",
-            padding=(16, 11),
-            font=("Segoe UI Semibold", 11),
+            padding=(16, 10),
+            font=("Segoe UI Semibold", 10),
+            focuscolor="none",
         )
         style.map(
             "Start.TButton",
             background=[
-                ("disabled", "#b8c0cc"),
-                ("active", "#106b43"),
+                ("disabled", "#cbd5e1"),
+                ("active", COLORS["green_hover"]),
             ],
-            foreground=[("disabled", "#eef1f5")],
+            foreground=[("disabled", "#ffffff")],
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
         style.configure(
             "TNotebook.Tab",
-            padding=(18, 10),
-            background=COLORS["background"],
+            padding=(20, 10),
+            background="#e2e8f0",
             foreground=COLORS["muted"],
             font=("Segoe UI Semibold", 10),
+            focuscolor="none",
+            borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
             background=[("selected", COLORS["surface"])],
             foreground=[("selected", COLORS["primary"])],
         )
-        style.configure("Treeview", rowheight=28, font=("Segoe UI", 10))
-        style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9))
+        style.configure(
+            "TLabelframe",
+            background=COLORS["surface"],
+            bordercolor=COLORS["border"],
+            relief="solid",
+            borderwidth=1,
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI Semibold", 10),
+        )
+        style.configure(
+            "Treeview",
+            background=COLORS["surface"],
+            fieldbackground=COLORS["surface"],
+            foreground=COLORS["ink"],
+            bordercolor=COLORS["border"],
+            borderwidth=1,
+            rowheight=34,
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Treeview.Heading",
+            background="#f1f5f9",
+            foreground="#334155",
+            font=("Segoe UI Semibold", 9),
+            relief="flat",
+            borderwidth=0,
+            padding=(8, 8),
+        )
+        style.map("Treeview.Heading", background=[("active", "#e2e8f0")])
+        style.map("Treeview", background=[("selected", "#ffedd5")], foreground=[("selected", "#9a3412")])
+        style.configure(
+            "Horizontal.TProgressbar",
+            troughcolor="#f1f5f9",
+            background=COLORS["primary"],
+            bordercolor="#e2e8f0",
+            lightcolor=COLORS["primary"],
+            darkcolor=COLORS["primary"],
+            relief="flat",
+            borderwidth=0,
+            thickness=10,
+        )
 
     def _apply_window_icon(self) -> None:
         icon_ico = PROJECT_ROOT / "favicon.ico"
@@ -589,42 +670,90 @@ class ChickenSeeDesktop:
             text="Videos are ordered by the analyzer’s oldest-first discovery. Waiting files do not show a fabricated percentage.",
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(4, 0))
-        ttk.Button(heading, text="Refresh now", command=self._refresh_status).pack(
-            side="right", anchor="n"
-        )
+        ttk.Button(
+            heading,
+            text="Refresh now",
+            style="Secondary.TButton",
+            command=self._refresh_status,
+        ).pack(side="right", anchor="n")
 
-        current = ttk.LabelFrame(self.queue_page, text="Current analysis", padding=14)
-        current.pack(fill="x", pady=(16, 12))
-        current_header = ttk.Frame(current)
-        current_header.pack(fill="x")
-        self.queue_active_label = ttk.Label(
-            current_header, text="No active analysis", font=("Segoe UI Semibold", 11)
+        current = tk.Frame(
+            self.queue_page,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
         )
-        self.queue_active_label.pack(side="left", anchor="w", fill="x", expand=True)
+        current.pack(fill="x", pady=(16, 14))
+
+        meta_row = tk.Frame(current, bg=COLORS["surface"])
+        meta_row.pack(fill="x")
+        tk.Label(
+            meta_row,
+            text="CURRENT ANALYSIS",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+        self.queue_status_badge = tk.Label(
+            meta_row,
+            text="● IDLE",
+            bg=COLORS["green_soft"],
+            fg=COLORS["green"],
+            font=("Segoe UI Semibold", 8),
+            padx=8,
+            pady=2,
+        )
+        self.queue_status_badge.pack(side="right")
+
+        current_header = tk.Frame(current, bg=COLORS["surface"])
+        current_header.pack(fill="x", pady=(6, 0))
+        self.queue_active_label = tk.Label(
+            current_header,
+            text="No active analysis",
+            bg=COLORS["surface"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 13),
+        )
+        self.queue_active_label.pack(side="left", anchor="w")
         self.cancel_analysis_button = ttk.Button(
             current_header,
             text="Cancel analysis",
+            style="Cancel.TButton",
             command=self._cancel_active_analysis,
             state="disabled",
         )
         self.cancel_analysis_button.pack(side="right")
+
         self.queue_progress = ttk.Progressbar(
             current, orient="horizontal", mode="determinate", maximum=100
         )
-        self.queue_progress.pack(fill="x", pady=(8, 4))
-        self.queue_summary = ttk.Label(
-            current, text="Waiting for queue data…", style="Subtitle.TLabel"
+        self.queue_progress.pack(fill="x", pady=(10, 6))
+        self.queue_summary = tk.Label(
+            current,
+            text="Waiting for queue data…",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+            justify="left",
         )
-        self.queue_summary.pack(anchor="w")
+        self.queue_summary.pack(fill="x")
 
-        table_frame = ttk.Frame(self.queue_page)
+        table_frame = tk.Frame(
+            self.queue_page,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
         table_frame.pack(fill="both", expand=True)
         columns = ("video", "status", "progress", "frames", "details")
         self.queue_tree = ttk.Treeview(
             table_frame, columns=columns, show="headings", height=16
         )
         for key, label, width in (
-            ("video", "Video", 230),
+            ("video", "Video", 240),
             ("status", "Status", 130),
             ("progress", "Progress", 90),
             ("frames", "Frames read / total", 145),
@@ -632,7 +761,7 @@ class ChickenSeeDesktop:
         ):
             self.queue_tree.heading(key, text=label)
             self.queue_tree.column(key, width=width, anchor="w")
-        self.queue_tree.tag_configure("processing", foreground=COLORS["primary"])
+        self.queue_tree.tag_configure("processing", foreground=COLORS["primary"], font=("Segoe UI Semibold", 10))
         self.queue_tree.tag_configure("queued", foreground=COLORS["ink"])
         self.queue_tree.tag_configure("waiting", foreground=COLORS["muted"])
         self.queue_tree.tag_configure("cancelled", foreground=COLORS["muted"])
@@ -1384,11 +1513,16 @@ class ChickenSeeDesktop:
         for item_id in self.queue_tree.get_children():
             self.queue_tree.delete(item_id)
         if not queue_data:
-            self.queue_active_label.configure(text="Queue unavailable")
+            self.queue_active_label.configure(text="Queue Offline — Services Stopped or Starting")
+            if hasattr(self, "queue_status_badge"):
+                self.queue_status_badge.configure(
+                    text="● OFFLINE", bg=COLORS["red_soft"], fg=COLORS["red"]
+                )
             self.queue_progress.configure(value=0)
             self.queue_summary.configure(
-                text=f"Could not load the detection queue: {queue_error or 'No queue data returned.'}"
+                text="Start ChickenSee services on the Dashboard tab to begin automatic video detection and queue processing."
             )
+            self._save_queue_status_for_sync(None)
             return
 
         items = queue_data.get("items", [])
@@ -1402,6 +1536,10 @@ class ChickenSeeDesktop:
             self.queue_active_label.configure(
                 text=f"{active.get('video_filename', 'Video')}  ·  {progress_text}"
             )
+            if hasattr(self, "queue_status_badge"):
+                self.queue_status_badge.configure(
+                    text="● PROCESSING", bg="#fff7ed", fg=COLORS["primary"]
+                )
             self.queue_progress.configure(value=percentage or 0)
             self.cancel_analysis_button.configure(
                 state="disabled" if self.cancel_in_progress else "normal",
@@ -1409,7 +1547,11 @@ class ChickenSeeDesktop:
             )
         else:
             self.active_job_id = None
-            self.queue_active_label.configure(text="No active analysis")
+            self.queue_active_label.configure(text="No active analysis — Standby")
+            if hasattr(self, "queue_status_badge"):
+                self.queue_status_badge.configure(
+                    text="● IDLE", bg=COLORS["green_soft"], fg=COLORS["green"]
+                )
             self.queue_progress.configure(value=0)
             self.cancel_analysis_button.configure(state="disabled", text="Cancel analysis")
 
@@ -1438,6 +1580,8 @@ class ChickenSeeDesktop:
         for warning in queue_data.get("warnings", []):
             self.queue_summary.configure(text=f"{self.queue_summary.cget('text')}  ·  {warning}")
 
+        self._save_queue_status_for_sync(queue_data)
+
         for item in items:
             status = item.get("status", "UNKNOWN")
             progress = format_queue_progress(status, item.get("progress_percent"))
@@ -1458,6 +1602,67 @@ class ChickenSeeDesktop:
                 ),
                 tags=(status.lower(),),
             )
+
+    def _save_queue_status_for_sync(self, queue_data: Optional[Dict[str, Any]]) -> None:
+        try:
+            storage_root = self.settings.get("storage_root", DEFAULT_STORAGE_ROOT)
+            results_dir = Path(str(storage_root)).expanduser() / "results"
+            results_dir.mkdir(parents=True, exist_ok=True)
+            status_file = results_dir / "queue_status.json"
+
+            if not queue_data:
+                payload = {
+                    "updated_at": datetime.utcnow().isoformat() + "Z",
+                    "is_queueing": False,
+                    "active_video": None,
+                    "active_progress": None,
+                    "active_frames": None,
+                    "summary": {
+                        "processing": 0,
+                        "queued": 0,
+                        "waiting": 0,
+                        "completed": 0,
+                        "failed": 0,
+                        "cancelled": 0,
+                    },
+                    "items": [],
+                }
+            else:
+                summary = queue_data.get("summary", {})
+                items = queue_data.get("items", [])
+                active = next((it for it in items if it.get("status") == "PROCESSING"), None)
+                payload = {
+                    "updated_at": datetime.utcnow().isoformat() + "Z",
+                    "is_queueing": (summary.get("processing", 0) + summary.get("queued", 0) + summary.get("waiting", 0)) > 0,
+                    "active_video": active.get("video_filename") if active else None,
+                    "active_progress": active.get("progress_percent") if active else None,
+                    "active_frames": (
+                        f"{active.get('progress_frames', 0)} / {active.get('total_frames', 0)}"
+                        if active and active.get("total_frames")
+                        else None
+                    ),
+                    "summary": summary,
+                    "items": [
+                        {
+                            "item_id": it.get("item_id"),
+                            "video_filename": it.get("video_filename"),
+                            "status": it.get("status"),
+                            "progress_percent": it.get("progress_percent"),
+                            "frames": (
+                                f"{it.get('progress_frames', 0)} / {it.get('total_frames', 0)}"
+                                if it.get("total_frames")
+                                else "—"
+                            ),
+                            "details": it.get("details"),
+                            "created_at": it.get("created_at"),
+                        }
+                        for it in items[:40]
+                    ],
+                }
+
+            status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
     def _set_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"
