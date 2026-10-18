@@ -94,6 +94,8 @@ class BehaviorAnalysisEngine:
         self.feather_pecking_events: int = 0
         self.total_frames_in_chunk: int = 0
         self.bird_frame_counts: List[int] = []
+        self.pecking_cooldowns: Dict[Tuple[int, int], float] = {}
+        self.current_chunk_elapsed_s: float = 0.0
 
     def reset_chunk(self):
         """Resets tracking accumulators for a new 30-minute interval."""
@@ -101,6 +103,8 @@ class BehaviorAnalysisEngine:
         self.feather_pecking_events = 0
         self.total_frames_in_chunk = 0
         self.bird_frame_counts.clear()
+        self.pecking_cooldowns.clear()
+        self.current_chunk_elapsed_s = 0.0
 
     @staticmethod
     def _calc_euclidean(p1: Tuple[int, int], p2: Tuple[int, int]) -> float:
@@ -124,6 +128,7 @@ class BehaviorAnalysisEngine:
             dt = 1.0 / 15.0
 
         self.total_frames_in_chunk += 1
+        self.current_chunk_elapsed_s += dt
         current_birds = frame_out.birds
         self.bird_frame_counts.append(len(current_birds))
 
@@ -222,7 +227,7 @@ class BehaviorAnalysisEngine:
         # -------------------------------------------------------------
         # Metric 4: Feather Pecking Logic (Inter-Bird Spatial Interactions)
         # -------------------------------------------------------------
-        # Detect rapid approach + close proximity overlap + victim escape burst
+        # Detect true rapid approach + close proximity overlap + victim escape burst with cooldown
         n_birds = len(current_birds)
         if n_birds >= 2:
             for i in range(n_birds):
@@ -243,14 +248,21 @@ class BehaviorAnalysisEngine:
                             continue
                         state_b = self.bird_states[tid_b]
 
+                        # Check pair cooldown (2.5 seconds) to avoid counting consecutive video frames as separate events
+                        pair_key = (min(tid_a, tid_b), max(tid_a, tid_b))
+                        last_peck_time = self.pecking_cooldowns.get(pair_key, -999.0)
+                        if self.current_chunk_elapsed_s - last_peck_time < 2.5:
+                            continue
+
                         # Condition B: Inter-bird proximity is very close (< 45px or bounding box overlap)
                         dist = self._calc_euclidean(bird_a.centroid, bird_b.centroid)
                         if dist <= self.cfg.feather_pecking_proximity_px:
-                            # Condition C: Victim accelerates away rapidly
-                            if state_b.velocity_px_s >= self.cfg.feather_pecking_escape_speed_px_s or dist < 25.0:
+                            # Condition C: Victim accelerates away rapidly (requires genuine escape burst, not passive huddle)
+                            if state_b.velocity_px_s >= self.cfg.feather_pecking_escape_speed_px_s:
                                 self.feather_pecking_events += 1
                                 state_a.pecking_aggressor_count += 1
                                 state_b.pecking_victim_count += 1
+                                self.pecking_cooldowns[pair_key] = self.current_chunk_elapsed_s
 
     def compute_chunk_summary(self) -> BehaviorChunkSummary:
         """

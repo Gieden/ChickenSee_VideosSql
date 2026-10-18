@@ -227,10 +227,10 @@ export default function DashboardPage() {
   // ── Results Dashboard State (Mockup UI Parameters) ──
   const [reportTimeRange, setReportTimeRange] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Annually' | 'Custom'>('Custom');
   const [customRangeMode, setCustomRangeMode] = useState<'specific' | 'range'>('specific');
-  const [selectedSpecificDate, setSelectedSpecificDate] = useState('Aug 1, 2026');
+  const [selectedSpecificDate, setSelectedSpecificDate] = useState('All Dates');
   const [specificStartTime, setSpecificStartTime] = useState('6:00 AM');
-  const [specificEndTime, setSpecificEndTime] = useState('10:00 AM');
-  const [selectedDateRange, setSelectedDateRange] = useState('Aug 1-Aug 8');
+  const [specificEndTime, setSpecificEndTime] = useState('6:00 PM');
+  const [selectedDateRange, setSelectedDateRange] = useState('All Recorded');
   const [rangeStartTime, setRangeStartTime] = useState('6:00 AM');
   const [rangeEndTime, setRangeEndTime] = useState('6:00 PM');
   const [selectedChickenProfile, setSelectedChickenProfile] = useState<string>('All Chickens');
@@ -364,9 +364,10 @@ export default function DashboardPage() {
     fetchVideos();
     fetchDatabaseData();
     fetchQueueStatus();
+    fetchResults();
     const bgPoll = setInterval(() => { fetchQueueStatus(); }, 12_000);
     return () => clearInterval(bgPoll);
-  }, [fetchQueueStatus]);
+  }, [fetchQueueStatus, fetchResults]);
 
   useEffect(() => {
     if (activeTab !== 'results') return;
@@ -402,6 +403,18 @@ export default function DashboardPage() {
 
   const dateFilteredResults = results.filter((result) => {
     const resultDate = result.chunk_start.slice(0, 10);
+    if (reportTimeRange === 'Custom') {
+      if (customRangeMode === 'specific' && selectedSpecificDate && selectedSpecificDate !== 'All Dates') {
+        try {
+          const itemDateStr = new Date(result.chunk_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          if (itemDateStr !== selectedSpecificDate) {
+            return false;
+          }
+        } catch {
+          // Ignore parse error
+        }
+      }
+    }
     return (!reportStartDate || resultDate >= reportStartDate) &&
       (!reportEndDate || resultDate <= reportEndDate);
   });
@@ -576,37 +589,32 @@ export default function DashboardPage() {
     )
   );
 
-  const hasRealData = reportRows.length > 0 && reportRows.some(
-    r => (r.reduced_eating_events || 0) + (r.feather_pecking_count || 0) + (r.inactive_count || 0) + (r.drinking_count || 0) > 0
-  );
+  const rawReducedFeeding = reportRows.reduce((sum, r) => sum + (r.reduced_eating_events || 0), 0);
+  const rawReducedDrinking = reportRows.reduce((sum, r) => sum + Math.round((r.drinking_count || 0) * 0.4), 0);
+  const rawFeatherPecking = reportRows.reduce((sum, r) => sum + (r.feather_pecking_count || 0), 0);
+  const rawInactivity = reportRows.reduce((sum, r) => sum + (r.inactive_count || 0), 0);
 
-  const rawReducedFeeding = hasRealData
-    ? reportRows.reduce((sum, r) => sum + (r.reduced_eating_events || 0), 0)
-    : 89;
-  const rawReducedDrinking = hasRealData
-    ? reportRows.reduce((sum, r) => sum + Math.round((r.drinking_count || 0) * 0.4), 0)
-    : 76;
-  const rawFeatherPecking = hasRealData
-    ? reportRows.reduce((sum, r) => sum + (r.feather_pecking_count || 0), 0)
-    : 112;
-  const rawInactivity = hasRealData
-    ? reportRows.reduce((sum, r) => sum + (r.inactive_count || 0), 0)
-    : 78;
+  const totalStressEvents = rawReducedFeeding + rawReducedDrinking + rawFeatherPecking + rawInactivity;
 
-  const totalStressEvents = rawReducedFeeding + rawReducedDrinking + rawFeatherPecking + rawInactivity || 1;
-
-  const feedingPct = ((rawReducedFeeding / totalStressEvents) * 100).toFixed(1);
-  const drinkingPct = ((rawReducedDrinking / totalStressEvents) * 100).toFixed(1);
-  const peckingPct = ((rawFeatherPecking / totalStressEvents) * 100).toFixed(1);
-  const inactivityPct = ((rawInactivity / totalStressEvents) * 100).toFixed(1);
+  const feedingPct = totalStressEvents > 0 ? ((rawReducedFeeding / totalStressEvents) * 100).toFixed(1) : '0.0';
+  const drinkingPct = totalStressEvents > 0 ? ((rawReducedDrinking / totalStressEvents) * 100).toFixed(1) : '0.0';
+  const peckingPct = totalStressEvents > 0 ? ((rawFeatherPecking / totalStressEvents) * 100).toFixed(1) : '0.0';
+  const inactivityPct = totalStressEvents > 0 ? ((rawInactivity / totalStressEvents) * 100).toFixed(1) : '0.0';
 
   const behaviorList = [
-    { name: 'Feather Pecking', count: rawFeatherPecking, share: peckingPct, desc: 'Feather Pecking is the dominant stress behavior observed during the selected reporting window.' },
-    { name: 'Reduced Feeding', count: rawReducedFeeding, share: feedingPct, desc: 'Reduced Feeding is the dominant stress behavior observed during the selected reporting window.' },
-    { name: 'Inactivity', count: rawInactivity, share: inactivityPct, desc: 'Inactivity is the dominant stress behavior observed during the selected reporting window.' },
-    { name: 'Reduced Drinking', count: rawReducedDrinking, share: drinkingPct, desc: 'Reduced Drinking is the dominant stress behavior observed during the selected reporting window.' },
+    { name: 'Feather Pecking', count: rawFeatherPecking, share: peckingPct, desc: 'Feather Pecking aggression events observed during the selected reporting window.' },
+    { name: 'Reduced Feeding', count: rawReducedFeeding, share: feedingPct, desc: 'Reduced Feeding events observed during the selected reporting window.' },
+    { name: 'Inactivity', count: rawInactivity, share: inactivityPct, desc: 'Inactivity and lethargy flags observed during the selected reporting window.' },
+    { name: 'Reduced Drinking', count: rawReducedDrinking, share: drinkingPct, desc: 'Reduced Drinking events observed during the selected reporting window.' },
   ];
-  const dominantBehavior = [...behaviorList].sort((a, b) => b.count - a.count)[0];
+  const dominantBehavior = totalStressEvents > 0
+    ? [...behaviorList].sort((a, b) => b.count - a.count)[0]
+    : {
+        name: 'Normal Activity',
+        count: 0,
+        share: '0.0',
+        desc: 'No stress or aggressive pecking behaviors detected during the selected reporting window. Flock displays healthy baseline activity.',
+      };
 
   function exportReportImage(format: 'png' | 'jpeg') {
     const canvas = document.createElement('canvas');
@@ -1461,21 +1469,12 @@ export default function DashboardPage() {
                         onChange={(e) => setSelectedSpecificDate(e.target.value)}
                         className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3.5 py-2 pr-9 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-orange-500"
                       >
-                        <option value="Aug 1, 2026">Aug 1, 2026</option>
-                        <option value="Aug 2, 2026">Aug 2, 2026</option>
-                        <option value="Aug 3, 2026">Aug 3, 2026</option>
-                        <option value="Aug 4, 2026">Aug 4, 2026</option>
-                        <option value="Aug 5, 2026">Aug 5, 2026</option>
-                        <option value="Aug 6, 2026">Aug 6, 2026</option>
-                        <option value="Aug 7, 2026">Aug 7, 2026</option>
-                        <option value="Aug 8, 2026">Aug 8, 2026</option>
-                        {availableDates
-                          .filter((d) => !['Aug 1, 2026', 'Aug 2, 2026', 'Aug 3, 2026', 'Aug 4, 2026', 'Aug 5, 2026', 'Aug 6, 2026', 'Aug 7, 2026', 'Aug 8, 2026'].includes(d))
-                          .map((d) => (
-                            <option key={d} value={d}>
-                              {d}
-                            </option>
-                          ))}
+                        <option value="All Dates">All Recorded Dates ({results.length} intervals)</option>
+                        {availableDates.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                     </div>
@@ -1728,9 +1727,18 @@ export default function DashboardPage() {
                       <span className="text-2xl sm:text-3xl font-black text-slate-900">{rawFeatherPecking}</span>
                       <span className="text-xs font-bold text-orange-500">events ({peckingPct}%)</span>
                     </div>
-                    <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-orange-600">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      <span>up 5.1%</span>
+                    <p className={`mt-1 flex items-center gap-1 text-[11px] font-semibold ${rawFeatherPecking > 10 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {rawFeatherPecking > 10 ? (
+                        <>
+                          <TrendingUp className="h-3.5 w-3.5" />
+                          <span>elevated activity</span>
+                        </>
+                      ) : (
+                        <>
+                          <TrendingDown className="h-3.5 w-3.5" />
+                          <span>normal baseline</span>
+                        </>
+                      )}
                     </p>
                   </div>
                   {/* Orange Sparkline */}
