@@ -60,12 +60,17 @@ if ($NodePackageExitCode -ne 0) {
     throw "Sync-agent packages could not be loaded. Run 'npm ci' from $AgentDir."
 }
 
+$IconPath = Join-Path $ProjectRoot "favicon.ico"
+
 $Shell = New-Object -ComObject WScript.Shell
 $Shortcut = $Shell.CreateShortcut($ShortcutPath)
 $Shortcut.TargetPath = (Get-Command powershell.exe -ErrorAction Stop).Source
 $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunnerPath`""
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.Description = "Start ChickenSee sync agent and analytics services at sign-in"
+if (Test-Path $IconPath) {
+    $Shortcut.IconLocation = "$IconPath,0"
+}
 $Shortcut.Save()
 
 $DesktopShortcut = $Shell.CreateShortcut($DesktopShortcutPath)
@@ -73,6 +78,9 @@ $DesktopShortcut.TargetPath = $PythonWindowed
 $DesktopShortcut.Arguments = "`"$DesktopAppPath`""
 $DesktopShortcut.WorkingDirectory = $ProjectRoot
 $DesktopShortcut.Description = "ChickenSee local analysis and sync control center"
+if (Test-Path $IconPath) {
+    $DesktopShortcut.IconLocation = "$IconPath,0"
+}
 $DesktopShortcut.Save()
 
 $LegacyShortcut = Join-Path $StartupFolder "ChickenSeeAgent.lnk"

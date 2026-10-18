@@ -4,6 +4,18 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'ChickenSee Synced Portal | Optiplex & Vercel Blob',
   description: 'Vercel portal for synchronized poultry behavior reports, environmental sensor readings, videos, and SQLite data',
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/favicon.png', type: 'image/png' },
+      { url: '/icon.png', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/apple-touch-icon.png' },
+      { url: '/apple-icon.png' },
+    ],
+    shortcut: ['/favicon.ico'],
+  },
 };
 
 export default function RootLayout({

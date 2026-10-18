@@ -5,10 +5,15 @@ import { AUTH_COOKIE_NAME } from './lib/auth';
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow static files, login page, and sync API endpoint
+  // Allow static files, favicons, login page, and sync API endpoint
   if (
     pathname.startsWith('/_next') ||
-    pathname.startsWith('/favicon.ico') ||
+    pathname.startsWith('/favicon.') ||
+    pathname.startsWith('/icon.') ||
+    pathname.startsWith('/apple-touch-icon') ||
+    pathname.startsWith('/apple-icon') ||
+    pathname.startsWith('/logo.') ||
+    /\.(?:png|jpg|jpeg|gif|webp|ico|svg)$/i.test(pathname) ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/api/sync') ||
     pathname.startsWith('/api/cron') ||
@@ -30,5 +35,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|favicon.png|icon.png|apple-touch-icon.png|logo.png).*)'],
 };

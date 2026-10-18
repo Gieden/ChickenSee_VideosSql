@@ -1043,8 +1043,8 @@ export default function DashboardPage() {
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-orange-600 to-orange-500 shadow-md shadow-orange-500/20">
-              <Server className="h-5 w-5 text-white" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-orange-200/80 bg-white p-1 shadow-sm shadow-orange-500/10">
+              <img src="/favicon.png" alt="ChickenSee Logo" className="h-full w-full object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">

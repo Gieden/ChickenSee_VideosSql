@@ -43,8 +43,8 @@ function LoginForm() {
   return (
     <div className="w-full max-w-md rounded-2xl border border-orange-100 bg-white p-8 shadow-xl">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-orange-100 bg-orange-50 text-orange-700">
-          <Lock className="h-7 w-7" />
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-orange-200/80 bg-white p-1.5 shadow-md shadow-orange-500/10">
+          <img src="/favicon.png" alt="ChickenSee Logo" className="h-full w-full object-contain" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">ChickenSee Portal</h1>
         <p className="mt-2 text-sm text-slate-400">

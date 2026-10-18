@@ -15,6 +15,18 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
 
+try:
+    import ctypes
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ChickenSee.ControlCenter.App")
+except Exception:
+    pass
+
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    Image = None
+    ImageTk = None
+
 import psutil
 
 if __package__:
@@ -246,6 +258,7 @@ class ChickenSeeDesktop:
         self.root.minsize(900, 650)
         self.root.configure(bg=COLORS["background"])
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self._apply_window_icon()
         self.events: "queue.Queue[tuple]" = queue.Queue()
         self.refresh_in_progress = False
         self.refresh_pending = False
@@ -341,14 +354,68 @@ class ChickenSeeDesktop:
         style.configure("Treeview", rowheight=28, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", font=("Segoe UI Semibold", 9))
 
+    def _apply_window_icon(self) -> None:
+        icon_ico = PROJECT_ROOT / "favicon.ico"
+        icon_png = PROJECT_ROOT / "favicon.png"
+        if not icon_ico.is_file():
+            icon_ico = Path(__file__).resolve().parent / "favicon.ico"
+        if not icon_png.is_file():
+            icon_png = Path(__file__).resolve().parent / "favicon.png"
+
+        if icon_ico.is_file():
+            try:
+                self.root.iconbitmap(default=str(icon_ico))
+            except Exception:
+                try:
+                    self.root.iconbitmap(str(icon_ico))
+                except Exception:
+                    pass
+
+        if icon_png.is_file():
+            try:
+                self._icon_photo = tk.PhotoImage(file=str(icon_png))
+                self.root.iconphoto(True, self._icon_photo)
+            except Exception:
+                if Image and ImageTk:
+                    try:
+                        pil_img = Image.open(icon_png)
+                        self._icon_photo = ImageTk.PhotoImage(pil_img)
+                        self.root.iconphoto(True, self._icon_photo)
+                    except Exception:
+                        pass
+
     def _build_layout(self) -> None:
         header = ttk.Frame(self.root, padding=(28, 22, 28, 12))
         header.pack(fill="x")
         heading = ttk.Frame(header)
         heading.pack(side="left", fill="x", expand=True)
-        ttk.Label(heading, text="ChickenSee", style="Title.TLabel").pack(anchor="w")
+
+        brand_row = ttk.Frame(heading)
+        brand_row.pack(side="left", fill="x")
+
+        self._header_logo_photo = None
+        icon_png = PROJECT_ROOT / "favicon.png"
+        if not icon_png.is_file():
+            icon_png = Path(__file__).resolve().parent / "favicon.png"
+        if icon_png.is_file() and Image and ImageTk:
+            try:
+                logo_raw = Image.open(icon_png).resize((50, 50), Image.Resampling.LANCZOS)
+                self._header_logo_photo = ImageTk.PhotoImage(logo_raw)
+                logo_label = tk.Label(
+                    brand_row,
+                    image=self._header_logo_photo,
+                    bg=COLORS["background"],
+                    bd=0,
+                )
+                logo_label.pack(side="left", padx=(0, 14))
+            except Exception:
+                pass
+
+        titles = ttk.Frame(brand_row)
+        titles.pack(side="left")
+        ttk.Label(titles, text="ChickenSee", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
-            heading,
+            titles,
             text="Video analysis and sync at a glance",
             style="Subtitle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
