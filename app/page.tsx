@@ -2071,13 +2071,22 @@ export default function DashboardPage() {
             </div>
 
             {/* Queue Item Table */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4">
-                <div>
-                  <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
-                  <p className="text-xs text-slate-500">
-                    Real-time queueing status from the OptiPlex daemon (metadata only; raw videos are not uploaded here).
-                  </p>
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
+              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4 bg-white shrink-0">
+                <div className="flex items-center gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
+                      {queueStatus?.items && queueStatus.items.length > 0 && (
+                        <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                          {queueStatus.items.length} {queueStatus.items.length === 1 ? 'entry' : 'entries'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Real-time queueing status from the OptiPlex daemon (metadata only; raw videos are not uploaded here).
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={fetchQueueStatus}
@@ -2089,9 +2098,10 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="border-b border-slate-100 bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              {/* Scrollable Container with fixed max-height to handle incrementing queue items */}
+              <div className="max-h-[460px] overflow-x-auto overflow-y-auto divide-y divide-slate-100">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur text-[11px] font-semibold uppercase tracking-wider text-slate-600 shadow-sm">
                     <tr>
                       <th className="px-6 py-3.5">Video Name</th>
                       <th className="px-6 py-3.5">Status</th>
@@ -2101,7 +2111,7 @@ export default function DashboardPage() {
                       <th className="px-6 py-3.5">Pipeline Details</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 bg-white">
                     {queueStatus?.items && queueStatus.items.length > 0 ? (
                       queueStatus.items.map((item) => {
                         const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
@@ -2157,6 +2167,18 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Summary Footer */}
+              {queueStatus?.items && queueStatus.items.length > 0 && (
+                <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-3 text-xs text-slate-500 shrink-0">
+                  <span className="font-medium">
+                    Showing {queueStatus.items.length} total queue entries
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Scroll container to view earlier records
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
