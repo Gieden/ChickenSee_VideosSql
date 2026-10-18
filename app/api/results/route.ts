@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { list } from '@vercel/blob';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -65,91 +67,154 @@ interface AnalysisFile {
   bird_records?: BirdRecord[][];
 }
 
+function parseAnalysisChunks(analysis: AnalysisFile, fileName: string, detectedVideoName: string | null = null) {
+  return (analysis.chunks || []).map((chunk, index) => {
+    const sensorsAvailable = chunk.sensor_data_available === true;
+
+    return {
+      result_id: `${fileName}:${chunk.chunk_index}`,
+      job_id: analysis.job_id,
+      video_file: analysis.source_video,
+      interval_label: `${new Date(chunk.chunk_start).toLocaleString()} – ${new Date(chunk.chunk_end).toLocaleTimeString()}`,
+      chunk_start: chunk.chunk_start,
+      chunk_end: chunk.chunk_end,
+      processed_at: analysis.processed_at,
+      bird_count: chunk.unique_birds_tracked,
+      avg_birds_in_frame: chunk.avg_birds_in_frame,
+      eating_count: chunk.feeding_bouts,
+      feeding_time_s: chunk.feeding_time_total_s,
+      reduced_eating_events: chunk.reduced_eating_events,
+      reduced_eating_index_pct: chunk.reduced_eating_index == null
+        ? null
+        : Number((chunk.reduced_eating_index * 100).toFixed(1)),
+      drinking_count: chunk.drinking_bouts,
+      drinking_time_s: chunk.drinking_time_total_s,
+      inactive_count: chunk.lethargic_birds_flagged,
+      inactivity_pct: chunk.inactivity_pct,
+      inactivity_time_s: chunk.inactivity_time_total_s,
+      feather_pecking_count: chunk.feather_pecking_events,
+      agitation_score: chunk.agitation_score,
+      avg_velocity: chunk.flock_mobility_px_s,
+      temp_avg: sensorsAvailable ? chunk.temp_avg_c : null,
+      temp_min: sensorsAvailable ? chunk.temp_min_c : null,
+      temp_max: sensorsAvailable ? chunk.temp_max_c : null,
+      humidity_avg: sensorsAvailable ? chunk.humidity_avg_pct : null,
+      humidity_min: sensorsAvailable ? chunk.humidity_min_pct : null,
+      humidity_max: sensorsAvailable ? chunk.humidity_max_pct : null,
+      ammonia_avg: sensorsAvailable ? chunk.ammonia_ppm_avg : null,
+      ammonia_max: sensorsAvailable ? chunk.ammonia_ppm_max : null,
+      lux_avg: sensorsAvailable ? chunk.lux_avg : null,
+      thi_avg: sensorsAvailable ? chunk.thi_avg : null,
+      sound_avg_db: sensorsAvailable
+        ? chunk.sound_avg_db ?? chunk.sound_db_avg ?? null
+        : null,
+      heat_stress_level: sensorsAvailable
+        ? chunk.heat_stress_level
+        : 'Unavailable',
+      sensor_data_available: sensorsAvailable,
+      bird_records: chunk.bird_records ?? analysis.bird_records?.[index] ?? [],
+      result_file: fileName,
+      detected_video: detectedVideoName,
+    };
+  });
+}
+
+function loadLocalResults(): any[] {
+  const candidateDirs = [
+    '/tmp/results',
+    path.join(process.cwd(), 'data', 'results'),
+    path.join(process.env.CHICKENSEE_LOCAL_STORAGE || 'C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results'),
+  ];
+
+  const filesFound = new Map<string, string>(); // filename -> fullPath
+  for (const dir of candidateDirs) {
+    try {
+      if (fs.existsSync(dir)) {
+        const entries = fs.readdirSync(dir);
+        for (const entry of entries) {
+          if (entry.toLowerCase().endsWith('.json') && !entry.includes('queue_status')) {
+            if (!filesFound.has(entry)) {
+              filesFound.set(entry, path.join(dir, entry));
+            }
+          }
+        }
+      }
+    } catch {
+      // Continue to next directory
+    }
+  }
+
+  const allChunks: any[] = [];
+  filesFound.forEach((fullPath, filename) => {
+    try {
+      const raw = fs.readFileSync(fullPath, 'utf-8');
+      const analysis = JSON.parse(raw) as AnalysisFile;
+      const expectedVideoName = analysis.source_video?.replace(/\.[^.]+$/, '') + '_detected.mp4';
+      const chunks = parseAnalysisChunks(analysis, filename, expectedVideoName);
+      allChunks.push(...chunks);
+    } catch (parseErr) {
+      console.warn(`Failed to parse local result file ${filename}:`, parseErr);
+    }
+  });
+
+  return allChunks;
+}
+
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!verifySessionToken(token)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // 1. Try Vercel Blob first
   try {
     const [{ blobs: resultFiles }, { blobs: videoFiles }] = await Promise.all([
       list({ prefix: 'results/' }),
       list({ prefix: 'videos/' }),
     ]);
+
     const resultBlobs = resultFiles
       .filter((blob) => blob.pathname.toLowerCase().endsWith('.json') && !blob.pathname.includes('queue_status'))
       .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
       .slice(0, 50);
-    const videoByPath = new Map(videoFiles.map((blob) => [blob.pathname, blob]));
 
-    const results = await Promise.all(resultBlobs.map(async (blob) => {
-      const response = await fetch(blob.url);
-      if (!response.ok) {
-        throw new Error(`Failed to download ${blob.pathname}: HTTP ${response.status}`);
-      }
-      const analysis = await response.json() as AnalysisFile;
-      const expectedVideoName = analysis.source_video.replace(/\.[^.]+$/, '') + '_detected.mp4';
-      const detectedVideo = videoByPath.get(`videos/${expectedVideoName}`);
+    if (resultBlobs.length > 0) {
+      const videoByPath = new Map(videoFiles.map((blob) => [blob.pathname, blob]));
 
-      return (analysis.chunks || []).map((chunk, index) => {
-        const sensorsAvailable = chunk.sensor_data_available === true;
+      const results = await Promise.all(resultBlobs.map(async (blob) => {
+        const response = await fetch(blob.url);
+        if (!response.ok) {
+          throw new Error(`Failed to download ${blob.pathname}: HTTP ${response.status}`);
+        }
+        const analysis = await response.json() as AnalysisFile;
+        const expectedVideoName = analysis.source_video.replace(/\.[^.]+$/, '') + '_detected.mp4';
+        const detectedVideo = videoByPath.get(`videos/${expectedVideoName}`);
+        const fileName = blob.pathname.replace(/^results\//, '');
+        return parseAnalysisChunks(analysis, fileName, detectedVideo?.pathname.replace(/^videos\//, '') ?? null);
+      }));
 
-        return {
-          result_id: `${blob.pathname}:${chunk.chunk_index}`,
-          job_id: analysis.job_id,
-          video_file: analysis.source_video,
-          interval_label: `${new Date(chunk.chunk_start).toLocaleString()} – ${new Date(chunk.chunk_end).toLocaleTimeString()}`,
-          chunk_start: chunk.chunk_start,
-          chunk_end: chunk.chunk_end,
-          processed_at: analysis.processed_at,
-          bird_count: chunk.unique_birds_tracked,
-          avg_birds_in_frame: chunk.avg_birds_in_frame,
-          eating_count: chunk.feeding_bouts,
-          feeding_time_s: chunk.feeding_time_total_s,
-          reduced_eating_events: chunk.reduced_eating_events,
-          reduced_eating_index_pct: chunk.reduced_eating_index == null
-            ? null
-            : Number((chunk.reduced_eating_index * 100).toFixed(1)),
-          drinking_count: chunk.drinking_bouts,
-          drinking_time_s: chunk.drinking_time_total_s,
-          inactive_count: chunk.lethargic_birds_flagged,
-          inactivity_pct: chunk.inactivity_pct,
-          inactivity_time_s: chunk.inactivity_time_total_s,
-          feather_pecking_count: chunk.feather_pecking_events,
-          agitation_score: chunk.agitation_score,
-          avg_velocity: chunk.flock_mobility_px_s,
-          temp_avg: sensorsAvailable ? chunk.temp_avg_c : null,
-          temp_min: sensorsAvailable ? chunk.temp_min_c : null,
-          temp_max: sensorsAvailable ? chunk.temp_max_c : null,
-          humidity_avg: sensorsAvailable ? chunk.humidity_avg_pct : null,
-          humidity_min: sensorsAvailable ? chunk.humidity_min_pct : null,
-          humidity_max: sensorsAvailable ? chunk.humidity_max_pct : null,
-          ammonia_avg: sensorsAvailable ? chunk.ammonia_ppm_avg : null,
-          ammonia_max: sensorsAvailable ? chunk.ammonia_ppm_max : null,
-          lux_avg: sensorsAvailable ? chunk.lux_avg : null,
-          thi_avg: sensorsAvailable ? chunk.thi_avg : null,
-          sound_avg_db: sensorsAvailable
-            ? chunk.sound_avg_db ?? chunk.sound_db_avg ?? null
-            : null,
-          heat_stress_level: sensorsAvailable
-            ? chunk.heat_stress_level
-            : 'Unavailable',
-          sensor_data_available: sensorsAvailable,
-          bird_records: chunk.bird_records ?? analysis.bird_records?.[index] ?? [],
-          result_file: blob.pathname.replace(/^results\//, ''),
-          detected_video: detectedVideo?.pathname.replace(/^videos\//, '') ?? null,
-        };
-      });
-    }));
+      const flattenedResults = results.flat().sort(
+        (first, second) =>
+          new Date(second.chunk_start).getTime() - new Date(first.chunk_start).getTime(),
+      );
 
-    const flattenedResults = results.flat().sort(
+      return NextResponse.json({ results: flattenedResults });
+    }
+  } catch (error) {
+    console.warn('Vercel Blob results check failed, falling back to local/bundled data:', error);
+  }
+
+  // 2. Fallback to bundled / local results
+  try {
+    const localResults = loadLocalResults();
+    localResults.sort(
       (first, second) =>
         new Date(second.chunk_start).getTime() - new Date(first.chunk_start).getTime(),
     );
 
-    return NextResponse.json({ results: flattenedResults });
-  } catch (error) {
-    console.error('Failed to load analysis results:', error);
-    return NextResponse.json({ error: 'Failed to load analysis results' }, { status: 500 });
+    return NextResponse.json({ results: localResults });
+  } catch (fallbackError) {
+    console.error('Failed to load fallback analysis results:', fallbackError);
+    return NextResponse.json({ results: [] });
   }
 }

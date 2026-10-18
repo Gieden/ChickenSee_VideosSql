@@ -1,0 +1,111 @@
+{
+  "job_id": 14,
+  "source_video": "f7918c6a-c4f7-4b01-80da-9ffd2a865eb4.mp4",
+  "source_path": "C:\\Users\\Kairi\\Documents\\chicks\\test\\f7918c6a-c4f7-4b01-80da-9ffd2a865eb4.mp4",
+  "detected_video": "C:\\Users\\Kairi\\Documents\\ChickenSee_Local_Storage\\videos\\f7918c6a-c4f7-4b01-80da-9ffd2a865eb4_detected.mp4",
+  "processed_at": "2026-10-16T21:00:35.295856",
+  "window": {
+    "start": "2026-07-26T20:32:53.662025",
+    "end": "2026-07-26T20:33:13.562025"
+  },
+  "chunks": [
+    {
+      "date_slot": "2026-07-26",
+      "hour_slot": "20:00",
+      "chunk_index": 1,
+      "chunk_start": "2026-07-26T20:32:53.662025",
+      "chunk_end": "2026-07-26T20:33:13.562025",
+      "temp_avg_c": null,
+      "temp_min_c": null,
+      "temp_max_c": null,
+      "humidity_avg_pct": null,
+      "humidity_min_pct": null,
+      "humidity_max_pct": null,
+      "ammonia_ppm_avg": null,
+      "ammonia_ppm_max": null,
+      "lux_avg": null,
+      "thi_avg": null,
+      "heat_stress_level": "Unavailable",
+      "sensor_data_available": false,
+      "unique_birds_tracked": 4,
+      "avg_birds_in_frame": 1.8,
+      "flock_mobility_px_s": 22.61,
+      "feeding_time_total_s": 0.0,
+      "feeding_bouts": 0,
+      "reduced_eating_events": 0,
+      "reduced_eating_index": 0.0,
+      "drinking_time_total_s": 23.1,
+      "drinking_bouts": 15,
+      "drinking_frequency_per_bird": 3.75,
+      "inactivity_time_total_s": 0.5,
+      "inactivity_pct": 1.2,
+      "lethargic_birds_flagged": 0,
+      "feather_pecking_events": 0,
+      "agitation_score": 0.0
+    }
+  ],
+  "bird_records": [
+    [
+      {
+        "track_id": 2,
+        "bird_label": "Hen2 (White)",
+        "bird_type": "hen",
+        "feeding_s": 0.0,
+        "feeding_bouts": 0,
+        "reduced_eating_flag": 0,
+        "drinking_s": 15.6,
+        "drinking_bouts": 5,
+        "inactivity_s": 0.1,
+        "is_lethargic": 0,
+        "pecking_aggressor_count": 0,
+        "pecking_victim_count": 0,
+        "avg_velocity_px_s": 8.23
+      },
+      {
+        "track_id": 5,
+        "bird_label": "Hen2 (White)",
+        "bird_type": "hen",
+        "feeding_s": 0.0,
+        "feeding_bouts": 0,
+        "reduced_eating_flag": 0,
+        "drinking_s": 5.9,
+        "drinking_bouts": 5,
+        "inactivity_s": 0.1,
+        "is_lethargic": 0,
+        "pecking_aggressor_count": 0,
+        "pecking_victim_count": 0,
+        "avg_velocity_px_s": 34.99
+      },
+      {
+        "track_id": 10,
+        "bird_label": "Hen2 (White)",
+        "bird_type": "hen",
+        "feeding_s": 0.0,
+        "feeding_bouts": 0,
+        "reduced_eating_flag": 0,
+        "drinking_s": 1.4,
+        "drinking_bouts": 4,
+        "inactivity_s": 0.1,
+        "is_lethargic": 0,
+        "pecking_aggressor_count": 0,
+        "pecking_victim_count": 0,
+        "avg_velocity_px_s": 19.35
+      },
+      {
+        "track_id": 19,
+        "bird_label": "Chicken",
+        "bird_type": "hen",
+        "feeding_s": 0.0,
+        "feeding_bouts": 0,
+        "reduced_eating_flag": 0,
+        "drinking_s": 0.3,
+        "drinking_bouts": 1,
+        "inactivity_s": 0.1,
+        "is_lethargic": 0,
+        "pecking_aggressor_count": 0,
+        "pecking_victim_count": 0,
+        "avg_velocity_px_s": 27.88
+      }
+    ]
+  ]
+}

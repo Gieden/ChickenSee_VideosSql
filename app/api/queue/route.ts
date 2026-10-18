@@ -1,9 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { list } from '@vercel/blob';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
+import fs from 'fs';
+import path from 'path';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+function readLocalQueueStatus(): any | null {
+  const candidatePaths = [
+    '/tmp/results/queue_status.json',
+    path.join(process.cwd(), 'data', 'results', 'queue_status.json'),
+    path.join(process.env.CHICKENSEE_LOCAL_STORAGE || 'C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results', 'queue_status.json'),
+  ];
+
+  for (const filePath of candidatePaths) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            source: 'synced-file',
+            ...parsed,
+          };
+        }
+      }
+    } catch {
+      // Continue to next path
+    }
+  }
+
+  return null;
+}
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -28,7 +57,7 @@ export async function GET(req: NextRequest) {
       }
     }
   } catch (blobErr: any) {
-    // Blob store might be empty or unavailable, proceed to fallback
+    // Blob store might be empty or suspended, proceed to fallback
   }
 
   // 2. Fallback to local OptiPlex analytics API if reachable
@@ -80,7 +109,13 @@ export async function GET(req: NextRequest) {
     // Local API not reachable from this environment
   }
 
-  // 3. Default idle queue payload
+  // 3. Check bundled or local queue_status.json
+  const fileStatus = readLocalQueueStatus();
+  if (fileStatus) {
+    return NextResponse.json(fileStatus);
+  }
+
+  // 4. Default idle queue payload
   return NextResponse.json({
     source: 'idle',
     updated_at: null,

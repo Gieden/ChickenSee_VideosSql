@@ -15,10 +15,15 @@ export function isSyncCandidate(filePath, localStorageRoot) {
   const resultsDir = path.resolve(localStorageRoot, 'results');
   const videosDir = path.resolve(localStorageRoot, 'videos');
 
+  // Skip video uploads if SYNC_VIDEOS_TO_CLOUD is set to "0" (metadata-only mode)
   if (extension === '.mp4') {
+    if (process.env.SYNC_VIDEOS_TO_CLOUD === '0') {
+      return false;
+    }
     return isWithinDirectory(resolvedPath, videosDir)
       && /_detected\.mp4$/i.test(filename);
   }
+
   if (extension === '.sqlite' || extension === '.db') return true;
   return extension === '.json' && isWithinDirectory(resolvedPath, resultsDir);
 }

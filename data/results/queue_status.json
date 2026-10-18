@@ -1,0 +1,161 @@
+{
+  "updated_at": "2026-10-18T07:56:04.320812Z",
+  "is_queueing": false,
+  "active_video": null,
+  "active_progress": null,
+  "active_frames": null,
+  "summary": {
+    "processing": 0,
+    "queued": 0,
+    "waiting": 0,
+    "completed": 15,
+    "failed": 0,
+    "cancelled": 1
+  },
+  "items": [
+    {
+      "item_id": "job-16",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297_d7d740e7717c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-18T07:40:41.164693"
+    },
+    {
+      "item_id": "job-15",
+      "video_filename": "vid1_00f2d24c0365.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "21720 / 21720",
+      "details": null,
+      "created_at": "2026-10-17T14:31:52.473673"
+    },
+    {
+      "item_id": "job-14",
+      "video_filename": "f7918c6a-c4f7-4b01-80da-9ffd2a865eb4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-16T13:00:03.820520"
+    },
+    {
+      "item_id": "job-13",
+      "video_filename": "17864314785811786431031142_0_4d5188b14863.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "817 / 817",
+      "details": null,
+      "created_at": "2026-10-16T07:38:39.777479"
+    },
+    {
+      "item_id": "job-12",
+      "video_filename": "17851124658861785112438868_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "277 / 277",
+      "details": null,
+      "created_at": "2026-10-15T15:54:39.623410"
+    },
+    {
+      "item_id": "job-11",
+      "video_filename": "lv_0_20261006140110.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-15T14:48:21.550895"
+    },
+    {
+      "item_id": "job-10",
+      "video_filename": "2f2a498e-ad56-428e-8bd6-776e5e2011f3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "55 / 55",
+      "details": null,
+      "created_at": "2026-10-15T14:46:39.541430"
+    },
+    {
+      "item_id": "job-9",
+      "video_filename": "1786430727108_0_f9a3d945a2db.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1478 / 1478",
+      "details": null,
+      "created_at": "2026-10-15T14:34:24.870486"
+    },
+    {
+      "item_id": "job-8",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-15T13:39:31.040924"
+    },
+    {
+      "item_id": "job-7",
+      "video_filename": "20260914_110756_tp00013.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 13.4,
+      "frames": "2400 / 17880",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-15T13:14:07.794574"
+    },
+    {
+      "item_id": "job-6",
+      "video_filename": "1788751142658_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1652",
+      "details": null,
+      "created_at": "2026-10-15T13:11:06.474402"
+    },
+    {
+      "item_id": "job-5",
+      "video_filename": "chickensee-test-20261015-210612-302629.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 277",
+      "details": null,
+      "created_at": "2026-10-15T13:10:36.803523"
+    },
+    {
+      "item_id": "job-4",
+      "video_filename": "vid1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 21720",
+      "details": null,
+      "created_at": "2026-10-15T08:23:24.322279"
+    },
+    {
+      "item_id": "job-3",
+      "video_filename": "17864314785811786431031142_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 817",
+      "details": null,
+      "created_at": "2026-10-15T08:23:04.309431"
+    },
+    {
+      "item_id": "job-2",
+      "video_filename": "1786430727108_0_1228230ce4fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1478",
+      "details": null,
+      "created_at": "2026-10-15T08:22:29.136919"
+    },
+    {
+      "item_id": "job-1",
+      "video_filename": "1786430727108_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1478",
+      "details": null,
+      "created_at": "2026-10-15T08:21:53.707735"
+    }
+  ]
+}

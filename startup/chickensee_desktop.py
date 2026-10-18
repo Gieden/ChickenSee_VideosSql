@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import webbrowser
@@ -1690,9 +1690,9 @@ def main() -> None:
     root = tk.Tk()
     try:
         ChickenSeeDesktop(root)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except Exception as error:
         root.withdraw()
-        messagebox.showerror("ChickenSee setup could not be loaded", str(error))
+        messagebox.showerror("ChickenSee Error", f"ChickenSee encountered an error while starting:\n\n{error}")
         root.destroy()
         return
     root.mainloop()
