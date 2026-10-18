@@ -1,18 +1,27 @@
 {
-  "updated_at": "2026-10-18T07:56:04.320812Z",
-  "is_queueing": false,
-  "active_video": null,
-  "active_progress": null,
-  "active_frames": null,
+  "updated_at": "2026-10-18T08:26:28.752914Z",
+  "is_queueing": true,
+  "active_video": "lv_0_20261006140110.mp4",
+  "active_progress": 61.4,
+  "active_frames": "1350 / 2200",
   "summary": {
-    "processing": 0,
+    "processing": 1,
     "queued": 0,
     "waiting": 0,
-    "completed": 15,
+    "completed": 14,
     "failed": 0,
     "cancelled": 1
   },
   "items": [
+    {
+      "item_id": "job-11",
+      "video_filename": "lv_0_20261006140110.mp4",
+      "status": "PROCESSING",
+      "progress_percent": 61.4,
+      "frames": "1350 / 2200",
+      "details": null,
+      "created_at": "2026-10-15T14:48:21.550895"
+    },
     {
       "item_id": "job-16",
       "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297_d7d740e7717c.mp4",
@@ -57,15 +66,6 @@
       "frames": "277 / 277",
       "details": null,
       "created_at": "2026-10-15T15:54:39.623410"
-    },
-    {
-      "item_id": "job-11",
-      "video_filename": "lv_0_20261006140110.mp4",
-      "status": "COMPLETED",
-      "progress_percent": 100.0,
-      "frames": "2200 / 2200",
-      "details": null,
-      "created_at": "2026-10-15T14:48:21.550895"
     },
     {
       "item_id": "job-10",
