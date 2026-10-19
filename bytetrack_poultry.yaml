@@ -1,9 +1,9 @@
 # Ultralytics ByteTrack configuration customized for poultry tracking
 # Optimized for high occlusion (birds clustering, feeder/drinker occlusion)
 tracker_type: bytetrack
-track_high_thresh: 0.25  # First-stage match threshold
-track_low_thresh: 0.05   # Second-stage threshold for partially occluded birds
-new_track_thresh: 0.28   # Confidence required to initialize a new track ID
-track_buffer: 60         # Keep lost tracks for 60 frames (~2-4 seconds) to survive feeder occlusions
-match_thresh: 0.80       # Association IoU similarity threshold
+track_high_thresh: 0.40  # First-stage match: only confident detections enter primary association
+track_low_thresh: 0.15   # Second-stage: minimum confidence for tentative re-association
+new_track_thresh: 0.40   # Confidence required to spawn a brand-new track ID
+track_buffer: 90         # Keep lost tracks alive for 90 frames (~3 s) to survive occlusions
+match_thresh: 0.75       # IoU similarity threshold for spatial association
 fuse_score: true         # Fuse detection confidence score with spatial IoU

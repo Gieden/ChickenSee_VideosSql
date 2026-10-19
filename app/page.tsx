@@ -47,6 +47,40 @@ interface QueueItem {
   frames: string;
   details: string | null;
   created_at: string | null;
+  completed_at?: string | null;
+  queued_at?: string | null;
+  date?: string | null;
+}
+
+function getQueueItemDateLabel(item: QueueItem): string {
+  const rawDate = item.completed_at || item.queued_at || item.created_at || (item.date ? `${item.date}T00:00:00` : null);
+  if (!rawDate) return 'Date Unknown';
+  try {
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return 'Date Unknown';
+
+    const itemDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const deltaDays = Math.round((today - itemDay) / (1000 * 60 * 60 * 24));
+
+    const formattedDate = d.toLocaleDateString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
+    if (deltaDays === 0) {
+      return `Today — ${formattedDate}`;
+    } else if (deltaDays === 1) {
+      return `Yesterday — ${formattedDate}`;
+    } else {
+      const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
+      return `${weekday}, ${formattedDate}`;
+    }
+  } catch {
+    return 'Date Unknown';
+  }
 }
 
 interface QueueStatusData {
@@ -195,6 +229,11 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results' | 'queue'>('videos');
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
+
+  // ── Queue Segregation & Filter State ──
+  const [queueDateFilter, setQueueDateFilter] = useState<string>('All dates');
+  const [queueStatusFilter, setQueueStatusFilter] = useState<'All' | 'Completed' | 'Failed' | 'Cancelled'>('All');
+  const [collapsedDateGroups, setCollapsedDateGroups] = useState<Record<string, boolean>>({});
 
   const [videos, setVideos] = useState<SyncedFileMeta[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<SyncedFileMeta | null>(null);
@@ -2079,116 +2118,336 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Queue Item Table */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4 bg-white shrink-0">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
-                      {queueStatus?.items && queueStatus.items.length > 0 && (
-                        <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
-                          {queueStatus.items.length} {queueStatus.items.length === 1 ? 'entry' : 'entries'}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Real-time queueing status from the OptiPlex daemon (metadata only; raw videos are not uploaded here).
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={fetchQueueStatus}
-                  disabled={loadingQueue}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${loadingQueue ? 'animate-spin' : ''}`} />
-                  <span>Refresh Queue</span>
-                </button>
-              </div>
+            {/* Queue Item Table with Date Segregator */}
+            {(() => {
+              const allItems = queueStatus?.items || [];
+              const ACTIVE_SET = new Set(['PROCESSING', 'QUEUED', 'WAITING']);
+              const activeList = allItems.filter((i) => ACTIVE_SET.has((i.status || '').toUpperCase()));
+              const historyList = allItems.filter((i) => !ACTIVE_SET.has((i.status || '').toUpperCase()));
 
-              {/* Scrollable Container with fixed max-height to handle incrementing queue items */}
-              <div className="max-h-[460px] overflow-x-auto overflow-y-auto divide-y divide-slate-100">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur text-[11px] font-semibold uppercase tracking-wider text-slate-600 shadow-sm">
-                    <tr>
-                      <th className="px-6 py-3.5">Video Name</th>
-                      <th className="px-6 py-3.5">Status</th>
-                      <th className="px-6 py-3.5">Progress</th>
-                      <th className="px-6 py-3.5">Frames Read / Total</th>
-                      <th className="px-6 py-3.5">Discovered / Queued</th>
-                      <th className="px-6 py-3.5">Pipeline Details</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {queueStatus?.items && queueStatus.items.length > 0 ? (
-                      queueStatus.items.map((item) => {
-                        const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
-                        let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
-                        if (statusUpper === 'PROCESSING') badgeColor = 'bg-orange-50 text-orange-700 border-orange-200 font-semibold';
-                        else if (statusUpper === 'QUEUED') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
-                        else if (statusUpper === 'WAITING') badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
-                        else if (statusUpper === 'COMPLETED') badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                        else if (statusUpper === 'FAILED') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+              const allDates = Array.from(new Set(historyList.map(getQueueItemDateLabel)));
+
+              const statusFiltered = historyList.filter((i) => {
+                if (queueStatusFilter === 'All') return true;
+                return (i.status || '').toUpperCase() === queueStatusFilter.toUpperCase();
+              });
+
+              const dateFiltered = statusFiltered.filter((i) => {
+                if (queueDateFilter === 'All dates') return true;
+                return getQueueItemDateLabel(i) === queueDateFilter;
+              });
+
+              const dateGroups: { dateLabel: string; items: QueueItem[] }[] = [];
+              const dateMap = new Map<string, QueueItem[]>();
+              for (const it of dateFiltered) {
+                const label = getQueueItemDateLabel(it);
+                if (!dateMap.has(label)) {
+                  const arr: QueueItem[] = [];
+                  dateMap.set(label, arr);
+                  dateGroups.push({ dateLabel: label, items: arr });
+                }
+                dateMap.get(label)!.push(it);
+              }
+
+              const toggleGroup = (lbl: string) => {
+                setCollapsedDateGroups((prev) => ({
+                  ...prev,
+                  [lbl]: !prev[lbl],
+                }));
+              };
+
+              const allCollapsed = allDates.length > 0 && allDates.every((d) => collapsedDateGroups[d]);
+
+              const toggleAll = () => {
+                const targetState = !allCollapsed;
+                const next: Record<string, boolean> = {};
+                allDates.forEach((d) => {
+                  next[d] = targetState;
+                });
+                setCollapsedDateGroups(next);
+              };
+
+              const renderRow = (item: QueueItem) => {
+                const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
+                let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
+                if (statusUpper === 'PROCESSING') badgeColor = 'bg-orange-50 text-orange-700 border-orange-200 font-semibold';
+                else if (statusUpper === 'QUEUED') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+                else if (statusUpper === 'WAITING') badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+                else if (statusUpper === 'COMPLETED') badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                else if (statusUpper === 'FAILED') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+                else if (statusUpper === 'CANCELLED') badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
+
+                const timeStr = item.completed_at
+                  ? new Date(item.completed_at).toLocaleTimeString()
+                  : item.created_at
+                  ? new Date(item.created_at).toLocaleTimeString()
+                  : '—';
+
+                return (
+                  <tr key={item.item_id || item.video_filename} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="px-6 py-3 font-medium text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <Video className="h-4 w-4 text-slate-400 shrink-0" />
+                        <span className="font-mono text-xs">{item.video_filename}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] border ${badgeColor}`}>
+                        {statusUpper === 'PROCESSING' && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
+                        )}
+                        {statusUpper}
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 font-medium text-slate-700">
+                      {item.progress_percent != null ? `${item.progress_percent}%` : '—'}
+                    </td>
+                    <td className="px-6 py-3 text-slate-500 font-mono text-[11px]">
+                      {item.frames || '—'}
+                    </td>
+                    <td className="px-6 py-3 text-slate-500">
+                      {timeStr}
+                    </td>
+                    <td className="px-6 py-3 text-slate-500 max-w-xs truncate" title={item.details || ''}>
+                      {item.details || '—'}
+                    </td>
+                  </tr>
+                );
+              };
+
+              return (
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
+                  {/* Header Strip */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4 bg-white shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
+                          {allItems.length > 0 && (
+                            <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                              {allItems.length} {allItems.length === 1 ? 'entry' : 'entries'}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Real-time queueing status segregated by date from the OptiPlex daemon.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={fetchQueueStatus}
+                      disabled={loadingQueue}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${loadingQueue ? 'animate-spin' : ''}`} />
+                      <span>Refresh Queue</span>
+                    </button>
+                  </div>
+
+                  {/* Date & Status Segregator Filter Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 border-b border-slate-200 px-6 py-3 text-xs">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Date Dropdown Segregator */}
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-orange-600 shrink-0" />
+                        <span className="font-semibold text-slate-700">Date:</span>
+                        <select
+                          value={queueDateFilter}
+                          onChange={(e) => setQueueDateFilter(e.target.value)}
+                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        >
+                          <option value="All dates">All dates ({historyList.length})</option>
+                          {allDates.map((dateStr) => {
+                            const count = historyList.filter((i) => getQueueItemDateLabel(i) === dateStr).length;
+                            return (
+                              <option key={dateStr} value={dateStr}>
+                                {dateStr} ({count})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {/* Status Pills */}
+                      <div className="flex items-center gap-1.5 ml-2">
+                        <span className="font-semibold text-slate-700 mr-1">Status:</span>
+                        {(['All', 'Completed', 'Failed', 'Cancelled'] as const).map((st) => {
+                          const isActive = queueStatusFilter === st;
+                          return (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => setQueueStatusFilter(st)}
+                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition ${
+                                isActive
+                                  ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/20'
+                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                              }`}
+                            >
+                              {st}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Expand/Collapse All Button */}
+                    {allDates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={toggleAll}
+                        className="text-[11px] text-slate-500 hover:text-orange-600 font-medium transition"
+                      >
+                        {allCollapsed ? '▼ Expand All Dates' : '▲ Collapse All Dates'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Scrollable Container */}
+                  <div className="max-h-[520px] overflow-x-auto overflow-y-auto divide-y divide-slate-100">
+                    {/* Active / In-Flight Section */}
+                    {activeList.length > 0 && (
+                      <div className="border-b border-orange-200 bg-orange-50/20">
+                        <div className="flex items-center justify-between px-6 py-2.5 bg-gradient-to-r from-orange-100/70 via-amber-100/50 to-orange-50/30 border-b border-orange-200/80">
+                          <div className="flex items-center gap-2">
+                            <span className="h-2 w-2 rounded-full bg-orange-600 animate-pulse" />
+                            <span className="text-xs font-bold uppercase tracking-wider text-orange-900">
+                              Active & Queued In-Flight Tasks
+                            </span>
+                            <span className="rounded-full bg-orange-200 px-2 py-0.5 text-[10px] font-bold text-orange-800">
+                              {activeList.length} active
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-orange-800 font-medium">In-flight on daemon</span>
+                        </div>
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="border-b border-orange-200/50 bg-orange-50/60 text-[10px] font-semibold uppercase tracking-wider text-orange-800">
+                            <tr>
+                              <th className="px-6 py-2">Video Name</th>
+                              <th className="px-6 py-2">Status</th>
+                              <th className="px-6 py-2">Progress</th>
+                              <th className="px-6 py-2">Frames Read / Total</th>
+                              <th className="px-6 py-2">Time</th>
+                              <th className="px-6 py-2">Pipeline Details</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-orange-100/60 bg-white">
+                            {activeList.map(renderRow)}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* Date-Segregated History Sections */}
+                    {dateGroups.length > 0 ? (
+                      dateGroups.map(({ dateLabel, items }) => {
+                        const isCollapsed = Boolean(collapsedDateGroups[dateLabel]);
+                        const completedCount = items.filter((i) => (i.status || '').toUpperCase() === 'COMPLETED').length;
+                        const failedCount = items.filter((i) => (i.status || '').toUpperCase() === 'FAILED').length;
 
                         return (
-                          <tr key={item.item_id || item.video_filename} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="px-6 py-3.5 font-medium text-slate-900">
-                              <div className="flex items-center gap-2">
-                                <Video className="h-4 w-4 text-slate-400 shrink-0" />
-                                <span className="font-mono text-xs">{item.video_filename}</span>
-                              </div>
-                            </td>
-                            <td className="px-6 py-3.5">
-                              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] border ${badgeColor}`}>
-                                {statusUpper === 'PROCESSING' && (
-                                  <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
+                          <div key={dateLabel} className="border-b border-slate-100 last:border-b-0">
+                            {/* Date Group Header Banner */}
+                            <button
+                              type="button"
+                              onClick={() => toggleGroup(dateLabel)}
+                              className="w-full flex items-center justify-between px-6 py-3 bg-slate-50/90 hover:bg-slate-100/90 transition-colors border-b border-slate-200/60 text-left cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                {isCollapsed ? (
+                                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                                ) : (
+                                  <ChevronDown className="h-4 w-4 text-slate-600" />
                                 )}
-                                {statusUpper}
-                              </span>
-                            </td>
-                            <td className="px-6 py-3.5 font-medium text-slate-700">
-                              {item.progress_percent != null ? `${item.progress_percent}%` : '—'}
-                            </td>
-                            <td className="px-6 py-3.5 text-slate-500 font-mono text-[11px]">
-                              {item.frames || '—'}
-                            </td>
-                            <td className="px-6 py-3.5 text-slate-500">
-                              {item.created_at ? new Date(item.created_at).toLocaleTimeString() : '—'}
-                            </td>
-                            <td className="px-6 py-3.5 text-slate-500 max-w-xs truncate" title={item.details || ''}>
-                              {item.details || '—'}
-                            </td>
-                          </tr>
+                                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700">
+                                  <Calendar className="h-3.5 w-3.5" />
+                                </div>
+                                <span className="text-xs font-bold text-slate-900">{dateLabel}</span>
+                                <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-xs">
+                                  {items.length} {items.length === 1 ? 'video' : 'videos'}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-3 text-xs">
+                                {completedCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold text-[11px]">
+                                    <CheckCircle2 className="h-3 w-3" /> {completedCount} done
+                                  </span>
+                                )}
+                                {failedCount > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-rose-700 font-semibold text-[11px]">
+                                    <AlertTriangle className="h-3 w-3" /> {failedCount} failed
+                                  </span>
+                                )}
+                                <span className="text-[11px] text-slate-400 font-medium">
+                                  {isCollapsed ? 'Click to expand' : 'Click to collapse'}
+                                </span>
+                              </div>
+                            </button>
+
+                            {/* Group Table Rows */}
+                            {!isCollapsed && (
+                              <table className="w-full text-left text-xs border-collapse">
+                                <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                                  <tr>
+                                    <th className="px-6 py-2.5">Video Name</th>
+                                    <th className="px-6 py-2.5">Status</th>
+                                    <th className="px-6 py-2.5">Progress</th>
+                                    <th className="px-6 py-2.5">Frames Read / Total</th>
+                                    <th className="px-6 py-2.5">Completed / Queued</th>
+                                    <th className="px-6 py-2.5">Pipeline Details</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 bg-white">
+                                  {items.map(renderRow)}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
                         );
                       })
                     ) : (
-                      <tr>
-                        <td colSpan={6} className="py-12 text-center text-slate-400">
-                          <Layers className="mx-auto h-8 w-8 text-slate-300" />
-                          <p className="mt-2 font-medium text-slate-700">No videos currently in queue</p>
-                          <p className="mt-0.5 text-[11px] text-slate-400">
-                            Videos discovered in the watched folders appear here as they are queued and analyzed.
-                          </p>
-                        </td>
-                      </tr>
+                      <div className="py-12 text-center text-slate-400">
+                        <Layers className="mx-auto h-8 w-8 text-slate-300" />
+                        <p className="mt-2 font-medium text-slate-700">
+                          {allItems.length > 0
+                            ? 'No queue history entries match the selected filters'
+                            : 'No videos currently in queue'}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-400">
+                          {allItems.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQueueDateFilter('All dates');
+                                setQueueStatusFilter('All');
+                              }}
+                              className="mt-2 text-xs font-semibold text-orange-600 hover:underline"
+                            >
+                              Reset filters to show all dates
+                            </button>
+                          ) : (
+                            'Videos discovered in the watched folders appear here as they are queued and analyzed.'
+                          )}
+                        </p>
+                      </div>
                     )}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
 
-              {/* Summary Footer */}
-              {queueStatus?.items && queueStatus.items.length > 0 && (
-                <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-3 text-xs text-slate-500 shrink-0">
-                  <span className="font-medium">
-                    Showing {queueStatus.items.length} total queue entries
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    Scroll container to view earlier records
-                  </span>
+                  {/* Summary Footer */}
+                  {allItems.length > 0 && (
+                    <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-3 text-xs text-slate-500 shrink-0">
+                      <span className="font-medium">
+                        Showing {dateFiltered.length + activeList.length} of {allItems.length} total queue entries
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {allDates.length} distinct date {allDates.length === 1 ? 'group' : 'groups'} recorded
+                      </span>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
         )}
 

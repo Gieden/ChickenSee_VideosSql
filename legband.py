@@ -5,11 +5,12 @@ import numpy as np
 
 
 LEG_BAND_HSV_RANGES = {
-    "Hen1 (Green)": ((35, 80, 60), (85, 255, 255)),
-    "Hen2 (White)": ((0, 0, 180), (180, 45, 255)),
-    "Hen3 (Blue)": ((90, 80, 50), (130, 255, 255)),
-    "Hen4 (Yellow)": ((18, 90, 90), (38, 255, 255)),
-    "Hen5 (Pink)": ((140, 70, 80), (175, 255, 255)),
+    "Hen1 (Green)": ((35, 90, 70), (85, 255, 255)),
+    # White: narrow saturation window so pale feathers / grey ground don't match
+    "Hen2 (White)": ((0, 0, 200), (180, 30, 255)),
+    "Hen3 (Blue)": ((95, 100, 60), (128, 255, 255)),
+    "Hen4 (Yellow)": ((20, 100, 100), (35, 255, 255)),
+    "Hen5 (Pink)": ((145, 80, 90), (175, 255, 255)),
 }
 
 BAND_CLASS_TO_HEN = {
@@ -70,16 +71,20 @@ def detect_leg_band_color(
     if box_width <= 0 or box_height <= 0:
         return None
 
+    # Use the lower 45% of the bird box as the leg-band crop region
+    # (wider than before so the band has more pixels to register).
     crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.1)))
     crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.1)))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.65)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.55)))
     crop_y2 = max(0, min(frame_height, y2))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    minimum_pixels = max(8, int(roi.shape[0] * roi.shape[1] * 0.003))
+    # Require at least 1.5 % of the ROI to match — eliminates single-pixel noise
+    # and small HSV coincidences on feather highlights or ground texture.
+    minimum_pixels = max(20, int(roi.shape[0] * roi.shape[1] * 0.015))
     matches = []
     for label, (lower, upper) in LEG_BAND_HSV_RANGES.items():
         mask = cv2.inRange(
@@ -94,6 +99,8 @@ def detect_leg_band_color(
     if not matches:
         return None
     matches.sort(reverse=True)
-    if len(matches) > 1 and matches[1][0] >= matches[0][0] * 0.8:
+    # If runner-up has ≥60 % of the winner’s pixels the result is ambiguous —
+    # return None rather than guessing the wrong colour.
+    if len(matches) > 1 and matches[1][0] >= matches[0][0] * 0.60:
         return None
     return matches[0][1]

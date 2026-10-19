@@ -57,32 +57,33 @@ REFRESH_INTERVAL_MS = 2000
 POWERSHELL = "powershell.exe"
 
 COLORS = {
-    "background": "#0f1117",         # Deep near-black background
-    "surface": "#1a1d26",             # Card surface
-    "surface_raised": "#21253a",      # Slightly elevated surface
-    "ink": "#f1f5f9",                 # Primary text
-    "ink_dim": "#94a3b8",             # Secondary/muted text
-    "muted": "#64748b",               # Hint / placeholder text
-    "primary": "#f97316",             # Vivid orange
-    "primary_dark": "#ea580c",        # Pressed orange
-    "primary_hover": "#fb923c",       # Hover orange
-    "primary_soft": "#431407",        # Tinted orange surface
-    "primary_glow": "#7c2d12",        # Deep accent
-    "green": "#34d399",               # Vibrant teal-green
-    "green_hover": "#10b981",
-    "green_soft": "#064e3b",
-    "green_text": "#6ee7b7",
-    "red": "#f87171",
-    "red_hover": "#ef4444",
-    "red_soft": "#450a0a",
-    "red_text": "#fca5a5",
-    "amber": "#fbbf24",
-    "amber_soft": "#451a03",
-    "amber_text": "#fcd34d",
-    "border": "#2d3448",              # Subtle border
-    "border_active": "#f97316",       # Active/focused border
-    "header_bg": "#0a0d14",           # Darkest — header strip
-    "soft_blue": "#431407",           # Status badge bg (matches primary_soft)
+    "background":     "#0d0f17",         # Deep midnight background
+    "surface":        "#151824",         # Rich dark card surface
+    "surface_alt":    "#1a1e2e",         # Secondary/table alternate surface
+    "surface_raised": "#202538",         # Elevated cards, inputs, dropdowns
+    "ink":            "#f1f5f9",         # High contrast crisp white
+    "ink_dim":        "#94a3b8",         # Secondary slate
+    "muted":          "#56627a",         # Muted labels/placeholders
+    "primary":        "#6366f1",         # Modern Indigo/Electric Violet (replacing harsh orange)
+    "primary_dark":   "#4f46e5",         # Pressed indigo
+    "primary_hover":  "#818cf8",         # Hover soft indigo
+    "primary_soft":   "#1e1f3d",         # Subtle tinted indigo background
+    "primary_glow":   "#312e81",         # Focus and active borders
+    "green":          "#10b981",         # Emerald green
+    "green_hover":    "#059669",
+    "green_soft":     "#062e20",         # Tinted emerald badge background
+    "green_text":     "#34d399",         # High-legibility emerald text
+    "red":            "#ef4444",         # Coral red
+    "red_hover":      "#dc2626",
+    "red_soft":       "#2d1014",         # Tinted red badge background
+    "red_text":       "#f87171",         # High-legibility red text
+    "amber":          "#f59e0b",         # Amber/gold
+    "amber_soft":     "#2b1f07",         # Tinted amber badge background
+    "amber_text":     "#fbbf24",         # High-legibility amber text
+    "border":         "#23293d",         # Clean subtle structural border
+    "border_active":  "#6366f1",         # Active border
+    "header_bg":      "#090b12",         # Sleek dark header
+    "soft_blue":      "#1e1f3d",         # Backward-compatibility alias
 }
 
 SUPERVISOR_SCRIPT = Path("startup") / "run-chickensee.ps1"
@@ -293,6 +294,15 @@ class ChickenSeeDesktop:
     def _configure_styles(self) -> None:
         style = ttk.Style(self.root)
         style.theme_use("clam")
+
+        # Configure Combobox popdown listbox via option database for dark mode
+        self.root.option_add("*TCombobox*Listbox.background", COLORS["surface_raised"])
+        self.root.option_add("*TCombobox*Listbox.foreground", COLORS["ink"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", COLORS["primary_soft"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", COLORS["primary_hover"])
+        self.root.option_add("*TCombobox*Listbox.relief", "flat")
+        self.root.option_add("*TCombobox*Listbox.borderWidth", "0")
+
         style.configure("TFrame", background=COLORS["background"])
         style.configure("Surface.TFrame", background=COLORS["surface"])
         style.configure(
@@ -321,7 +331,7 @@ class ChickenSeeDesktop:
         )
         style.configure(
             "TButton",
-            padding=(12, 8),
+            padding=(14, 8),
             font=("Segoe UI Semibold", 10),
             borderwidth=0,
             focuscolor="none",
@@ -337,20 +347,14 @@ class ChickenSeeDesktop:
             "Primary.TButton",
             background=COLORS["primary"],
             foreground="#ffffff",
-            padding=(14, 8),
-            font=("Segoe UI Semibold", 10),
-        )
-        style.configure(
-            "Primary.TButton",
-            background=COLORS["primary"],
-            foreground="#ffffff",
             padding=(16, 9),
             font=("Segoe UI Semibold", 10),
+            focuscolor="none",
         )
         style.map(
             "Primary.TButton",
             background=[("active", COLORS["primary_hover"]), ("disabled", COLORS["border"])],
-            foreground=[("disabled", COLORS["muted"])],
+            foreground=[("disabled", COLORS["muted"]), ("active", "#ffffff")],
         )
         style.configure(
             "Secondary.TButton",
@@ -371,19 +375,19 @@ class ChickenSeeDesktop:
             bordercolor=COLORS["red"],
             borderwidth=1,
             relief="solid",
-            padding=(10, 5),
+            padding=(12, 6),
             font=("Segoe UI Semibold", 9),
             focuscolor="none",
         )
         style.map(
             "Cancel.TButton",
-            background=[("active", "#5b1010"), ("disabled", COLORS["surface"])],
-            foreground=[("disabled", COLORS["muted"])],
+            background=[("active", COLORS["red_hover"]), ("disabled", COLORS["surface"])],
+            foreground=[("active", "#ffffff"), ("disabled", COLORS["muted"])],
         )
         style.configure(
             "Stop.TButton",
             background=COLORS["red"],
-            foreground="#0a0d14",
+            foreground="#ffffff",
             padding=(16, 10),
             font=("Segoe UI Semibold", 10),
             focuscolor="none",
@@ -394,12 +398,12 @@ class ChickenSeeDesktop:
                 ("disabled", COLORS["border"]),
                 ("active", COLORS["red_hover"]),
             ],
-            foreground=[("disabled", COLORS["muted"]), ("active", "#0a0d14")],
+            foreground=[("disabled", COLORS["muted"]), ("active", "#ffffff")],
         )
         style.configure(
             "Start.TButton",
             background=COLORS["green"],
-            foreground="#0a0d14",
+            foreground="#ffffff",
             padding=(16, 10),
             font=("Segoe UI Semibold", 10),
             focuscolor="none",
@@ -410,7 +414,7 @@ class ChickenSeeDesktop:
                 ("disabled", COLORS["border"]),
                 ("active", COLORS["green_hover"]),
             ],
-            foreground=[("disabled", COLORS["muted"]), ("active", "#0a0d14")],
+            foreground=[("disabled", COLORS["muted"]), ("active", "#ffffff")],
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
         style.configure(
@@ -457,7 +461,7 @@ class ChickenSeeDesktop:
             font=("Segoe UI Semibold", 9),
             relief="flat",
             borderwidth=0,
-            padding=(10, 9),
+            padding=(12, 10),
         )
         style.map("Treeview.Heading", background=[("active", COLORS["border"])])
         style.map(
@@ -474,7 +478,7 @@ class ChickenSeeDesktop:
             darkcolor=COLORS["primary_dark"],
             relief="flat",
             borderwidth=0,
-            thickness=8,
+            thickness=6,
         )
         style.configure(
             "TEntry",
@@ -492,7 +496,7 @@ class ChickenSeeDesktop:
             background=COLORS["surface_raised"],
             selectbackground=COLORS["primary_soft"],
             selectforeground=COLORS["primary_hover"],
-            arrowcolor=COLORS["ink_dim"],
+            arrowcolor=COLORS["primary_hover"],
         )
         style.configure(
             "TScrollbar",
@@ -503,6 +507,17 @@ class ChickenSeeDesktop:
             relief="flat",
         )
         style.map("TScrollbar", background=[("active", COLORS["border"])])
+        style.configure(
+            "TRadiobutton",
+            background=COLORS["background"],
+            foreground=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+            focuscolor="none",
+        )
+        style.map(
+            "TRadiobutton",
+            foreground=[("selected", COLORS["primary"]), ("active", COLORS["ink"])],
+        )
         style.configure(
             "TCheckbutton",
             background=COLORS["surface"],
@@ -979,6 +994,62 @@ class ChickenSeeDesktop:
         )
         self.queue_summary.pack(fill="x")
 
+        # ── Filter toolbar ─────────────────────────────────────────────
+        filter_bar = tk.Frame(self.queue_page, bg=COLORS["background"])
+        filter_bar.pack(fill="x", pady=(10, 4))
+
+        tk.Label(
+            filter_bar,
+            text="History:",
+            bg=COLORS["background"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(0, 6))
+
+        self._queue_date_var = tk.StringVar(value="All dates")
+        self.queue_date_combo = ttk.Combobox(
+            filter_bar,
+            textvariable=self._queue_date_var,
+            state="readonly",
+            width=28,
+            font=("Segoe UI", 9),
+        )
+        self.queue_date_combo["values"] = ["All dates"]
+        self.queue_date_combo.pack(side="left", padx=(0, 12))
+        self.queue_date_combo.bind("<<ComboboxSelected>>", lambda _e: self._apply_queue_filter())
+
+        tk.Label(
+            filter_bar,
+            text="Status:",
+            bg=COLORS["background"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left", padx=(0, 8))
+
+        self._queue_status_var = tk.StringVar(value="All")
+        self._status_pills: Dict[str, tk.Label] = {}
+        for pill_label in ("All", "Completed", "Failed", "Cancelled"):
+            is_active = (pill_label == "All")
+            pill_lbl = tk.Label(
+                filter_bar,
+                text=pill_label,
+                bg=COLORS["primary"] if is_active else COLORS["surface_raised"],
+                fg="#ffffff" if is_active else COLORS["ink_dim"],
+                font=("Segoe UI Semibold", 8),
+                padx=11,
+                pady=4,
+                cursor="hand2",
+                relief="flat",
+            )
+            pill_lbl.pack(side="left", padx=(0, 5))
+            pill_lbl.bind("<Button-1>", lambda e, val=pill_label: self._set_status_filter(val))
+            pill_lbl.bind("<Enter>", lambda e, val=pill_label: self._on_status_pill_hover(val, True))
+            pill_lbl.bind("<Leave>", lambda e, val=pill_label: self._on_status_pill_hover(val, False))
+            self._status_pills[pill_label] = pill_lbl
+
+        self._cached_queue_data: Optional[Dict[str, Any]] = None
+        # ───────────────────────────────────────────────────────────────
+
         table_frame = tk.Frame(
             self.queue_page,
             bg=COLORS["surface"],
@@ -988,8 +1059,10 @@ class ChickenSeeDesktop:
         table_frame.pack(fill="both", expand=True)
         columns = ("video", "status", "progress", "frames", "details")
         self.queue_tree = ttk.Treeview(
-            table_frame, columns=columns, show="headings", height=16
+            table_frame, columns=columns, show="tree headings", height=16
         )
+        # Hide the phantom tree column, use it only for expand arrows
+        self.queue_tree.column("#0", width=0, minwidth=0, stretch=False)
         for key, label, width in (
             ("video", "Video", 240),
             ("status", "Status", 130),
@@ -999,12 +1072,19 @@ class ChickenSeeDesktop:
         ):
             self.queue_tree.heading(key, text=label)
             self.queue_tree.column(key, width=width, anchor="w")
-        self.queue_tree.tag_configure("processing", foreground=COLORS["primary"], font=("Segoe UI Semibold", 10))
+        self.queue_tree.tag_configure("processing", foreground=COLORS["amber_text"], font=("Segoe UI Semibold", 10))
         self.queue_tree.tag_configure("queued", foreground=COLORS["ink"])
         self.queue_tree.tag_configure("waiting", foreground=COLORS["ink_dim"])
         self.queue_tree.tag_configure("cancelled", foreground=COLORS["muted"])
         self.queue_tree.tag_configure("failed", foreground=COLORS["red_text"])
         self.queue_tree.tag_configure("completed", foreground=COLORS["green_text"])
+        # Date-group header row style
+        self.queue_tree.tag_configure(
+            "date_header",
+            foreground=COLORS["primary_hover"],
+            font=("Segoe UI Semibold", 9),
+            background=COLORS["surface_alt"],
+        )
         scrollbar = ttk.Scrollbar(
             table_frame, orient="vertical", command=self.queue_tree.yview
         )
@@ -1983,18 +2063,130 @@ class ChickenSeeDesktop:
             self.queue_summary.configure(text=f"{self.queue_summary.cget('text')}  ·  {warning}")
 
         self._save_queue_status_for_sync(queue_data)
+        self._cached_queue_data = queue_data
+        self._render_queue_tree()
 
-        for item in items:
+    # ── Filter helpers ─────────────────────────────────────────────────────
+
+    def _set_status_filter(self, status: str) -> None:
+        """Update selected status and re-filter treeview."""
+        self._queue_status_var.set(status)
+        self._update_status_pills()
+        self._apply_queue_filter()
+
+    def _update_status_pills(self) -> None:
+        """Sync pill button styling with current active status."""
+        current = self._queue_status_var.get()
+        pills = getattr(self, "_status_pills", {})
+        for name, lbl in pills.items():
+            if name == current:
+                lbl.configure(bg=COLORS["primary"], fg="#ffffff")
+            else:
+                lbl.configure(bg=COLORS["surface_raised"], fg=COLORS["ink_dim"])
+
+    def _on_status_pill_hover(self, status: str, is_hover: bool) -> None:
+        if status == self._queue_status_var.get():
+            return
+        lbl = getattr(self, "_status_pills", {}).get(status)
+        if lbl:
+            if is_hover:
+                lbl.configure(bg=COLORS["border"], fg=COLORS["ink"])
+            else:
+                lbl.configure(bg=COLORS["surface_raised"], fg=COLORS["ink_dim"])
+
+    def _apply_queue_filter(self) -> None:
+        """Re-render the treeview from the cached data with the current filter."""
+        self._update_status_pills()
+        if self._cached_queue_data is not None:
+            self._render_queue_tree()
+
+    def _render_queue_tree(self) -> None:
+        """Clear and repopulate the queue treeview respecting current date/status filters."""
+        queue_data = self._cached_queue_data
+        if not queue_data:
+            return
+
+        for item_id in self.queue_tree.get_children():
+            self.queue_tree.delete(item_id)
+
+        items = queue_data.get("items", [])
+        HISTORY_STATUSES = {"COMPLETED", "FAILED", "CANCELLED"}
+        active_items = [i for i in items if i.get("status", "") not in HISTORY_STATUSES]
+        history_items = [i for i in items if i.get("status", "") in HISTORY_STATUSES]
+
+        selected_date = getattr(self, "_queue_date_var", None)
+        selected_date = selected_date.get() if selected_date else "All dates"
+        selected_status = getattr(self, "_queue_status_var", None)
+        selected_status = selected_status.get() if selected_status else "All"
+
+        def _item_date_label(item: dict) -> str:
+            for field in ("completed_at", "queued_at", "created_at"):
+                raw = item.get(field)
+                if raw:
+                    try:
+                        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                        local_date = dt.astimezone().date()
+                        today = datetime.now().date()
+                        delta = (today - local_date).days
+                        if delta == 0:
+                            return "Today  —  " + local_date.strftime("%B %d, %Y")
+                        elif delta == 1:
+                            return "Yesterday  —  " + local_date.strftime("%B %d, %Y")
+                        else:
+                            return local_date.strftime("%A, %B %d, %Y")
+                    except Exception:
+                        pass
+            return "Date Unknown"
+
+        # Apply status filter to history items
+        if selected_status != "All":
+            history_items = [
+                i for i in history_items
+                if i.get("status", "").upper() == selected_status.upper()
+            ]
+
+        # Build all date groups so we can populate the dropdown
+        from collections import OrderedDict
+        all_date_groups: OrderedDict = OrderedDict()
+        for item in [i for i in items if i.get("status", "") in HISTORY_STATUSES]:
+            lbl = _item_date_label(item)
+            all_date_groups.setdefault(lbl, [])
+
+        combo_values = ["All dates"] + list(all_date_groups.keys())
+        if hasattr(self, "queue_date_combo"):
+            current_val = self._queue_date_var.get()
+            self.queue_date_combo["values"] = combo_values
+            # If the previously selected date no longer exists, reset to All
+            if current_val not in combo_values:
+                self._queue_date_var.set("All dates")
+                selected_date = "All dates"
+
+        # Apply date filter to history items
+        if selected_date != "All dates":
+            history_items = [
+                i for i in history_items
+                if _item_date_label(i) == selected_date
+            ]
+
+        # Re-group filtered history by date
+        date_groups: OrderedDict = OrderedDict()
+        for item in history_items:
+            lbl = _item_date_label(item)
+            date_groups.setdefault(lbl, []).append(item)
+
+        # ── Render active items (no grouping) ──────────────────────────
+        for item in active_items:
             status = item.get("status", "UNKNOWN")
             progress = format_queue_progress(status, item.get("progress_percent"))
             frames = "—"
             if item.get("progress_frames") is not None and item.get("total_frames"):
                 frames = f"{item['progress_frames']} / {item['total_frames']}"
             details = item.get("details") or item.get("video_path") or ""
+            iid = f"item_{item['item_id']}"
             self.queue_tree.insert(
                 "",
                 "end",
-                iid=item["item_id"],
+                iid=iid,
                 values=(
                     item.get("video_filename", ""),
                     status.replace("_", " ").title(),
@@ -2004,6 +2196,44 @@ class ChickenSeeDesktop:
                 ),
                 tags=(status.lower(),),
             )
+
+        # ── Render history under collapsible date-group headers ────────
+        for date_label, group in date_groups.items():
+            group_iid = f"dg_{date_label.replace(' ', '_').replace(',', '').replace('—', '-')}"
+            self.queue_tree.insert(
+                "",
+                "end",
+                iid=group_iid,
+                open=True,
+                values=(
+                    f"📅  {date_label}",
+                    f"{len(group)} item{'s' if len(group) != 1 else ''}",
+                    "", "", "",
+                ),
+                tags=("date_header",),
+            )
+            for item in group:
+                status = item.get("status", "UNKNOWN")
+                progress = format_queue_progress(status, item.get("progress_percent"))
+                frames = "—"
+                if item.get("progress_frames") is not None and item.get("total_frames"):
+                    frames = f"{item['progress_frames']} / {item['total_frames']}"
+                details = item.get("details") or item.get("video_path") or ""
+                iid = f"item_{item['item_id']}"
+                self.queue_tree.insert(
+                    group_iid,
+                    "end",
+                    iid=iid,
+                    values=(
+                        item.get("video_filename", ""),
+                        status.replace("_", " ").title(),
+                        progress,
+                        frames,
+                        details,
+                    ),
+                    tags=(status.lower(),),
+                )
+
 
     def _save_queue_status_for_sync(self, queue_data: Optional[Dict[str, Any]]) -> None:
         try:
@@ -2057,8 +2287,11 @@ class ChickenSeeDesktop:
                             ),
                             "details": it.get("details"),
                             "created_at": it.get("created_at"),
+                            "completed_at": it.get("completed_at"),
+                            "queued_at": it.get("queued_at"),
+                            "date": it.get("date"),
                         }
-                        for it in items[:40]
+                        for it in items[:100]
                     ],
                 }
 

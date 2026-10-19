@@ -61,8 +61,11 @@ class ZampenYOLOTracker:
     Optimized for Dell OptiPlex multi-core CPU / Intel OpenVINO / CUDA execution.
     """
 
-    CLASS_SWITCH_MARGIN = 3
-    CLASS_HISTORY_TTL_FRAMES = 300
+    # Requires 10 more observations than current class before switching —
+    # prevents a handful of mislabelled frames from flipping Rooster→Hen.
+    CLASS_SWITCH_MARGIN = 10
+    # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
+    CLASS_HISTORY_TTL_FRAMES = 600
 
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
@@ -100,15 +103,27 @@ class ZampenYOLOTracker:
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
-        votes = self.track_label_votes.setdefault(track_id, deque(maxlen=5))
-        if last_seen is not None and self.processed_frame_count - last_seen > 30:
+        # 15-frame rolling window; clear only after 90 consecutive unseen frames
+        # so a bird that briefly ducks behind the feeder doesn't lose its identity.
+        votes = self.track_label_votes.setdefault(track_id, deque(maxlen=15))
+        if last_seen is not None and self.processed_frame_count - last_seen > 90:
             votes.clear()
         votes.append(label)
         self.track_label_last_seen[track_id] = self.processed_frame_count
+        # Require 8 consistent observations before committing a label so random
+        # per-frame HSV noise cannot flip a hen's colour identity.
         vote_counts = Counter(votes)
         resolved_label, count = vote_counts.most_common(1)[0]
-        if count >= 3:
-            self.track_label_cache[track_id] = resolved_label
+        if count >= 8:
+            # Once a label is locked, only replace it if the new winner has ≥8
+            # votes AND beats the current cache by a large absolute margin.
+            current = self.track_label_cache.get(track_id)
+            if current is None or current == resolved_label:
+                self.track_label_cache[track_id] = resolved_label
+            else:
+                current_count = vote_counts.get(current, 0)
+                if count >= current_count + 5:
+                    self.track_label_cache[track_id] = resolved_label
 
     def _resolve_weights(self, desired_name: str) -> str:
         """Finds or resolves the weights path, checking local files and fallbacks."""
@@ -162,7 +177,18 @@ class ZampenYOLOTracker:
         if candidate_cls_id != resolved_cls_id:
             resolved_count = class_history.get(resolved_cls_id, (0, 0.0))[0]
             candidate_count = class_history[candidate_cls_id][0]
-            if candidate_count >= resolved_count + self.CLASS_SWITCH_MARGIN:
+            # Extra protection: a track confirmed as Rooster (class 8) can only
+            # switch away if the challenger has CLASS_SWITCH_MARGIN * 2 more
+            # observations, guarding against occasional Rooster→Chicken flips.
+            rooster_cls_id = next(
+                (k for k, v in self.class_map.items() if v == "Rooster"), 8
+            )
+            margin = (
+                self.CLASS_SWITCH_MARGIN * 2
+                if resolved_cls_id == rooster_cls_id
+                else self.CLASS_SWITCH_MARGIN
+            )
+            if candidate_count >= resolved_count + margin:
                 resolved_cls_id = candidate_cls_id
         self.track_resolved_classes[track_id] = resolved_cls_id
 
@@ -270,7 +296,9 @@ class ZampenYOLOTracker:
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name))
 
-        # Re-ID lock for leg bands if present
+        # Re-ID lock for leg bands if present.
+        # Band detection is authoritative — record it even on a single frame
+        # so it counts toward the 8-vote threshold without waiting.
         for band_box, band_name in band_dets:
             bx1, by1, bx2, by2 = band_box
             bcx, bcy = (bx1 + bx2) // 2, (by1 + by2) // 2
@@ -281,7 +309,10 @@ class ZampenYOLOTracker:
                 if (x1 - 15 <= bcx <= x2 + 15) and (y1 - 15 <= bcy <= y2 + 15):
                     hen_label = BAND_CLASS_TO_HEN.get(band_name)
                     if hen_label:
-                        self._record_track_label(bird.track_id, hen_label)
+                        # Cast 3 votes at once for an explicit YOLO band detection
+                        # (it's far more reliable than the HSV crop fallback).
+                        for _ in range(3):
+                            self._record_track_label(bird.track_id, hen_label)
                     break
 
         for bird in birds:

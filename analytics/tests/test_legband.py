@@ -61,18 +61,19 @@ class TestLegBandDetection(unittest.TestCase):
                 self.assertEqual(EDGE_COLOR_MAP[label]["bgr"], (128, 128, 128))
                 self.assertEqual(LABEL_COLORS_BGR[label], (128, 128, 128))
 
-    def test_analytics_hen_label_requires_three_consistent_band_observations(self):
+    def test_analytics_hen_label_requires_consistent_band_observations(self):
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.track_label_cache = {}
         tracker.track_label_votes = {}
         tracker.track_label_last_seen = {}
         tracker.processed_frame_count = 10
 
-        tracker._record_track_label(12, "Hen3 (Blue)")
-        tracker._record_track_label(12, "Hen3 (Blue)")
+        for _ in range(7):
+            tracker._record_track_label(12, "Hen3 (Blue)")
         self.assertNotIn(12, tracker.track_label_cache)
-        tracker._record_track_label(12, "Hen3 (Blue)")
 
+        # 8th consistent vote locks the label
+        tracker._record_track_label(12, "Hen3 (Blue)")
         self.assertEqual(tracker.track_label_cache[12], "Hen3 (Blue)")
 
     def test_explicit_model_path_is_used(self):

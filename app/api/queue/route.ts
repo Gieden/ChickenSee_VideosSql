@@ -94,14 +94,17 @@ export async function GET(req: NextRequest) {
           failed: summary.failed || 0,
           cancelled: summary.cancelled || 0,
         },
-        items: items.slice(0, 40).map((it: any) => ({
-          item_id: it.item_id,
+        items: items.slice(0, 100).map((it: any) => ({
+          item_id: it.item_id || it.id,
           video_filename: it.video_filename,
           status: it.status,
           progress_percent: it.progress_percent,
           frames: it.progress_frames && it.total_frames ? `${it.progress_frames} / ${it.total_frames}` : '—',
-          details: it.details,
+          details: it.details || it.error_message || null,
           created_at: it.created_at,
+          completed_at: it.completed_at || null,
+          queued_at: it.queued_at || null,
+          date: it.date || null,
         })),
       });
     }
