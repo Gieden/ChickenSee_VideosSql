@@ -225,7 +225,7 @@ def get_detection_queue(limit: int = Query(default=100, le=500)):
                         stat.st_mtime_ns,
                         stat.st_ctime_ns,
                     ),
-                    "status": "QUEUED" if now - modified_at >= 20.0 else "WAITING",
+                    "status": "QUEUED" if now - modified_at >= CONFIG.stability_threshold_s else "WAITING",
                 }
         except OSError as error:
             warnings.append(f"Could not scan {video_dir}: {error}")
@@ -370,6 +370,12 @@ def get_detection_queue(limit: int = Query(default=100, le=500)):
         "missing_watch_directories": missing_video_dirs,
         "summary": summary,
     }
+
+
+@app.post("/queue/refresh", tags=["Job State Manager"])
+def refresh_detection_queue():
+    """Trigger an immediate queue scan, persist queue_status.json, and return the latest queue state."""
+    return get_detection_queue(limit=100)
 
 
 @app.post("/jobs/trigger", tags=["Job State Manager"])

@@ -9,8 +9,8 @@ dotenv.config();
 
 const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
-const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '2500', 10);
-const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '500', 10);
+const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '1000', 10);
+const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '250', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
 const LOCAL_STORAGE_ROOT = process.env.CHICKENSEE_LOCAL_STORAGE
@@ -310,7 +310,7 @@ function startWatcher() {
   const watcher = chokidar.watch(watchDirs, {
     persistent: true,
     ignoreInitial: false,
-    usePolling: true,
+    usePolling: process.env.CHOKIDAR_USEPOLLING === 'true',
     interval: POLL_INTERVAL,
     binaryInterval: POLL_INTERVAL,
     awaitWriteFinish: {

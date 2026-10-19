@@ -81,8 +81,15 @@ function Start-ChickenSeeService {
     Add-Content -Path $SupervisorLog -Value "[$(Get-Date -Format o)] Started $($Service.Name), PID $($Process.Id). Logs: $StdoutLog"
 }
 
+function Get-CandidateProcesses {
+    return @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe' or Name = 'python.exe'" -ErrorAction SilentlyContinue)
+}
+
 function Find-ExistingServiceProcess {
-    param([hashtable]$Service)
+    param(
+        [hashtable]$Service,
+        [array]$CandidateProcesses
+    )
 
     $ProcessName = if ($Service.Name -eq "sync-agent") {
         [System.IO.Path]::GetFileName($Node)
@@ -95,7 +102,7 @@ function Find-ExistingServiceProcess {
         "analytics-worker" { '(?i)\s-m\s+analytics\.worker(?:\s|$)' }
     }
     $Matches = @(
-        Get-CimInstance Win32_Process |
+        $CandidateProcesses |
             Where-Object {
                 $_.Name -ieq $ProcessName -and $_.CommandLine -match $CommandPattern
             }
@@ -124,9 +131,10 @@ try {
     }
     Add-Content -Path $SupervisorLog -Value "[$(Get-Date -Format o)] ChickenSee startup supervisor started."
 
+    $CandidateProcesses = Get-CandidateProcesses
     $ExistingProcesses = @{}
     foreach ($Service in $Services) {
-        $ExistingProcesses[$Service.Name] = Find-ExistingServiceProcess $Service
+        $ExistingProcesses[$Service.Name] = Find-ExistingServiceProcess -Service $Service -CandidateProcesses $CandidateProcesses
     }
 
     foreach ($Service in $Services) {

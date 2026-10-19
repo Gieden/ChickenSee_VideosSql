@@ -36,7 +36,11 @@ class AnalyticsConfig(BaseModel):
 
     # Processing & video discovery
     chunk_minutes: int = Field(default_factory=lambda: int(os.getenv("CHUNK_MINUTES", "30")), description="Maximum duration of each analysis interval")
-    poll_interval_s: int = Field(default_factory=lambda: int(os.getenv("VIDEO_POLL_INTERVAL_S", "10")), description="Worker video discovery interval in seconds")
+    poll_interval_s: int = Field(default_factory=lambda: int(os.getenv("VIDEO_POLL_INTERVAL_S", "1")), description="Worker video discovery fallback interval in seconds")
+    stability_threshold_s: float = Field(
+        default_factory=lambda: float(os.getenv("FILE_STABILITY_THRESHOLD_S", "2.0")),
+        description="Required idle duration in seconds before processing a newly written video"
+    )
 
     # Paths
     video_dir: str = str(VIDEO_INPUT_DIR)

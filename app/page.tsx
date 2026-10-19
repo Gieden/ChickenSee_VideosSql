@@ -365,9 +365,10 @@ export default function DashboardPage() {
     fetchDatabaseData();
     fetchQueueStatus();
     fetchResults();
-    const bgPoll = setInterval(() => { fetchQueueStatus(); }, 12_000);
+    const pollInterval = queueStatus?.is_queueing ? 2_000 : 8_000;
+    const bgPoll = setInterval(() => { fetchQueueStatus(); }, pollInterval);
     return () => clearInterval(bgPoll);
-  }, [fetchQueueStatus, fetchResults]);
+  }, [fetchQueueStatus, fetchResults, queueStatus?.is_queueing]);
 
   useEffect(() => {
     if (activeTab !== 'results') return;
@@ -379,7 +380,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeTab !== 'queue') return;
     fetchQueueStatus();
-    const queueTimer = setInterval(() => { fetchQueueStatus(); }, 3_000);
+    const queueTimer = setInterval(() => { fetchQueueStatus(); }, 1_500);
     return () => clearInterval(queueTimer);
   }, [activeTab, fetchQueueStatus]);
 

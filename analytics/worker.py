@@ -14,6 +14,7 @@ import time
 import sqlite3
 import datetime
 import traceback
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import cv2
@@ -46,8 +47,42 @@ class ZampenAnalyticsWorker:
         self.running = True
         self.current_job_id: Optional[int] = None
         self.current_progress_pct: float = 0.0
+        self._fs_event = threading.Event()
+        self._fs_stop_event = threading.Event()
+        self._watcher_thread: Optional[threading.Thread] = None
         
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+        self._start_filesystem_watcher()
+
+    def _start_filesystem_watcher(self):
+        """Starts real-time filesystem watcher for all watched video directories."""
+        def _watch_target_dirs():
+            try:
+                from watchfiles import watch
+                while not self._fs_stop_event.is_set():
+                    dirs = [str(d) for d in self._video_input_dirs() if d.is_dir()]
+                    if not dirs:
+                        time.sleep(1)
+                        continue
+                    try:
+                        for changes in watch(*dirs, recursive=True, stop_event=self._fs_stop_event, rust_timeout=500):
+                            has_video = any(
+                                path.lower().endswith(".mp4") and "_detected" not in path.lower()
+                                for _, path in changes
+                            )
+                            if has_video:
+                                self._fs_event.set()
+                    except Exception:
+                        time.sleep(1)
+            except Exception:
+                pass
+
+        self._watcher_thread = threading.Thread(target=_watch_target_dirs, daemon=True)
+        self._watcher_thread.start()
+
+    def trigger_scan(self):
+        """Wakes the worker loop immediately to check for newly arrived videos."""
+        self._fs_event.set()
 
     def start_daemon(self):
         """Main polling loop running continuously as an OptiPlex background service."""
@@ -59,7 +94,7 @@ class ZampenAnalyticsWorker:
         print(f"  Detected Videos : {VIDEOS_DIR}")
         print(f"  Sensor DB       : {self.cfg.sensor_db_url}")
         print(f"  Analytics DB    : {self.cfg.analytics_db_url}")
-        print(f"  File stability  : 20s | Analysis chunks: {self.cfg.chunk_minutes}m")
+        print(f"  File stability  : {self.cfg.stability_threshold_s}s (Real-Time) | Analysis chunks: {self.cfg.chunk_minutes}m")
         print("═══════════════════════════════════════════════════════════════")
 
         while self.running:
@@ -71,15 +106,18 @@ class ZampenAnalyticsWorker:
                     print(f"        Window: {start_dt.strftime('%Y-%m-%d %H:%M')} → {end_dt.strftime('%H:%M')}")
                     self._process_hourly_segment(filepath, filename, start_dt, end_dt)
                 else:
-                    time.sleep(self.cfg.poll_interval_s)
+                    self._fs_event.wait(timeout=self.cfg.poll_interval_s)
+                    self._fs_event.clear()
             except KeyboardInterrupt:
                 print("\n[DAEMON] Shutdown requested by user.")
                 self.running = False
+                self._fs_stop_event.set()
+                self._fs_event.set()
                 break
             except Exception as e:
                 print(f"[DAEMON ERROR] Unexpected loop exception: {e}")
                 traceback.print_exc()
-                time.sleep(10)
+                time.sleep(2)
 
     def _video_input_dirs(self, directories_file: Optional[Path] = None) -> List[Path]:
         config_file = directories_file or (
@@ -133,12 +171,19 @@ class ZampenAnalyticsWorker:
             ):
                 continue
 
-            # Ensure file is not currently being written by checking modification age
+            # Ensure file is stable and not actively being written
             file_mtime = p.stat().st_mtime
             age_s = time.time() - file_mtime
-            
-            # Require file to be stable (at least 20 seconds old without size modification)
-            if age_s < 20.0:
+            if age_s < self.cfg.stability_threshold_s:
+                continue
+
+            # Verify file can be read and is not locked by a camera or writer process
+            try:
+                with open(p, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    if f.tell() == 0:
+                        continue
+            except (OSError, PermissionError):
                 continue
 
             # Parse start and end timestamps from filename or modification time
@@ -301,6 +346,7 @@ class ZampenAnalyticsWorker:
         self.current_job_id = job.id
         self.current_progress_pct = 0.0
         DB.update_job_progress(job.id, 0, total_frames)
+        self._update_persisted_queue_status(job.id, filename, 0.0, 0, total_frames, "PROCESSING")
         t_start_processing = time.time()
         src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
@@ -312,6 +358,7 @@ class ZampenAnalyticsWorker:
             cap.release()
             error = f"Could not create annotated detection video for {filename}"
             DB.mark_job_failed(job.id, error)
+            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "FAILED")
             self.current_job_id = None
             raise RuntimeError(error)
 
@@ -335,11 +382,14 @@ class ZampenAnalyticsWorker:
             writer = None
             os.replace(staging_path, detected_path)
             DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
+            self._update_persisted_queue_status(job.id, filename, 100.0, total_frames, total_frames, "COMPLETED")
         except AnalysisCancelled:
             DB.cancel_processing_job(job.id)
+            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "CANCELLED")
             print(f"[WORKER] Analysis cancelled by user: {filename}")
         except Exception as error:
             DB.mark_job_failed(job.id, str(error))
+            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "FAILED")
             raise
         finally:
             if cap is not None:
@@ -362,6 +412,28 @@ class ZampenAnalyticsWorker:
     def _raise_if_cancelled(job_id: int) -> None:
         if DB.is_job_cancelled(job_id):
             raise AnalysisCancelled("Video analysis was cancelled by the user.")
+
+    def _update_persisted_queue_status(
+        self,
+        job_id: Optional[int],
+        filename: Optional[str],
+        pct: Optional[float],
+        frame_idx: int,
+        total_frames: int,
+        status_str: str,
+    ) -> None:
+        try:
+            from local_store import write_queue_status_json
+            is_proc = status_str == "PROCESSING"
+            write_queue_status_json({
+                "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+                "is_queueing": is_proc,
+                "active_video": filename if is_proc else None,
+                "active_progress": round(pct, 1) if (is_proc and pct is not None) else None,
+                "active_frames": f"{frame_idx} / {total_frames}" if is_proc else None,
+            })
+        except Exception:
+            pass
 
     def _run_chunked_inference(
         self,
@@ -418,6 +490,10 @@ class ZampenAnalyticsWorker:
                 if frames_processed % 25 == 0:
                     self.current_progress_pct = (frame_idx / total_frames) * 100.0
                     DB.update_job_progress(job.id, frame_idx, total_frames)
+                    if frames_processed % 100 == 0:
+                        self._update_persisted_queue_status(
+                            job.id, filename, self.current_progress_pct, frame_idx, total_frames, "PROCESSING"
+                        )
                 if frame_idx % 200 == 0:
                     print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
 

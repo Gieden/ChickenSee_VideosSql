@@ -62,9 +62,14 @@ if ($NodePackageExitCode -ne 0) {
 
 $IconPath = Join-Path $ProjectRoot "favicon.ico"
 
+$DesktopAppStartupShortcut = Join-Path $StartupFolder "ChickenSee Control Center.lnk"
+
 $Shell = New-Object -ComObject WScript.Shell
+$PowershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+
+# 1. Background Supervisor Startup Shortcut
 $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-$Shortcut.TargetPath = (Get-Command powershell.exe -ErrorAction Stop).Source
+$Shortcut.TargetPath = $PowershellExe
 $Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunnerPath`""
 $Shortcut.WorkingDirectory = $ProjectRoot
 $Shortcut.Description = "Start ChickenSee sync agent and analytics services at sign-in"
@@ -73,6 +78,7 @@ if (Test-Path $IconPath) {
 }
 $Shortcut.Save()
 
+# 2. Control Center Desktop Shortcut
 $DesktopShortcut = $Shell.CreateShortcut($DesktopShortcutPath)
 $DesktopShortcut.TargetPath = $PythonWindowed
 $DesktopShortcut.Arguments = "`"$DesktopAppPath`""
@@ -83,12 +89,46 @@ if (Test-Path $IconPath) {
 }
 $DesktopShortcut.Save()
 
+# 3. Control Center Startup Shortcut (Launches desktop GUI on boot/login)
+$AppStartup = $Shell.CreateShortcut($DesktopAppStartupShortcut)
+$AppStartup.TargetPath = $PythonWindowed
+$AppStartup.Arguments = "`"$DesktopAppPath`""
+$AppStartup.WorkingDirectory = $ProjectRoot
+$AppStartup.Description = "ChickenSee Control Center GUI launcher at sign-in"
+if (Test-Path $IconPath) {
+    $AppStartup.IconLocation = "$IconPath,0"
+}
+$AppStartup.Save()
+
+# 4. Eliminate Windows Explorer 10-30s Startup Delay
+try {
+    $SerializeKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize"
+    if (-not (Test-Path $SerializeKey)) {
+        New-Item -Path $SerializeKey -Force | Out-Null
+    }
+    Set-ItemProperty -Path $SerializeKey -Name "StartupDelayInMSec" -Value 0 -Type DWord -Force
+    Write-Host "Windows startup delay set to 0ms (instant real-time startup enabled)." -ForegroundColor Cyan
+} catch {
+    Write-Host "Could not configure StartupDelayInMSec in registry: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+# 5. Register instant Run key in Windows Registry for immediate session startup
+try {
+    $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    $RunCommand = "`"$PowershellExe`" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunnerPath`""
+    Set-ItemProperty -Path $RunKey -Name "ChickenSee" -Value $RunCommand -Type String -Force
+    Write-Host "Real-time logon registry entry configured in HKCU Run key." -ForegroundColor Cyan
+} catch {
+    Write-Host "Could not write Run key in registry: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 $LegacyShortcut = Join-Path $StartupFolder "ChickenSeeAgent.lnk"
 if (Test-Path $LegacyShortcut) {
     Remove-Item -Path $LegacyShortcut -Force
 }
 
-Write-Host "ChickenSee will start automatically when this Windows user signs in." -ForegroundColor Green
-Write-Host "Startup shortcut: $ShortcutPath"
-Write-Host "Desktop app shortcut: $DesktopShortcutPath"
-Write-Host "Service logs are written under the configured ChickenSee local storage logs folder."
+Write-Host "ChickenSee real-time startup installed successfully!" -ForegroundColor Green
+Write-Host "Startup supervisor shortcut : $ShortcutPath"
+Write-Host "Startup control center shortcut: $DesktopAppStartupShortcut"
+Write-Host "Desktop app shortcut         : $DesktopShortcutPath"
+Write-Host "ChickenSee will launch immediately without delay when the OptiPlex starts up." -ForegroundColor Green
