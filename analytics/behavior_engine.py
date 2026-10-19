@@ -27,6 +27,7 @@ class BirdTrackState:
     
     # Kinematics
     velocity_px_s: float = 0.0
+    instant_velocity_px_s: float = 0.0          # Single-frame velocity (used for pecking spikes)
     recent_velocities: deque = field(default_factory=lambda: deque(maxlen=20))
     total_displacement_px: float = 0.0
 
@@ -162,8 +163,11 @@ class BehaviorAnalysisEngine:
 
             state.last_centroid = bird.centroid
             state.last_timestamp_s = frame_out.timestamp_s
+            # Smoothed average velocity (used for inactivity / eating metrics)
             avg_vel = sum(state.recent_velocities) / len(state.recent_velocities) if state.recent_velocities else 0.0
             state.velocity_px_s = avg_vel
+            # Instantaneous velocity (single frame — used for pecking spike detection)
+            state.instant_velocity_px_s = velocity
 
             # -------------------------------------------------------------
             # Metric 1: Reduce Eating Logic
@@ -237,8 +241,8 @@ class BehaviorAnalysisEngine:
                     continue
                 state_a = self.bird_states[tid_a]
 
-                # Condition A: Aggressor has high velocity approach
-                if state_a.velocity_px_s >= self.cfg.feather_pecking_approach_speed_px_s:
+                # Condition A: Aggressor has high instantaneous velocity (single-frame spike)
+                if state_a.instant_velocity_px_s >= self.cfg.feather_pecking_approach_speed_px_s:
                     for j in range(n_birds):
                         if i == j:
                             continue
@@ -254,11 +258,11 @@ class BehaviorAnalysisEngine:
                         if self.current_chunk_elapsed_s - last_peck_time < 2.5:
                             continue
 
-                        # Condition B: Inter-bird proximity is very close (< 45px or bounding box overlap)
+                        # Condition B: Inter-bird proximity is very close (bounding box near-overlap)
                         dist = self._calc_euclidean(bird_a.centroid, bird_b.centroid)
                         if dist <= self.cfg.feather_pecking_proximity_px:
-                            # Condition C: Victim accelerates away rapidly (requires genuine escape burst, not passive huddle)
-                            if state_b.velocity_px_s >= self.cfg.feather_pecking_escape_speed_px_s:
+                            # Condition C: Victim has instantaneous escape burst (not passive huddle)
+                            if state_b.instant_velocity_px_s >= self.cfg.feather_pecking_escape_speed_px_s:
                                 self.feather_pecking_events += 1
                                 state_a.pecking_aggressor_count += 1
                                 state_b.pecking_victim_count += 1

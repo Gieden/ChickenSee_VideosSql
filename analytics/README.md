@@ -68,10 +68,11 @@ Using persistent ByteTrack IDs (`track_id`) and spatial bounding boxes:
 * Computes flock inactivity percentage ($T_{\text{inactive}} / T_{\text{monitored}} \times 100$) and triggers individual lethargy alerts for birds exceeding inactivity thresholds.
 
 ### 4. Feather Pecking
-* **Interaction Condition**: Detects sudden aggressive interactions between tracked chicken pairs:
-  1. Aggressor bird initiates high-velocity approach ($\ge 48.0\text{ px/s}$).
-  2. Bounding box distance drops rapidly into close proximity ($d_{\text{inter-bird}} \le 45\text{ px}$ or IoU overlap spike).
-  3. Victim bird exhibits sudden escape acceleration burst ($\ge 40.0\text{ px/s}$).
+* **Interaction Condition**: Detects sudden aggressive interactions between tracked chicken pairs using **instantaneous** (single-frame) velocity to capture the transient spike of a charge/escape that would otherwise be diluted by the 20-frame smoothed average:
+  1. Aggressor bird instantaneous velocity $\ge 22.0\text{ px/s}$ (brisk directional charge, tuned for 640-wide video).
+  2. Inter-bird centroid distance drops into close proximity ($d_{\text{inter-bird}} \le 60\text{ px}$).
+  3. Victim bird instantaneous escape burst $\ge 18.0\text{ px/s}$.
+  4. A **2.5-second per-pair cooldown** prevents consecutive frames of the same event from being counted multiple times.
 * **Detection Metric**: Counts discrete feather pecking conflict events and logs aggressor vs. victim ID tags.
 
 ---

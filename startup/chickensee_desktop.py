@@ -57,23 +57,32 @@ REFRESH_INTERVAL_MS = 2000
 POWERSHELL = "powershell.exe"
 
 COLORS = {
-    "background": "#f8fafc",
-    "surface": "#ffffff",
-    "ink": "#0f172a",
-    "muted": "#64748b",
-    "primary": "#ea580c",
-    "primary_hover": "#c2410c",
-    "primary_soft": "#fff7ed",
-    "green": "#10b981",
-    "green_hover": "#059669",
-    "green_soft": "#ecfdf5",
-    "red": "#ef4444",
-    "red_hover": "#dc2626",
-    "red_soft": "#fef2f2",
-    "amber": "#f59e0b",
-    "amber_soft": "#fffbeb",
-    "border": "#e2e8f0",
-    "soft_blue": "#fff7ed",
+    "background": "#0f1117",         # Deep near-black background
+    "surface": "#1a1d26",             # Card surface
+    "surface_raised": "#21253a",      # Slightly elevated surface
+    "ink": "#f1f5f9",                 # Primary text
+    "ink_dim": "#94a3b8",             # Secondary/muted text
+    "muted": "#64748b",               # Hint / placeholder text
+    "primary": "#f97316",             # Vivid orange
+    "primary_dark": "#ea580c",        # Pressed orange
+    "primary_hover": "#fb923c",       # Hover orange
+    "primary_soft": "#431407",        # Tinted orange surface
+    "primary_glow": "#7c2d12",        # Deep accent
+    "green": "#34d399",               # Vibrant teal-green
+    "green_hover": "#10b981",
+    "green_soft": "#064e3b",
+    "green_text": "#6ee7b7",
+    "red": "#f87171",
+    "red_hover": "#ef4444",
+    "red_soft": "#450a0a",
+    "red_text": "#fca5a5",
+    "amber": "#fbbf24",
+    "amber_soft": "#451a03",
+    "amber_text": "#fcd34d",
+    "border": "#2d3448",              # Subtle border
+    "border_active": "#f97316",       # Active/focused border
+    "header_bg": "#0a0d14",           # Darkest — header strip
+    "soft_blue": "#431407",           # Status badge bg (matches primary_soft)
 }
 
 SUPERVISOR_SCRIPT = Path("startup") / "run-chickensee.ps1"
@@ -285,6 +294,7 @@ class ChickenSeeDesktop:
         style = ttk.Style(self.root)
         style.theme_use("clam")
         style.configure("TFrame", background=COLORS["background"])
+        style.configure("Surface.TFrame", background=COLORS["surface"])
         style.configure(
             "TLabel",
             background=COLORS["background"],
@@ -293,14 +303,20 @@ class ChickenSeeDesktop:
         )
         style.configure(
             "Title.TLabel",
-            background=COLORS["background"],
+            background=COLORS["header_bg"],
             foreground=COLORS["ink"],
-            font=("Segoe UI Semibold", 22),
+            font=("Segoe UI Semibold", 23),
         )
         style.configure(
             "Subtitle.TLabel",
             background=COLORS["background"],
-            foreground=COLORS["muted"],
+            foreground=COLORS["ink_dim"],
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Card.TLabel",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
             font=("Segoe UI", 10),
         )
         style.configure(
@@ -309,6 +325,13 @@ class ChickenSeeDesktop:
             font=("Segoe UI Semibold", 10),
             borderwidth=0,
             focuscolor="none",
+            background=COLORS["surface_raised"],
+            foreground=COLORS["ink"],
+        )
+        style.map(
+            "TButton",
+            background=[("active", COLORS["border"])],
+            foreground=[("active", COLORS["ink"])],
         )
         style.configure(
             "Primary.TButton",
@@ -317,10 +340,21 @@ class ChickenSeeDesktop:
             padding=(14, 8),
             font=("Segoe UI Semibold", 10),
         )
-        style.map("Primary.TButton", background=[("active", COLORS["primary_hover"])])
+        style.configure(
+            "Primary.TButton",
+            background=COLORS["primary"],
+            foreground="#ffffff",
+            padding=(16, 9),
+            font=("Segoe UI Semibold", 10),
+        )
+        style.map(
+            "Primary.TButton",
+            background=[("active", COLORS["primary_hover"]), ("disabled", COLORS["border"])],
+            foreground=[("disabled", COLORS["muted"])],
+        )
         style.configure(
             "Secondary.TButton",
-            background="#ffffff",
+            background=COLORS["surface_raised"],
             foreground=COLORS["ink"],
             bordercolor=COLORS["border"],
             borderwidth=1,
@@ -329,23 +363,27 @@ class ChickenSeeDesktop:
             font=("Segoe UI Semibold", 9),
             focuscolor="none",
         )
-        style.map("Secondary.TButton", background=[("active", "#f8fafc")])
+        style.map("Secondary.TButton", background=[("active", COLORS["border"])])
         style.configure(
             "Cancel.TButton",
             background=COLORS["red_soft"],
-            foreground=COLORS["red"],
-            bordercolor="#fecaca",
+            foreground=COLORS["red_text"],
+            bordercolor=COLORS["red"],
             borderwidth=1,
             relief="solid",
             padding=(10, 5),
             font=("Segoe UI Semibold", 9),
             focuscolor="none",
         )
-        style.map("Cancel.TButton", background=[("active", "#fee2e2"), ("disabled", "#f1f5f9")])
+        style.map(
+            "Cancel.TButton",
+            background=[("active", "#5b1010"), ("disabled", COLORS["surface"])],
+            foreground=[("disabled", COLORS["muted"])],
+        )
         style.configure(
             "Stop.TButton",
             background=COLORS["red"],
-            foreground="#ffffff",
+            foreground="#0a0d14",
             padding=(16, 10),
             font=("Segoe UI Semibold", 10),
             focuscolor="none",
@@ -353,15 +391,15 @@ class ChickenSeeDesktop:
         style.map(
             "Stop.TButton",
             background=[
-                ("disabled", "#cbd5e1"),
+                ("disabled", COLORS["border"]),
                 ("active", COLORS["red_hover"]),
             ],
-            foreground=[("disabled", "#ffffff")],
+            foreground=[("disabled", COLORS["muted"]), ("active", "#0a0d14")],
         )
         style.configure(
             "Start.TButton",
             background=COLORS["green"],
-            foreground="#ffffff",
+            foreground="#0a0d14",
             padding=(16, 10),
             font=("Segoe UI Semibold", 10),
             focuscolor="none",
@@ -369,24 +407,24 @@ class ChickenSeeDesktop:
         style.map(
             "Start.TButton",
             background=[
-                ("disabled", "#cbd5e1"),
+                ("disabled", COLORS["border"]),
                 ("active", COLORS["green_hover"]),
             ],
-            foreground=[("disabled", "#ffffff")],
+            foreground=[("disabled", COLORS["muted"]), ("active", "#0a0d14")],
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
         style.configure(
             "TNotebook.Tab",
-            padding=(20, 10),
-            background="#e2e8f0",
-            foreground=COLORS["muted"],
+            padding=(22, 11),
+            background=COLORS["surface"],
+            foreground=COLORS["ink_dim"],
             font=("Segoe UI Semibold", 10),
             focuscolor="none",
             borderwidth=0,
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", COLORS["surface"])],
+            background=[("selected", COLORS["background"])],
             foreground=[("selected", COLORS["primary"])],
         )
         style.configure(
@@ -399,7 +437,7 @@ class ChickenSeeDesktop:
         style.configure(
             "TLabelframe.Label",
             background=COLORS["surface"],
-            foreground=COLORS["ink"],
+            foreground=COLORS["ink_dim"],
             font=("Segoe UI Semibold", 10),
         )
         style.configure(
@@ -408,40 +446,78 @@ class ChickenSeeDesktop:
             fieldbackground=COLORS["surface"],
             foreground=COLORS["ink"],
             bordercolor=COLORS["border"],
-            borderwidth=1,
-            rowheight=34,
+            borderwidth=0,
+            rowheight=36,
             font=("Segoe UI", 10),
         )
         style.configure(
             "Treeview.Heading",
-            background="#f1f5f9",
-            foreground="#334155",
+            background=COLORS["surface_raised"],
+            foreground=COLORS["ink_dim"],
             font=("Segoe UI Semibold", 9),
             relief="flat",
             borderwidth=0,
-            padding=(8, 8),
+            padding=(10, 9),
         )
-        style.map("Treeview.Heading", background=[("active", "#e2e8f0")])
-        style.map("Treeview", background=[("selected", "#ffedd5")], foreground=[("selected", "#9a3412")])
+        style.map("Treeview.Heading", background=[("active", COLORS["border"])])
+        style.map(
+            "Treeview",
+            background=[("selected", COLORS["primary_soft"])],
+            foreground=[("selected", COLORS["primary_hover"])],
+        )
         style.configure(
             "Horizontal.TProgressbar",
-            troughcolor="#f1f5f9",
+            troughcolor=COLORS["surface_raised"],
             background=COLORS["primary"],
-            bordercolor="#e2e8f0",
+            bordercolor=COLORS["border"],
             lightcolor=COLORS["primary"],
-            darkcolor=COLORS["primary"],
+            darkcolor=COLORS["primary_dark"],
             relief="flat",
             borderwidth=0,
-            thickness=10,
+            thickness=8,
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=COLORS["surface_raised"],
+            foreground=COLORS["ink"],
+            insertcolor=COLORS["ink"],
+            bordercolor=COLORS["border"],
+            selectbackground=COLORS["primary_soft"],
+            selectforeground=COLORS["primary_hover"],
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=COLORS["surface_raised"],
+            foreground=COLORS["ink"],
+            background=COLORS["surface_raised"],
+            selectbackground=COLORS["primary_soft"],
+            selectforeground=COLORS["primary_hover"],
+            arrowcolor=COLORS["ink_dim"],
+        )
+        style.configure(
+            "TScrollbar",
+            background=COLORS["surface_raised"],
+            troughcolor=COLORS["surface"],
+            arrowcolor=COLORS["ink_dim"],
+            borderwidth=0,
+            relief="flat",
+        )
+        style.map("TScrollbar", background=[("active", COLORS["border"])])
+        style.configure(
+            "TCheckbutton",
+            background=COLORS["surface"],
+            foreground=COLORS["ink"],
+            font=("Segoe UI", 10),
+            focuscolor="none",
         )
 
     def _apply_window_icon(self) -> None:
         icon_ico = PROJECT_ROOT / "favicon.ico"
-        icon_png = PROJECT_ROOT / "favicon.png"
+        icon_png = Path(__file__).resolve().parent / "favicon_logo128.png"
         if not icon_ico.is_file():
             icon_ico = Path(__file__).resolve().parent / "favicon.ico"
         if not icon_png.is_file():
-            icon_png = Path(__file__).resolve().parent / "favicon.png"
+            icon_png = PROJECT_ROOT / "favicon.png"
 
         if icon_ico.is_file():
             try:
@@ -454,74 +530,184 @@ class ChickenSeeDesktop:
 
         if icon_png.is_file():
             try:
-                self._icon_photo = tk.PhotoImage(file=str(icon_png))
-                self.root.iconphoto(True, self._icon_photo)
-            except Exception:
                 if Image and ImageTk:
-                    try:
-                        pil_img = Image.open(icon_png)
-                        self._icon_photo = ImageTk.PhotoImage(pil_img)
-                        self.root.iconphoto(True, self._icon_photo)
-                    except Exception:
-                        pass
-
-    def _build_layout(self) -> None:
-        header = ttk.Frame(self.root, padding=(28, 22, 28, 12))
-        header.pack(fill="x")
-        heading = ttk.Frame(header)
-        heading.pack(side="left", fill="x", expand=True)
-
-        brand_row = ttk.Frame(heading)
-        brand_row.pack(side="left", fill="x")
-
-        self._header_logo_photo = None
-        icon_png = PROJECT_ROOT / "favicon.png"
-        if not icon_png.is_file():
-            icon_png = Path(__file__).resolve().parent / "favicon.png"
-        if icon_png.is_file() and Image and ImageTk:
-            try:
-                logo_raw = Image.open(icon_png).resize((50, 50), Image.Resampling.LANCZOS)
-                self._header_logo_photo = ImageTk.PhotoImage(logo_raw)
-                logo_label = tk.Label(
-                    brand_row,
-                    image=self._header_logo_photo,
-                    bg=COLORS["background"],
-                    bd=0,
-                )
-                logo_label.pack(side="left", padx=(0, 14))
+                    pil_img = Image.open(icon_png).resize((32, 32), Image.Resampling.LANCZOS)
+                    self._icon_photo = ImageTk.PhotoImage(pil_img)
+                    self.root.iconphoto(True, self._icon_photo)
+                else:
+                    self._icon_photo = tk.PhotoImage(file=str(icon_png))
+                    self.root.iconphoto(True, self._icon_photo)
             except Exception:
                 pass
 
-        titles = ttk.Frame(brand_row)
+    def _build_layout(self) -> None:
+        # Dark header strip
+        header = tk.Frame(
+            self.root,
+            bg=COLORS["header_bg"],
+            padx=24,
+            pady=16,
+        )
+        header.pack(fill="x")
+        heading = tk.Frame(header, bg=COLORS["header_bg"])
+        heading.pack(side="left", fill="x", expand=True)
+
+        brand_row = tk.Frame(heading, bg=COLORS["header_bg"])
+        brand_row.pack(side="left", fill="x")
+
+        self._header_logo_photo = None
+        logo_candidates = [
+            Path(__file__).resolve().parent / "favicon_badge.png",
+            Path(__file__).resolve().parent / "favicon_logo256.png",
+            PROJECT_ROOT / "favicon.png",
+        ]
+        logo_path = next((p for p in logo_candidates if p.is_file()), None)
+        if logo_path and Image and ImageTk:
+            try:
+                logo_raw = Image.open(logo_path).convert("RGBA")
+                logo_img = logo_raw.resize((48, 48), Image.Resampling.LANCZOS)
+                self._header_logo_photo = ImageTk.PhotoImage(logo_img)
+                logo_label = tk.Label(
+                    brand_row,
+                    image=self._header_logo_photo,
+                    bg=COLORS["header_bg"],
+                    bd=0,
+                )
+                logo_label.pack(side="left", padx=(0, 16))
+            except Exception:
+                pass
+
+        titles = tk.Frame(brand_row, bg=COLORS["header_bg"])
         titles.pack(side="left")
-        ttk.Label(titles, text="ChickenSee", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
+        tk.Label(
+            titles,
+            text="ChickenSee",
+            bg=COLORS["header_bg"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 22),
+        ).pack(anchor="w")
+        tk.Label(
             titles,
             text="Video analysis and sync at a glance",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
+            bg=COLORS["header_bg"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(3, 0))
         self.header_status = tk.Label(
             header,
-            text="Checking system…",
-            bg=COLORS["soft_blue"],
+            text="● Checking system…",
+            bg=COLORS["primary_soft"],
             fg=COLORS["primary"],
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Semibold", 9),
             padx=14,
             pady=8,
         )
-        self.header_status.pack(side="right", anchor="n", pady=8)
+        self.header_status.pack(side="right", anchor="center")
 
-        self.tabs = ttk.Notebook(self.root)
-        self.tabs.pack(fill="both", expand=True, padx=22, pady=(8, 22))
-        self.dashboard = ttk.Frame(self.tabs, padding=20)
-        self.queue_page = ttk.Frame(self.tabs, padding=20)
-        self.setup = ttk.Frame(self.tabs, padding=20)
-        self.tabs.add(self.dashboard, text="  Dashboard  ")
-        self.tabs.add(self.queue_page, text="  Queue  ")
-        self.tabs.add(self.setup, text="  Setup  ")
+        # Custom Segmented Navigation Bar
+        nav_container = tk.Frame(self.root, bg=COLORS["header_bg"], padx=24)
+        nav_container.pack(fill="x")
+
+        self.tab_buttons: Dict[str, tk.Label] = {}
+        self.tab_indicators: Dict[str, tk.Frame] = {}
+        self.pages: Dict[str, tk.Frame] = {}
+        self.active_tab = "dashboard"
+
+        tab_items = [
+            ("dashboard", "Dashboard", "📊"),
+            ("queue", "Queue", "⚡"),
+            ("setup", "Setup & Settings", "⚙"),
+        ]
+
+        for tab_id, label_text, icon in tab_items:
+            tab_frame = tk.Frame(nav_container, bg=COLORS["header_bg"], cursor="hand2")
+            tab_frame.pack(side="left", padx=(0, 4))
+
+            tab_btn = tk.Label(
+                tab_frame,
+                text=f"{icon}  {label_text}",
+                bg=COLORS["header_bg"],
+                fg=COLORS["ink_dim"],
+                font=("Segoe UI Semibold", 10),
+                padx=18,
+                pady=11,
+                cursor="hand2",
+            )
+            tab_btn.pack(side="top")
+
+            indicator = tk.Frame(tab_frame, bg=COLORS["header_bg"], height=3)
+            indicator.pack(side="bottom", fill="x")
+
+            self.tab_buttons[tab_id] = tab_btn
+            self.tab_indicators[tab_id] = indicator
+
+            for w in (tab_frame, tab_btn, indicator):
+                w.bind("<Button-1>", lambda e, tid=tab_id: self._switch_tab(tid))
+                w.bind("<Enter>", lambda e, tid=tab_id: self._on_tab_hover(tid, True))
+                w.bind("<Leave>", lambda e, tid=tab_id: self._on_tab_hover(tid, False))
+
+        # Thin divider below navigation
+        nav_divider = tk.Frame(self.root, bg=COLORS["border"], height=1)
+        nav_divider.pack(fill="x")
+
+        # Page Container
+        self.page_container = tk.Frame(self.root, bg=COLORS["background"], padx=24, pady=20)
+        self.page_container.pack(fill="both", expand=True)
+
+        self.dashboard = tk.Frame(self.page_container, bg=COLORS["background"])
+        self.queue_page = tk.Frame(self.page_container, bg=COLORS["background"])
+        self.setup = tk.Frame(self.page_container, bg=COLORS["background"])
+
+        self.pages["dashboard"] = self.dashboard
+        self.pages["queue"] = self.queue_page
+        self.pages["setup"] = self.setup
+
+        # Notebook compatibility object
+        class _TabsCompat:
+            def __init__(self, parent):
+                self.parent = parent
+            def select(self, target=None):
+                if target is None:
+                    return self.parent.pages.get(self.parent.active_tab)
+                for tid, page in self.parent.pages.items():
+                    if target in (tid, page):
+                        self.parent._switch_tab(tid)
+                        return
+        self.tabs = _TabsCompat(self)
+
         self._build_dashboard()
         self._build_queue()
         self._build_setup()
+
+        # Activate initial tab
+        self._switch_tab("dashboard")
+
+    def _switch_tab(self, tab_id: str) -> None:
+        self.active_tab = tab_id
+        for tid, page in self.pages.items():
+            if tid == tab_id:
+                page.pack(fill="both", expand=True)
+            else:
+                page.pack_forget()
+
+        for tid, btn in self.tab_buttons.items():
+            indicator = self.tab_indicators[tid]
+            if tid == tab_id:
+                btn.configure(fg=COLORS["ink"])
+                indicator.configure(bg=COLORS["primary"])
+            else:
+                btn.configure(fg=COLORS["ink_dim"])
+                indicator.configure(bg=COLORS["header_bg"])
+
+    def _on_tab_hover(self, tab_id: str, is_hover: bool) -> None:
+        if tab_id == self.active_tab:
+            return
+        btn = self.tab_buttons[tab_id]
+        if is_hover:
+            btn.configure(fg=COLORS["ink"])
+        else:
+            btn.configure(fg=COLORS["ink_dim"])
+
 
     def _build_dashboard(self) -> None:
         actions = ttk.Frame(self.dashboard)
@@ -561,24 +747,27 @@ class ChickenSeeDesktop:
                 bg=COLORS["surface"],
                 highlightbackground=COLORS["border"],
                 highlightthickness=1,
-                padx=18,
-                pady=16,
+                padx=20,
+                pady=18,
             )
             card.grid(row=0, column=index, sticky="nsew", padx=(0 if index == 0 else 10, 0))
             cards.columnconfigure(index, weight=1)
+            # Accent top border strip
+            accent = tk.Frame(card, bg=COLORS["primary"], height=3)
+            accent.pack(fill="x", pady=(0, 10))
             tk.Label(
                 card,
-                text=title,
+                text=title.upper(),
                 bg=COLORS["surface"],
-                fg=COLORS["muted"],
-                font=("Segoe UI Semibold", 10),
+                fg=COLORS["ink_dim"],
+                font=("Segoe UI Semibold", 9),
             ).pack(anchor="w")
             label = tk.Label(
                 card,
                 text="Checking…",
                 bg=COLORS["surface"],
                 fg=COLORS["ink"],
-                font=("Segoe UI Semibold", 15),
+                font=("Segoe UI Semibold", 16),
             )
             label.pack(anchor="w", pady=(8, 0))
             self.service_labels[key] = label
@@ -586,9 +775,9 @@ class ChickenSeeDesktop:
         active_card = tk.Frame(
             self.dashboard,
             bg=COLORS["surface"],
-            highlightbackground=COLORS["border"],
+            highlightbackground=COLORS["primary_glow"],
             highlightthickness=1,
-            padx=18,
+            padx=20,
             pady=16,
         )
         active_card.pack(fill="x", pady=(14, 18))
@@ -596,7 +785,7 @@ class ChickenSeeDesktop:
             active_card,
             text="CURRENT ANALYSIS",
             bg=COLORS["surface"],
-            fg=COLORS["muted"],
+            fg=COLORS["primary"],
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w")
         self.job_label = tk.Label(
@@ -611,51 +800,100 @@ class ChickenSeeDesktop:
             active_card,
             text="",
             bg=COLORS["surface"],
-            fg=COLORS["muted"],
+            fg=COLORS["ink_dim"],
             font=("Segoe UI", 9),
             wraplength=900,
             justify="left",
         )
         self.storage_label.pack(anchor="w", pady=(4, 0))
 
-        test_panel = ttk.LabelFrame(
+        test_card = tk.Frame(
             self.dashboard,
-            text="Quick video test",
-            padding=(16, 12),
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
         )
-        test_panel.pack(fill="x")
+        test_card.pack(fill="x", pady=(0, 16))
+
+        t_head = tk.Frame(test_card, bg=COLORS["surface"])
+        t_head.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            t_head,
+            text="QUICK VIDEO TEST",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
+        tk.Label(
+            t_head,
+            text="Copy a test video into a watched folder to verify detection pipeline and queue processing without altering the original.",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(2, 0))
+
+        test_row = tk.Frame(test_card, bg=COLORS["surface"])
+        test_row.pack(fill="x")
         self.test_directory = tk.StringVar()
         self.test_directory_combo = ttk.Combobox(
-            test_panel,
+            test_row,
             textvariable=self.test_directory,
             state="readonly",
-            width=70,
         )
-        self.test_directory_combo.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        self.test_directory_combo.pack(side="left", fill="x", expand=True, padx=(0, 12))
         ttk.Button(
-            test_panel,
-            text="Choose a video and test",
+            test_row,
+            text="▶  Choose video & test",
+            style="Primary.TButton",
             command=self.run_video_test,
         ).pack(side="right")
-        ttk.Label(
+
+        # Activity log card
+        log_card = tk.Frame(
             self.dashboard,
-            text="A copy is placed in the selected watched folder. Your original video stays unchanged.",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(8, 0))
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        log_card.pack(fill="both", expand=True)
+
+        l_head = tk.Frame(log_card, bg=COLORS["surface"])
+        l_head.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            l_head,
+            text="●  ACTIVITY & SERVICE LOG",
+            bg=COLORS["surface"],
+            fg=COLORS["green_text"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+        tk.Label(
+            l_head,
+            text="Live events, edge worker updates, and detection status",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(10, 0))
 
         self.activity = tk.Text(
-            self.dashboard,
+            log_card,
             height=6,
             wrap="word",
-            bg=COLORS["surface"],
-            fg=COLORS["ink"],
-            relief="solid",
-            borderwidth=1,
-            highlightthickness=0,
+            bg=COLORS["surface_raised"],
+            fg=COLORS["ink_dim"],
+            relief="flat",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            highlightcolor=COLORS["border_active"],
             font=("Consolas", 9),
+            insertbackground=COLORS["ink"],
             state="disabled",
         )
-        self.activity.pack(fill="both", expand=True, pady=(16, 0))
+        self.activity.pack(fill="both", expand=True)
 
     def _build_queue(self) -> None:
         heading = ttk.Frame(self.queue_page)
@@ -693,17 +931,17 @@ class ChickenSeeDesktop:
             meta_row,
             text="CURRENT ANALYSIS",
             bg=COLORS["surface"],
-            fg=COLORS["muted"],
+            fg=COLORS["primary"],
             font=("Segoe UI Semibold", 9),
         ).pack(side="left")
         self.queue_status_badge = tk.Label(
             meta_row,
-            text="● IDLE",
+            text="●  IDLE",
             bg=COLORS["green_soft"],
-            fg=COLORS["green"],
+            fg=COLORS["green_text"],
             font=("Segoe UI Semibold", 8),
-            padx=8,
-            pady=2,
+            padx=10,
+            pady=4,
         )
         self.queue_status_badge.pack(side="right")
 
@@ -734,7 +972,7 @@ class ChickenSeeDesktop:
             current,
             text="Waiting for queue data…",
             bg=COLORS["surface"],
-            fg=COLORS["muted"],
+            fg=COLORS["ink_dim"],
             font=("Segoe UI", 9),
             anchor="w",
             justify="left",
@@ -763,10 +1001,10 @@ class ChickenSeeDesktop:
             self.queue_tree.column(key, width=width, anchor="w")
         self.queue_tree.tag_configure("processing", foreground=COLORS["primary"], font=("Segoe UI Semibold", 10))
         self.queue_tree.tag_configure("queued", foreground=COLORS["ink"])
-        self.queue_tree.tag_configure("waiting", foreground=COLORS["muted"])
+        self.queue_tree.tag_configure("waiting", foreground=COLORS["ink_dim"])
         self.queue_tree.tag_configure("cancelled", foreground=COLORS["muted"])
-        self.queue_tree.tag_configure("failed", foreground=COLORS["red"])
-        self.queue_tree.tag_configure("completed", foreground=COLORS["green"])
+        self.queue_tree.tag_configure("failed", foreground=COLORS["red_text"])
+        self.queue_tree.tag_configure("completed", foreground=COLORS["green_text"])
         scrollbar = ttk.Scrollbar(
             table_frame, orient="vertical", command=self.queue_tree.yview
         )
@@ -775,107 +1013,266 @@ class ChickenSeeDesktop:
         scrollbar.pack(side="right", fill="y")
 
     def _build_setup(self) -> None:
-        ttk.Label(
-            self.setup,
-            text="Configure your local ChickenSee system",
+        heading = tk.Frame(self.setup, bg=COLORS["background"])
+        heading.pack(fill="x", pady=(0, 16))
+        tk.Label(
+            heading,
+            text="System Settings & Configuration",
+            bg=COLORS["background"],
+            fg=COLORS["ink"],
             font=("Segoe UI Semibold", 18),
         ).pack(anchor="w")
-        ttk.Label(
-            self.setup,
-            text="Choose video folders, local storage, and optional cloud sync. Save before starting services.",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(4, 16))
+        tk.Label(
+            heading,
+            text="Configure video directories to monitor, local analysis storage, and cloud sync credentials.",
+            bg=COLORS["background"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(3, 0))
 
-        folder_frame = ttk.LabelFrame(self.setup, text="Video folders to watch", padding=12)
-        folder_frame.pack(fill="x")
+        # Card 1: Watched folders
+        folder_card = tk.Frame(
+            self.setup,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        folder_card.pack(fill="x", pady=(0, 14))
+
+        f_head = tk.Frame(folder_card, bg=COLORS["surface"])
+        f_head.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            f_head,
+            text="WATCHED VIDEO FOLDERS",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
+        tk.Label(
+            f_head,
+            text="Directories actively monitored for poultry footage (.mp4, .avi, .mkv). Videos are processed in order of arrival.",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(2, 0))
+
+        tree_frame = tk.Frame(
+            folder_card,
+            bg=COLORS["surface_raised"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        tree_frame.pack(fill="x", expand=True)
+
         self.directory_tree = ttk.Treeview(
-            folder_frame,
+            tree_frame,
             columns=("path",),
             show="headings",
-            height=4,
+            height=3,
             selectmode="extended",
         )
-        self.directory_tree.heading("path", text="Folder path")
+        self.directory_tree.heading("path", text="Watched directory path")
         self.directory_tree.column("path", anchor="w")
         self.directory_tree.pack(fill="x", expand=True)
         self.directory_tree.bind(
             "<<TreeviewSelect>>", self._update_remove_directory_button
         )
-        folder_buttons = ttk.Frame(folder_frame)
-        folder_buttons.pack(fill="x", pady=(8, 0))
-        ttk.Button(folder_buttons, text="Add folder…", command=self.add_directory).pack(
-            side="left"
-        )
+
+        f_buttons = tk.Frame(folder_card, bg=COLORS["surface"])
+        f_buttons.pack(fill="x", pady=(10, 0))
+        ttk.Button(
+            f_buttons,
+            text="＋  Add folder…",
+            style="Primary.TButton",
+            command=self.add_directory,
+        ).pack(side="left")
         self.remove_directory_button = ttk.Button(
-            folder_buttons,
-            text="Remove selected",
+            f_buttons,
+            text="✕  Remove selected",
+            style="Secondary.TButton",
             command=self.remove_directories,
             state="disabled",
         )
         self.remove_directory_button.pack(side="left", padx=(8, 0))
-        ttk.Label(
-            folder_buttons,
-            text="Add or remove folders to save changes immediately. Folder contents are never deleted.",
-            style="Subtitle.TLabel",
-        ).pack(side="left", padx=(12, 0))
+        tk.Label(
+            f_buttons,
+            text="Video files in watched directories are never altered or deleted.",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+        ).pack(side="left", padx=(14, 0))
 
-        storage_frame = ttk.LabelFrame(self.setup, text="Local results and logs", padding=12)
-        storage_frame.pack(fill="x", pady=(12, 0))
+        # Card 2: Local storage
+        storage_card = tk.Frame(
+            self.setup,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        storage_card.pack(fill="x", pady=(0, 14))
+
+        s_head = tk.Frame(storage_card, bg=COLORS["surface"])
+        s_head.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            s_head,
+            text="LOCAL STORAGE & RESULTS",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
+        tk.Label(
+            s_head,
+            text="Destination path for analyzed detection outputs, behavior JSON metrics, and process log files.",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(2, 0))
+
+        s_row = tk.Frame(storage_card, bg=COLORS["surface"])
+        s_row.pack(fill="x")
         self.storage_path = tk.StringVar()
-        ttk.Entry(storage_frame, textvariable=self.storage_path).pack(
+        ttk.Entry(s_row, textvariable=self.storage_path).pack(
             side="left", fill="x", expand=True
         )
-        ttk.Button(storage_frame, text="Browse…", command=self.choose_storage).pack(
-            side="left", padx=(8, 0)
-        )
+        ttk.Button(
+            s_row,
+            text="📂  Browse…",
+            style="Secondary.TButton",
+            command=self.choose_storage,
+        ).pack(side="left", padx=(10, 0))
 
-        cloud_frame = ttk.LabelFrame(self.setup, text="Optional Vercel sync", padding=12)
-        cloud_frame.pack(fill="x", pady=(12, 0))
+        # Card 3: Cloud sync
+        cloud_card = tk.Frame(
+            self.setup,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        cloud_card.pack(fill="x", pady=(0, 14))
+
+        c_head = tk.Frame(cloud_card, bg=COLORS["surface"])
+        c_head.pack(fill="x", pady=(0, 10))
+        tk.Label(
+            c_head,
+            text="CLOUD SYNCHRONIZATION (VERCEL)",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w")
+        tk.Label(
+            c_head,
+            text="Optionally forward detection metrics, aggregate behavior counts, and analysis summaries to your online dashboard.",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(2, 0))
+
         self.cloud_sync = tk.BooleanVar()
         ttk.Checkbutton(
-            cloud_frame,
+            cloud_card,
             text="Upload videos and analysis results to my Vercel portal",
             variable=self.cloud_sync,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(cloud_frame, text="Sync URL").grid(row=1, column=0, sticky="w", pady=4)
-        self.sync_url = tk.StringVar()
-        ttk.Entry(cloud_frame, textvariable=self.sync_url).grid(
-            row=1, column=1, sticky="ew", padx=(12, 0), pady=4
-        )
-        ttk.Label(cloud_frame, text="Sync secret").grid(row=2, column=0, sticky="w", pady=4)
-        self.sync_secret = tk.StringVar()
-        ttk.Entry(cloud_frame, textvariable=self.sync_secret, show="•").grid(
-            row=2, column=1, sticky="ew", padx=(12, 0), pady=4
-        )
-        cloud_frame.columnconfigure(1, weight=1)
-        ttk.Label(
-            cloud_frame,
-            text="Cloud upload is off by default. The secret is saved in the ignored agent\\.env file.",
-            style="Subtitle.TLabel",
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        ).pack(anchor="w", pady=(0, 10))
 
-        buttons = ttk.Frame(self.setup)
-        buttons.pack(fill="x", pady=(16, 0))
+        form_grid = tk.Frame(cloud_card, bg=COLORS["surface"])
+        form_grid.pack(fill="x")
+        form_grid.columnconfigure(1, weight=1)
+
+        tk.Label(
+            form_grid,
+            text="Sync URL",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI Semibold", 9),
+        ).grid(row=0, column=0, sticky="w", pady=5)
+        self.sync_url = tk.StringVar()
+        ttk.Entry(form_grid, textvariable=self.sync_url).grid(
+            row=0, column=1, sticky="ew", padx=(14, 0), pady=5
+        )
+
+        tk.Label(
+            form_grid,
+            text="Sync Secret",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI Semibold", 9),
+        ).grid(row=1, column=0, sticky="w", pady=5)
+        self.sync_secret = tk.StringVar()
+        secret_box = tk.Frame(form_grid, bg=COLORS["surface"])
+        secret_box.grid(row=1, column=1, sticky="ew", padx=(14, 0), pady=5)
+        secret_box.columnconfigure(0, weight=1)
+
+        self.secret_entry = ttk.Entry(
+            secret_box, textvariable=self.sync_secret, show="•"
+        )
+        self.secret_entry.grid(row=0, column=0, sticky="ew")
+
+        self.secret_visible = False
+        def _toggle_secret():
+            self.secret_visible = not self.secret_visible
+            self.secret_entry.configure(show="" if self.secret_visible else "•")
+            self.secret_btn.configure(text="Hide" if self.secret_visible else "Show")
+
+        self.secret_btn = ttk.Button(
+            secret_box,
+            text="Show",
+            style="Secondary.TButton",
+            command=_toggle_secret,
+            width=6,
+        )
+        self.secret_btn.grid(row=0, column=1, padx=(6, 0))
+
+        tk.Label(
+            cloud_card,
+            text="🔒  Cloud sync is optional. Secret is stored locally in ignored agent/.env and is never committed.",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(8, 0))
+
+        # Bottom action bar card
+        actions_card = tk.Frame(
+            self.setup,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=14,
+        )
+        actions_card.pack(fill="x")
+
         ttk.Button(
-            buttons,
-            text="Save settings",
+            actions_card,
+            text="💾  Save settings",
             style="Primary.TButton",
             command=self.save_settings,
         ).pack(side="left")
+
         ttk.Button(
-            buttons,
-            text="Initialize / repair",
+            actions_card,
+            text="🛠  Initialize / repair",
+            style="Secondary.TButton",
             command=self.initialize_system,
-        ).pack(side="left", padx=(8, 0))
+        ).pack(side="left", padx=(10, 0))
+
         ttk.Button(
-            buttons,
-            text="Enable startup",
-            command=self.install_startup,
-        ).pack(side="right")
-        ttk.Button(
-            buttons,
+            actions_card,
             text="Remove startup",
+            style="Secondary.TButton",
             command=self.uninstall_startup,
+        ).pack(side="right")
+
+        ttk.Button(
+            actions_card,
+            text="Enable startup",
+            style="Secondary.TButton",
+            command=self.install_startup,
         ).pack(side="right", padx=(0, 8))
 
     def _load_settings_into_form(self) -> None:
@@ -1448,21 +1845,21 @@ class ChickenSeeDesktop:
 
         if len(active) == 3:
             self.header_status.configure(
-                text="All services running",
-                bg="#e6f6ee",
-                fg=COLORS["green"],
+                text="●  All services running",
+                bg=COLORS["green_soft"],
+                fg=COLORS["green_text"],
             )
         elif active:
             self.header_status.configure(
-                text=f"{len(active)} of 3 services running",
-                bg="#fff5df",
-                fg="#9b6a06",
+                text=f"●  {len(active)} of 3 services running",
+                bg=COLORS["amber_soft"],
+                fg=COLORS["amber_text"],
             )
         else:
             self.header_status.configure(
-                text="Services stopped",
-                bg="#fdecef",
-                fg=COLORS["red"],
+                text="●  Services stopped",
+                bg=COLORS["red_soft"],
+                fg=COLORS["red_text"],
             )
 
         if health:
@@ -1512,11 +1909,16 @@ class ChickenSeeDesktop:
     def _display_queue(self, queue_data, queue_error) -> None:
         for item_id in self.queue_tree.get_children():
             self.queue_tree.delete(item_id)
+        if "queue" in getattr(self, "tab_buttons", {}):
+            items_list = queue_data.get("items", []) if queue_data else []
+            badge_str = f" ({len(items_list)})" if items_list else ""
+            self.tab_buttons["queue"].configure(text=f"⚡  Queue{badge_str}")
+
         if not queue_data:
             self.queue_active_label.configure(text="Queue Offline — Services Stopped or Starting")
             if hasattr(self, "queue_status_badge"):
                 self.queue_status_badge.configure(
-                    text="● OFFLINE", bg=COLORS["red_soft"], fg=COLORS["red"]
+                    text="●  OFFLINE", bg=COLORS["red_soft"], fg=COLORS["red_text"]
                 )
             self.queue_progress.configure(value=0)
             self.queue_summary.configure(
@@ -1538,7 +1940,7 @@ class ChickenSeeDesktop:
             )
             if hasattr(self, "queue_status_badge"):
                 self.queue_status_badge.configure(
-                    text="● PROCESSING", bg="#fff7ed", fg=COLORS["primary"]
+                    text="●  PROCESSING", bg=COLORS["amber_soft"], fg=COLORS["amber_text"]
                 )
             self.queue_progress.configure(value=percentage or 0)
             self.cancel_analysis_button.configure(
@@ -1550,7 +1952,7 @@ class ChickenSeeDesktop:
             self.queue_active_label.configure(text="No active analysis — Standby")
             if hasattr(self, "queue_status_badge"):
                 self.queue_status_badge.configure(
-                    text="● IDLE", bg=COLORS["green_soft"], fg=COLORS["green"]
+                    text="●  IDLE", bg=COLORS["green_soft"], fg=COLORS["green_text"]
                 )
             self.queue_progress.configure(value=0)
             self.cancel_analysis_button.configure(state="disabled", text="Cancel analysis")

@@ -58,9 +58,11 @@ class AnalyticsConfig(BaseModel):
     )
     
     # Feather Pecking Detection Thresholds
-    feather_pecking_proximity_px: float = Field(default=45.0, description="Inter-bird centroid distance for close interaction")
-    feather_pecking_approach_speed_px_s: float = Field(default=48.0, description="Rapid approach speed indicating aggression")
-    feather_pecking_escape_speed_px_s: float = Field(default=40.0, description="Victim escape acceleration burst")
+    # Tuned for 640-wide video at 15 fps with ByteTrack smoothed centroids.
+    # At 640px width a bird body is ~40-60px; 22 px/s ≈ brisk directional charge.
+    feather_pecking_proximity_px: float = Field(default=60.0, description="Inter-bird centroid distance threshold for close interaction")
+    feather_pecking_approach_speed_px_s: float = Field(default=22.0, description="Minimum aggressor approach speed (px/s) indicating aggression")
+    feather_pecking_escape_speed_px_s: float = Field(default=18.0, description="Minimum victim escape acceleration burst (px/s)")
 
     # Server API
     api_host: str = Field(default="0.0.0.0", description="FastAPI host")
