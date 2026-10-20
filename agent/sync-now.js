@@ -9,7 +9,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
-const LOCAL_STORAGE = process.env.CHICKENSEE_LOCAL_STORAGE || 'C:/Users/Kairi/Documents/ChickenSee_Local_Storage';
+const LOCAL_STORAGE = process.env.CHICKENSEE_LOCAL_STORAGE || path.resolve(__dirname, '..', 'local-storage');
 const RESULTS_DIR = path.join(LOCAL_STORAGE, 'results');
 const REPO_DATA_RESULTS = path.resolve(__dirname, '..', 'data', 'results');
 
