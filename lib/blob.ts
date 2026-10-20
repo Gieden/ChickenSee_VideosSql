@@ -21,7 +21,7 @@ export async function listSyncedVideos(): Promise<SyncedFileMeta[]> {
       .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
   } catch (error) {
     console.error('Error listing video blobs:', error);
-    return [];
+    throw error;
   }
 }
 
@@ -42,7 +42,7 @@ export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
       .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
   } catch (error) {
     console.error('Error listing database blobs:', error);
-    return [];
+    throw error;
   }
 }
 

@@ -201,7 +201,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ results: flattenedResults });
     }
   } catch (error) {
-    console.warn('Vercel Blob results check failed, falling back to local/bundled data:', error);
+    console.error('Vercel Blob results check failed:', error);
+    return NextResponse.json(
+      { error: 'Failed to load analysis results from Vercel Blob' },
+      { status: 503 },
+    );
+  }
+
+  if (process.env.VERCEL) {
+    return NextResponse.json({ results: [] });
   }
 
   // 2. Fallback to bundled / local results

@@ -12,6 +12,7 @@ const SYNC_SECRET = process.env.SYNC_SECRET;
 const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '1000', 10);
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '250', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
+const CLOUD_SYNC_RETRY_DELAY_MS = 5 * 60 * 1000;
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
 const LOCAL_STORAGE_ROOT = process.env.CHICKENSEE_LOCAL_STORAGE
   || 'C:\\ChickenSee_Local_Storage';
@@ -19,6 +20,7 @@ const STATE_FILE = path.resolve('./.sync-state.json');
 const CONFIG_FILE = path.resolve('./directories.json');
 
 let cloudSyncDisabledReason = ENABLE_CLOUD_SYNC ? null : 'disabled by ENABLE_CLOUD_SYNC=0';
+const pendingCloudUploads = new Set();
 
 // ─── Resolve watch directories ────────────────────────────────────────────────
 // Priority: directories.json > WATCH_DIRS env (comma-separated) > WATCH_DIR > ./data
@@ -96,7 +98,19 @@ function disableCloudSync(reason) {
   if (cloudSyncDisabledReason) return;
   cloudSyncDisabledReason = reason;
   log('WARN', `Cloud upload disabled for this session: ${reason}`);
-  log('WARN', 'Files will continue to be stored locally. Unsuspend / reconnect Vercel Blob to resume uploads.');
+  log('WARN', 'Files will remain local while Vercel Blob is unavailable; sync will retry every 5 minutes.');
+
+  setTimeout(() => {
+    if (cloudSyncDisabledReason !== reason) return;
+
+    cloudSyncDisabledReason = null;
+    log('INFO', 'Retrying cloud sync for files pending during the outage.');
+    const pendingFiles = Array.from(pendingCloudUploads);
+    pendingCloudUploads.clear();
+    pendingFiles.forEach((filePath) => {
+      if (shouldSync(filePath)) enqueueUpload(filePath);
+    });
+  }, CLOUD_SYNC_RETRY_DELAY_MS);
 }
 
 // ─── Direct Large-File Upload using Token ─────────────────────────────────────
@@ -178,7 +192,10 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
   const sizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
   if (cloudSyncDisabledReason) {
-    log('SKIP', `Cloud upload skipped for "${filename}" (${cloudSyncDisabledReason})`);
+    if (!pendingCloudUploads.has(filePath)) {
+      log('SKIP', `Cloud upload skipped for "${filename}" (${cloudSyncDisabledReason})`);
+    }
+    pendingCloudUploads.add(filePath);
     return;
   }
 
@@ -206,6 +223,7 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
   } catch (error) {
     log('ERROR', `Upload failed for "${filename}": ${error.message}`);
     if (isPermanentCloudError(error.message)) {
+      pendingCloudUploads.add(filePath);
       disableCloudSync('Vercel Blob store is suspended');
       return;
     }

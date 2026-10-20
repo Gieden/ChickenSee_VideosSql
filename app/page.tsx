@@ -238,6 +238,7 @@ export default function DashboardPage() {
   const [videos, setVideos] = useState<SyncedFileMeta[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<SyncedFileMeta | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(true);
+  const [videosError, setVideosError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const [databases, setDatabases] = useState<SyncedFileMeta[]>([]);
@@ -246,6 +247,7 @@ export default function DashboardPage() {
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
   const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
   const [loadingDb, setLoadingDb] = useState(true);
+  const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [pageOffset, setPageOffset] = useState(0);
   const pageSize = 50;
 
@@ -322,14 +324,17 @@ export default function DashboardPage() {
   async function fetchVideos() {
     try {
       setLoadingVideos(true);
+      setVideosError(null);
       const res = await fetch('/api/videos');
       if (res.status === 401) { router.push('/login'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
       const vids: SyncedFileMeta[] = data.videos || [];
       setVideos(vids);
       if (!selectedVideo && vids.length > 0) setSelectedVideo(vids[0]);
     } catch (err) {
       console.error('Failed to fetch videos:', err);
+      setVideosError(err instanceof Error ? err.message : 'Could not load synchronized videos.');
     } finally {
       setLoadingVideos(false);
     }
@@ -338,6 +343,7 @@ export default function DashboardPage() {
   async function fetchDatabaseData(file?: string, table?: string, offset: number = 0) {
     try {
       setLoadingDb(true);
+      setDatabaseError(null);
       const params = new URLSearchParams();
       if (file) params.set('file', file);
       if (table) params.set('table', table);
@@ -345,6 +351,7 @@ export default function DashboardPage() {
       params.set('offset', offset.toString());
       const res = await fetch(`/api/database?${params.toString()}`);
       if (res.status === 401) { router.push('/login'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
       setDatabases(data.databases || []);
       setCurrentDbFile(data.currentFile);
@@ -354,6 +361,7 @@ export default function DashboardPage() {
       setPageOffset(offset);
     } catch (err) {
       console.error('Failed to fetch database data:', err);
+      setDatabaseError(err instanceof Error ? err.message : 'Could not load synchronized databases.');
     } finally {
       setLoadingDb(false);
     }
@@ -1275,6 +1283,10 @@ export default function DashboardPage() {
                 <div className="flex h-48 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/30">
                   <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
                 </div>
+              ) : videosError ? (
+                <div role="alert" className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">
+                  Could not load synchronized videos: {videosError}
+                </div>
               ) : videos.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 p-12 text-center">
                   <Video className="mb-4 h-12 w-12 text-slate-600" />
@@ -1337,6 +1349,10 @@ export default function DashboardPage() {
             {loadingDb ? (
               <div className="flex h-64 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/30">
                 <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
+              </div>
+            ) : databaseError ? (
+              <div role="alert" className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">
+                Could not load synchronized databases: {databaseError}
               </div>
             ) : !queryResult || !queryResult.columns.length ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 p-12 text-center">

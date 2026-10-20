@@ -195,6 +195,7 @@ To make sure ChickenSee automatically runs whenever the OptiPlex boots up:
   Ensure the video is in an MP4 container and has been stable (unchanged file size) for at least 20 seconds.
 - **Cloud Uploads not showing on Vercel**:
   Confirm that **Cloud Sync** is toggled ON in the Setup tab and that your `SYNC_SECRET` matches your Vercel environment variable exactly.
+  If the sync-agent log reports that the Vercel Blob store is suspended, restore or reconnect the Blob store in Vercel first. Pending local files remain queued and the agent retries cloud sync every five minutes.
 - **View Live Logs**:
   Click **"Open logs"** on the Dashboard to inspect `worker.log`, `watcher.log`, or `api.log`.
 - **API Documentation**:

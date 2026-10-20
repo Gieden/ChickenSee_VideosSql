@@ -1,28 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 import { put } from '@vercel/blob';
-import fs from 'fs';
-import path from 'path';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function saveLocalResultBuffer(filename: string, buffer: Buffer): void {
-  const dirs = [
-    '/tmp/results',
-    path.join(process.cwd(), 'data', 'results'),
-  ];
-  for (const dir of dirs) {
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(path.join(dir, filename), buffer);
-    } catch {
-      // Ignore directory write error
-    }
-  }
-}
 
 export async function POST(req: NextRequest) {
   try {
@@ -82,11 +63,6 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(arrayBuffer);
 
-    // If it's a JSON file (behavior result or queue status), cache locally first
-    if (ext === 'json') {
-      saveLocalResultBuffer(filename, buffer);
-    }
-
     const defaultContentType = ext === 'mp4'
       ? 'video/mp4'
       : ext === 'json'
@@ -94,36 +70,19 @@ export async function POST(req: NextRequest) {
         : 'application/x-sqlite3';
     const contentType = req.headers.get('content-type') || defaultContentType;
 
-    // Attempt upload to Vercel Blob
-    try {
-      const blob = await put(blobPath, buffer, {
-        access: 'public',
-        addRandomSuffix: false,
-        contentType,
-      });
+    const blob = await put(blobPath, buffer, {
+      access: 'public',
+      addRandomSuffix: false,
+      contentType,
+    });
 
-      return NextResponse.json({
-        success: true,
-        message: `File synced successfully: ${filename}`,
-        pathname: blob.pathname,
-        url: blob.url,
-        downloadUrl: blob.downloadUrl,
-      });
-    } catch (blobError: any) {
-      console.warn(`Vercel Blob put failed for ${filename}:`, blobError.message);
-
-      // If it's a JSON file that was saved to server cache, return 200 with fallback notice
-      if (ext === 'json') {
-        return NextResponse.json({
-          success: true,
-          cached: true,
-          message: `File cached on server (${blobError.message})`,
-          pathname: `results/${filename}`,
-        });
-      }
-
-      throw blobError;
-    }
+    return NextResponse.json({
+      success: true,
+      message: `File synced successfully: ${filename}`,
+      pathname: blob.pathname,
+      url: blob.url,
+      downloadUrl: blob.downloadUrl,
+    });
   } catch (error: any) {
     console.error('Error during file sync to Vercel Blob:', error);
     return NextResponse.json(
