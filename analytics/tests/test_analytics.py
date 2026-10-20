@@ -312,6 +312,26 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(start, datetime.datetime(2026, 9, 14, 10, 28, 8))
         self.assertEqual(end, start + datetime.timedelta(hours=1))
 
+    def test_rec_subfolder_filename_is_parsed(self):
+        """
+        rec_%Y - %m-%d_%H-%M-%S_%f is the SESSION FOLDER name, not the video filename.
+        Structure: watched_dir / cam01 / rec_<timestamp> / video.mp4
+        """
+        worker = object.__new__(ZampenAnalyticsWorker)
+        # Full nested path mirrors the real recorder layout
+        path = Path(r"C:\Users\Kairi\Documents\chicks\test\cam01\rec_2026 - 10-20_14-30-00_123456\video.mp4")
+        start, end = worker._extract_timestamps_from_file(path)
+        self.assertEqual(start, datetime.datetime(2026, 10, 20, 14, 30, 0))
+        self.assertEqual(end, start + datetime.timedelta(hours=1))
+
+    def test_rec_subfolder_filename_without_spaces_is_parsed(self):
+        """rec_ folder pattern tolerates no spaces around the dash separator."""
+        worker = object.__new__(ZampenAnalyticsWorker)
+        path = Path(r"C:\Users\Kairi\Documents\chicks\test\cam01\rec_2026-10-20_08-05-30_000001\video.mp4")
+        start, end = worker._extract_timestamps_from_file(path)
+        self.assertEqual(start, datetime.datetime(2026, 10, 20, 8, 5, 30))
+        self.assertEqual(end, start + datetime.timedelta(hours=1))
+
     def test_missing_sensor_interval_is_reported_unavailable_not_as_defaults(self):
         with tempfile.TemporaryDirectory() as temporary:
             database_path = Path(temporary) / "sensors.db"

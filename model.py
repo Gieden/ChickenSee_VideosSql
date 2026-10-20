@@ -315,6 +315,7 @@ class ChickenDetector:
             return self.short_id_map[raw_tid]
 
         # Process Hens / Chickens
+        assigned_hen_labels = set()
         for (cbox, conf_val, _, track_id) in chicken_dets:
             raw = scale_box(cbox)
             x1, y1, x2, y2 = smooth_box(track_id, raw)
@@ -325,7 +326,10 @@ class ChickenDetector:
 
             display_label = "Chicken"
             if track_id is not None and track_id in self.track_states:
-                display_label = self.track_states[track_id]["label"]
+                cand = self.track_states[track_id]["label"]
+                if cand not in assigned_hen_labels:
+                    display_label = cand
+                    assigned_hen_labels.add(cand)
                 self.track_states[track_id]["last_seen_frame"] = self.frame_count
 
             # Color determined strictly by display_label

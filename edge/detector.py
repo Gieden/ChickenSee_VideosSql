@@ -309,6 +309,7 @@ class PoultryInferenceEngine:
         # Process Hens / Chickens
         hens_id_count = 0
         unid_count = 0
+        assigned_hen_labels = set()
 
         for (cbox, conf_val, _, track_id, cls_id) in chicken_raw:
             raw_orig = [cbox[0] * scale_w, cbox[1] * scale_h, cbox[2] * scale_w, cbox[3] * scale_h]
@@ -320,7 +321,10 @@ class PoultryInferenceEngine:
 
             label = "Chicken"
             if track_id is not None and track_id in self.track_states:
-                label = self.track_states[track_id]["label"]
+                cand = self.track_states[track_id]["label"]
+                if cand not in assigned_hen_labels:
+                    label = cand
+                    assigned_hen_labels.add(cand)
                 self.track_states[track_id]["last_seen_frame"] = self.frame_count
 
             if label.startswith("Hen"):

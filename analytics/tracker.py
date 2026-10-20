@@ -322,9 +322,29 @@ class ZampenYOLOTracker:
             if hen_label:
                 self._record_track_label(bird.track_id, hen_label)
 
-        for bird in birds:
+        # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame
+        used_labels = set()
+        def _label_priority(b: TrackedDetection) -> int:
+            if b.track_id is None:
+                return 0
+            lbl = self.track_label_cache.get(b.track_id)
+            if not lbl:
+                return 0
+            votes = self.track_label_votes.get(b.track_id, [])
+            return votes.count(lbl)
+
+        sorted_birds = sorted(birds, key=_label_priority, reverse=True)
+        for bird in sorted_birds:
             if bird.track_id is not None and bird.track_id in self.track_label_cache:
-                bird.bird_label = self.track_label_cache[bird.track_id]
+                assigned = self.track_label_cache[bird.track_id]
+                if assigned not in used_labels:
+                    bird.bird_label = assigned
+                    used_labels.add(assigned)
+                else:
+                    # Duplicate hen identity in the same frame is invalid; retain generic Chicken
+                    bird.bird_label = "Chicken"
+            elif bird.class_name == "Chicken":
+                bird.bird_label = "Chicken"
 
         equipment = suppress_overlapping_equipment(
             [

@@ -193,14 +193,24 @@ class ZampenAnalyticsWorker:
 
         return None
 
+    _REC_FOLDER_RE = re.compile(
+        r"rec_(\d{4})\s*-\s*(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})_(\d+)"
+    )
+
     def _extract_timestamps_from_file(self, path: Path) -> Tuple[datetime.datetime, datetime.datetime]:
         """
-        Parses video start and end datetime from filename conventions:
-        e.g., 'detection_2026-10-14_0600.mp4', '20261014_060000.mp4', or st_mtime.
+        Parses video start and end datetime from filename or parent folder conventions.
+
+        Checked in order:
+        1. Filename: detection_YYYY-MM-DD_HHMM
+        2. Any ancestor folder name: rec_YYYY - MM-DD_HH-MM-SS_ffffff
+           (structure: watched_dir / cam_folder / rec_<timestamp> / video.mp4)
+        3. Filename: YYYYMMDD_HHMMSS
+        4. Fallback: file modification time
         """
         fname = path.name
-        
-        # Pattern 1: detection_YYYY-MM-DD_HHMM.mp4
+
+        # Pattern 1: detection_YYYY-MM-DD_HHMM  (in filename)
         m1 = re.search(r"detection_(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})", fname)
         if m1:
             date_s, hh, mm = m1.groups()
@@ -208,11 +218,24 @@ class ZampenAnalyticsWorker:
             end_dt = start_dt + datetime.timedelta(hours=1)
             return start_dt, end_dt
 
-        # Pattern 2: YYYYMMDD_HHMMSS
-        m2 = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", fname)
-        if m2:
-            y, m, d, hh, mm, ss = m2.groups()
-            start_dt = datetime.datetime.strptime(f"{y}-{m}-{d} {hh}:{mm}:{ss}", "%Y-%m-%d %H:%M:%S")
+        # Pattern 2: rec_YYYY - MM-DD_HH-MM-SS_ffffff  (in a parent folder name)
+        # Structure: watched_dir / cam_folder / rec_<timestamp>/ / video.mp4
+        # Walk parents from immediate parent upward, stop at filesystem root.
+        for part in path.parts[-2::-1]:  # skip the filename itself, walk parents inward→outward
+            m2 = self._REC_FOLDER_RE.search(part)
+            if m2:
+                y, mo, d, hh, mm, ss, _us = m2.groups()
+                start_dt = datetime.datetime.strptime(
+                    f"{y}-{mo}-{d} {hh}:{mm}:{ss}", "%Y-%m-%d %H:%M:%S"
+                )
+                end_dt = start_dt + datetime.timedelta(hours=1)
+                return start_dt, end_dt
+
+        # Pattern 3: YYYYMMDD_HHMMSS  (in filename)
+        m3 = re.search(r"(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})", fname)
+        if m3:
+            y, mo, d, hh, mm, ss = m3.groups()
+            start_dt = datetime.datetime.strptime(f"{y}-{mo}-{d} {hh}:{mm}:{ss}", "%Y-%m-%d %H:%M:%S")
             end_dt = start_dt + datetime.timedelta(hours=1)
             return start_dt, end_dt
 
@@ -220,16 +243,41 @@ class ZampenAnalyticsWorker:
         mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
         return mtime, mtime
 
+    @staticmethod
+    def _find_paired_sensor_db(video_path: str) -> Optional[Path]:
+        """
+        Looks for a paired sensor SQLite file inside the same session folder as the video.
+
+        Structure: watched_dir / cam_folder / rec_<timestamp> / video.mp4
+                                                              \ sensors.db   ← paired here
+
+        Accepts any .db, .sqlite, or .sql extension (case-insensitive).
+        Returns the first match found, or None if the session folder contains no DB file.
+        """
+        session_dir = Path(video_path).parent
+        for ext in (".db", ".sqlite", ".sql"):
+            candidates = sorted(session_dir.glob(f"*{ext}"))
+            if candidates:
+                paired = candidates[0]
+                print(f"[WORKER] Paired sensor DB found: {paired}")
+                return paired
+        return None
+
     def _pull_sensor_averages_for_range(
-        self, 
-        chunk_start: datetime.datetime, 
-        chunk_end: datetime.datetime
+        self,
+        chunk_start: datetime.datetime,
+        chunk_end: datetime.datetime,
+        paired_db: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """
-        Queries raw sensor records from the SQLite database for the analysis interval
+        Queries raw sensor records from a SQLite database for the analysis interval
         and computes arithmetic averages, extrema, THI, and heat stress alerts.
+
+        Priority:
+          1. paired_db — the session-local sensor file found next to the video
+          2. self.cfg.sensor_db_url — the globally configured sensor database
         """
-        sensor_db = Path(self.cfg.sensor_db_url.replace("sqlite:///", ""))
+        sensor_db = paired_db if paired_db is not None else Path(self.cfg.sensor_db_url.replace("sqlite:///", ""))
         defaults = {
             "temp_avg_c": None,
             "temp_min_c": None,
@@ -303,11 +351,11 @@ class ZampenAnalyticsWorker:
         return defaults
 
     def _process_hourly_segment(
-        self, 
-        video_path: str, 
-        filename: str, 
-        start_dt: datetime.datetime, 
-        end_dt: datetime.datetime
+        self,
+        video_path: str,
+        filename: str,
+        start_dt: datetime.datetime,
+        end_dt: datetime.datetime,
     ):
         """
         Executes frame-by-frame YOLO26 Nano + ByteTrack inference, splits the video
@@ -362,6 +410,8 @@ class ZampenAnalyticsWorker:
             self.current_job_id = None
             raise RuntimeError(error)
 
+        paired_db = self._find_paired_sensor_db(video_path)
+
         try:
             frames_processed, elapsed_s = self._run_chunked_inference(
                 cap=cap,
@@ -376,6 +426,7 @@ class ZampenAnalyticsWorker:
                 total_frames=total_frames,
                 fps=fps,
                 stride=stride,
+                paired_db=paired_db,
             )
             self._raise_if_cancelled(job.id)
             writer.release()
@@ -449,6 +500,7 @@ class ZampenAnalyticsWorker:
         total_frames,
         fps,
         stride,
+        paired_db: Optional[Path] = None,
     ):
         fps = fps if fps > 0 else 20.0
         frame_ranges = self._chunk_frame_ranges(total_frames, fps, self.cfg.chunk_minutes)
@@ -504,7 +556,7 @@ class ZampenAnalyticsWorker:
 
             actual_chunk_end = start_dt + datetime.timedelta(seconds=frame_idx / fps) if video_ended else chunk_end
             summary = self.behavior_engine.compute_chunk_summary()
-            sensors = self._pull_sensor_averages_for_range(chunk_start, actual_chunk_end)
+            sensors = self._pull_sensor_averages_for_range(chunk_start, actual_chunk_end, paired_db=paired_db)
             chunk_record = {
                 "date_slot": chunk_start.strftime("%Y-%m-%d"),
                 "hour_slot": chunk_start.strftime("%H:00"),
