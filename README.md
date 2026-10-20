@@ -35,6 +35,7 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 │   ├── chickensee_desktop.py      # Tkinter Control Center
 │   ├── configuration.py           # Desktop setup and local settings
 │   ├── run-chickensee.ps1         # Starts and restarts watcher, API, and worker
+│   ├── start-chickensee.bat       # Windows sign-in startup launcher
 │   ├── install-startup.ps1        # Adds desktop and sign-in shortcuts
 │   └── uninstall-startup.ps1      # Removes automatic startup
 ├── app/                            # Next.js 14 App Router

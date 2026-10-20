@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $RunnerPath = Join-Path $PSScriptRoot "run-chickensee.ps1"
+$LauncherPath = Join-Path $PSScriptRoot "start-chickensee.bat"
 $DesktopAppPath = Join-Path $PSScriptRoot "chickensee_desktop.py"
 $AgentDir = Join-Path $ProjectRoot "agent"
 $Python = (Get-Command python -ErrorAction Stop).Source
@@ -13,6 +14,9 @@ $DesktopShortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "Chic
 
 if (-not (Test-Path $RunnerPath -PathType Leaf)) {
     throw "Startup supervisor not found: $RunnerPath"
+}
+if (-not (Test-Path $LauncherPath -PathType Leaf)) {
+    throw "Startup batch launcher not found: $LauncherPath"
 }
 if (-not (Test-Path $DesktopAppPath -PathType Leaf)) {
     throw "ChickenSee desktop app not found: $DesktopAppPath"
@@ -65,13 +69,14 @@ $IconPath = Join-Path $ProjectRoot "favicon.ico"
 $DesktopAppStartupShortcut = Join-Path $StartupFolder "ChickenSee Control Center.lnk"
 
 $Shell = New-Object -ComObject WScript.Shell
-$PowershellExe = (Get-Command powershell.exe -ErrorAction Stop).Source
+$CommandPrompt = (Get-Command cmd.exe -ErrorAction Stop).Source
 
 # 1. Background Supervisor Startup Shortcut
 $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-$Shortcut.TargetPath = $PowershellExe
-$Shortcut.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunnerPath`""
+$Shortcut.TargetPath = $CommandPrompt
+$Shortcut.Arguments = "/c `"`"$LauncherPath`"`""
 $Shortcut.WorkingDirectory = $ProjectRoot
+$Shortcut.WindowStyle = 7
 $Shortcut.Description = "Start ChickenSee sync agent and analytics services at sign-in"
 if (Test-Path $IconPath) {
     $Shortcut.IconLocation = "$IconPath,0"
@@ -115,7 +120,7 @@ try {
 # 5. Register instant Run key in Windows Registry for immediate session startup
 try {
     $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $RunCommand = "`"$PowershellExe`" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$RunnerPath`""
+    $RunCommand = "`"$CommandPrompt`" /c `"`"$LauncherPath`"`""
     Set-ItemProperty -Path $RunKey -Name "ChickenSee" -Value $RunCommand -Type String -Force
     Write-Host "Real-time logon registry entry configured in HKCU Run key." -ForegroundColor Cyan
 } catch {

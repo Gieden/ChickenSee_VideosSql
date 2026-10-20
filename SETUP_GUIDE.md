@@ -166,7 +166,7 @@ To make sure ChickenSee automatically runs whenever the OptiPlex boots up:
 2. Click **"Enable startup"**.
 3. This registers:
    - A **ChickenSee Control Center** shortcut on your Windows Desktop (with the official icon).
-   - A background supervisor in Windows Startup folder (`ChickenSee.lnk`) that silently starts the watcher, API, and analyzer whenever your Windows user logs in.
+   - The `startup\start-chickensee.bat` launcher in Windows Startup (`ChickenSee.lnk`) and the current user's Run key. It starts the background supervisor, which launches the watcher, API, and analyzer when your Windows user signs in.
 
 > **To verify autostart:** Restart the OptiPlex and sign in. Within 15 seconds, the services will start automatically in the background.
 
