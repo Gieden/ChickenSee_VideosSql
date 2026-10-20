@@ -62,6 +62,7 @@ class TestDesktopConfiguration(unittest.TestCase):
             self.assertEqual(loaded["sync_url"], settings["sync_url"])
             self.assertEqual(loaded["sync_secret"], settings["sync_secret"])
             self.assertEqual(loaded["env_values"]["MAX_RETRIES"], "4")
+            self.assertEqual(loaded["env_values"]["SYNC_VIDEOS_TO_CLOUD"], "0")
             self.assertEqual(
                 json.loads((root / "agent" / "directories.json").read_text(encoding="utf-8")),
                 {"directories": [str(watched.resolve())]},

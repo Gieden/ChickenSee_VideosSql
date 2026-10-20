@@ -1,38 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { list } from '@vercel/blob';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import fs from 'fs';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-function readLocalQueueStatus(): any | null {
-  const candidatePaths = [
-    '/tmp/results/queue_status.json',
-    path.join(process.cwd(), 'data', 'results', 'queue_status.json'),
-    path.join(process.env.CHICKENSEE_LOCAL_STORAGE || 'C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results', 'queue_status.json'),
-  ];
-
-  for (const filePath of candidatePaths) {
-    try {
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            source: 'synced-file',
-            ...parsed,
-          };
-        }
-      }
-    } catch {
-      // Continue to next path
-    }
-  }
-
-  return null;
-}
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -40,27 +11,39 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 1. Check Vercel Blob for synced queue_status.json
+  // Prefer the latest uploaded queue status; never report a bundled snapshot as live on Vercel.
   try {
     const { blobs } = await list({ prefix: 'results/queue_status.json' });
     const queueBlob = blobs.find((b) => b.pathname.endsWith('queue_status.json'));
 
     if (queueBlob) {
       const res = await fetch(queueBlob.url, { cache: 'no-store' });
-      if (res.ok) {
-        const data = await res.json();
-        return NextResponse.json({
-          source: 'blob',
-          synced_at: queueBlob.uploadedAt,
-          ...data,
-        });
+      if (!res.ok) {
+        throw new Error(`Failed to download queue status: HTTP ${res.status}`);
       }
+      const data = await res.json();
+      return NextResponse.json({
+        source: 'blob',
+        synced_at: queueBlob.uploadedAt,
+        ...data,
+      });
     }
-  } catch (blobErr: any) {
-    // Blob store might be empty or suspended, proceed to fallback
+  } catch (blobError) {
+    console.error('Vercel Blob queue status check failed:', blobError);
+    return NextResponse.json(
+      { error: 'Failed to load queue status from Vercel Blob' },
+      { status: 503 },
+    );
   }
 
-  // 2. Fallback to local OptiPlex analytics API if reachable
+  if (process.env.VERCEL) {
+    return NextResponse.json(
+      { error: 'No queue status has been synced to Vercel yet' },
+      { status: 503 },
+    );
+  }
+
+  // Fallback to the local OptiPlex analytics API during local development.
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1200);
@@ -112,13 +95,7 @@ export async function GET(req: NextRequest) {
     // Local API not reachable from this environment
   }
 
-  // 3. Check bundled or local queue_status.json
-  const fileStatus = readLocalQueueStatus();
-  if (fileStatus) {
-    return NextResponse.json(fileStatus);
-  }
-
-  // 4. Default idle queue payload
+  // Default to idle only after checking live local data during local development.
   return NextResponse.json({
     source: 'idle',
     updated_at: null,

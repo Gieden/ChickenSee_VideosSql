@@ -97,6 +97,7 @@ def write_agent_settings(
             "WATCH_DIRS": ",".join(Path(path).as_posix() for path in directories),
             "WATCH_DIR": Path(directories[0]).as_posix() if directories else "./data",
             "ENABLE_CLOUD_SYNC": "1" if settings.get("cloud_sync") else "0",
+            "SYNC_VIDEOS_TO_CLOUD": "0",
             "CHICKENSEE_LOCAL_STORAGE": storage_root.as_posix(),
         }
     )

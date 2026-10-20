@@ -228,6 +228,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results' | 'queue'>('videos');
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
 
   // ── Queue Segregation & Filter State ──
@@ -388,11 +389,14 @@ export default function DashboardPage() {
       setLoadingQueue(true);
       const res = await fetch('/api/queue');
       if (res.status === 401) { router.push('/login'); return; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
       setQueueStatus(data);
+      setQueueError(null);
     } catch (err) {
       console.error('Failed to fetch queue status:', err);
+      setQueueStatus(null);
+      setQueueError(err instanceof Error ? err.message : 'Could not load queue status from Vercel.');
     } finally {
       setLoadingQueue(false);
     }
@@ -1175,7 +1179,11 @@ export default function DashboardPage() {
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Optiplex Live
                 </span>
-                {queueStatus?.is_queueing ? (
+                {queueError ? (
+                  <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 border border-red-500/20">
+                    Queue status unavailable
+                  </span>
+                ) : queueStatus?.is_queueing ? (
                   <span className="flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700 border border-orange-500/30 animate-pulse">
                     <span className="h-1.5 w-1.5 rounded-full bg-orange-600" />
                     Queueing: {queueStatus.active_video ? `${queueStatus.active_video} (${queueStatus.active_progress ?? 0}%)` : `${queueStatus.summary.queued} queued`}
@@ -1226,7 +1234,9 @@ export default function DashboardPage() {
             <button onClick={() => setActiveTab('queue')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <ListFilter className="h-4 w-4" />
               <span>Detection Queue</span>
-              {queueStatus?.is_queueing ? (
+              {queueError ? (
+                <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] text-red-600 border border-red-500/20">Unavailable</span>
+              ) : queueStatus?.is_queueing ? (
                 <span className="flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-bold text-orange-700 border border-orange-500/30">
                   <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
                   Queueing ({(queueStatus.summary?.processing || 0) + (queueStatus.summary?.queued || 0)})
@@ -2012,8 +2022,13 @@ export default function DashboardPage() {
         {/* DETECTION QUEUE TAB */}
         {activeTab === 'queue' && (
           <div className="space-y-6">
+            {queueError && (
+              <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-700">
+                Queue status is unavailable from Vercel: {queueError}
+              </div>
+            )}
             {/* Live Queue Hero Card */}
-            {queueStatus?.is_queueing ? (
+            {queueError ? null : queueStatus?.is_queueing ? (
               <div className="overflow-hidden rounded-2xl border border-orange-200/90 bg-gradient-to-r from-orange-50/90 via-amber-50/70 to-white p-6 shadow-md shadow-orange-500/5">
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-2 max-w-2xl">

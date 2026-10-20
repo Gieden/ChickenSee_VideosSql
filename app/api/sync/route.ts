@@ -26,9 +26,9 @@ export async function POST(req: NextRequest) {
     const filename = decodeURIComponent(rawFilename);
     const ext = filename.split('.').pop()?.toLowerCase();
 
-    if (!ext || !['mp4', 'sqlite', 'db', 'json'].includes(ext)) {
+    if (!ext || !['sqlite', 'db', 'json'].includes(ext)) {
       return NextResponse.json(
-        { error: `Unsupported file type: .${ext}. Only .mp4, .sqlite, .db, and analysis .json files are allowed.` },
+        { error: `Unsupported file type: .${ext}. Only .sqlite, .db, and analysis .json files are allowed.` },
         { status: 400 }
       );
     }
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Filename must not contain a path' }, { status: 400 });
     }
 
-    const folder = ext === 'mp4' ? 'videos' : ext === 'json' ? 'results' : 'databases';
+    const folder = ext === 'json' ? 'results' : 'databases';
     const blobPath = `${folder}/${filename}`;
 
     // Mode 1: Request an upload token (used for large files like 256MB videos to bypass Vercel 4.5MB limit)
@@ -63,11 +63,7 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(arrayBuffer);
 
-    const defaultContentType = ext === 'mp4'
-      ? 'video/mp4'
-      : ext === 'json'
-        ? 'application/json'
-        : 'application/x-sqlite3';
+    const defaultContentType = ext === 'json' ? 'application/json' : 'application/x-sqlite3';
     const contentType = req.headers.get('content-type') || defaultContentType;
 
     const blob = await put(blobPath, buffer, {

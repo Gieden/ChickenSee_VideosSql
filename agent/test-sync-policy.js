@@ -3,27 +3,33 @@ import os from 'os';
 import path from 'path';
 import test from 'node:test';
 
-import { isSyncCandidate } from './sync-policy.js';
+import { isSyncCandidate, isUploadCurrent } from './sync-policy.js';
 
-test('only completed detected videos in local videos directory are synced', () => {
+test('video files are never synced, even when legacy video-sync setting is enabled', () => {
   const storage = path.join(os.tmpdir(), 'chickensee-sync-policy');
-  assert.equal(
-    isSyncCandidate(path.join(storage, 'videos', 'sample_detected.mp4'), storage),
-    true,
-  );
-  assert.equal(
-    isSyncCandidate(path.join(storage, 'videos', 'sample_detected.processing.mp4'), storage),
-    false,
-  );
-  assert.equal(
-    isSyncCandidate(path.join(storage, 'videos', 'sample.mp4'), storage),
-    false,
-  );
-  assert.equal(
-    isSyncCandidate(path.join(storage, 'incoming', 'sample.mp4'), storage),
-    false,
-  );
+  const previousSetting = process.env.SYNC_VIDEOS_TO_CLOUD;
+  process.env.SYNC_VIDEOS_TO_CLOUD = '1';
+
+  try {
+    assert.equal(
+      isSyncCandidate(path.join(storage, 'videos', 'sample_detected.mp4'), storage),
+      false,
+    );
+    assert.equal(
+      isSyncCandidate(path.join(storage, 'incoming', 'sample.mp4'), storage),
+      false,
+    );
+  } finally {
+    if (previousSetting === undefined) {
+      delete process.env.SYNC_VIDEOS_TO_CLOUD;
+    } else {
+      process.env.SYNC_VIDEOS_TO_CLOUD = previousSetting;
+    }
+  }
+
   assert.equal(isSyncCandidate(path.join(storage, 'results', 'sample.json'), storage), true);
+  assert.equal(isSyncCandidate(path.join(storage, 'results', 'queue_status.json'), storage), true);
+  assert.equal(isSyncCandidate(path.join(storage, 'telemetry.sqlite'), storage), true);
 });
 
 test('source watch folders do not sync original MP4s', () => {
@@ -37,4 +43,11 @@ test('source watch folders do not sync original MP4s', () => {
     isSyncCandidate(path.join(watchFolder, 'telemetry.db'), storage),
     true,
   );
+});
+
+test('only files with a recorded Blob URL count as successfully uploaded', () => {
+  const stats = { size: 100, mtimeMs: 200 };
+  assert.equal(isUploadCurrent({ size: 100, mtime: 200 }, stats), false);
+  assert.equal(isUploadCurrent({ url: 'https://blob.example/file.json', size: 100, mtime: 200 }, stats), true);
+  assert.equal(isUploadCurrent({ url: 'https://blob.example/file.json', size: 99, mtime: 200 }, stats), false);
 });

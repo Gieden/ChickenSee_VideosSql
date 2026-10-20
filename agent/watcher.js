@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { put } from '@vercel/blob';
-import { isSyncCandidate } from './sync-policy.js';
+import { isSyncCandidate, isUploadCurrent } from './sync-policy.js';
 
 dotenv.config();
 
@@ -54,8 +54,6 @@ function resolveWatchDirs() {
 
   // Analysis reports are written outside the source folders and need syncing too.
   dirs.add(path.resolve(LOCAL_STORAGE_ROOT, 'results'));
-  // Annotated detection videos are written separately from the original uploads.
-  dirs.add(path.resolve(LOCAL_STORAGE_ROOT, 'videos'));
   return Array.from(dirs);
 }
 
@@ -256,8 +254,7 @@ function shouldSync(filePath) {
   const stats = fs.statSync(resolvedPath);
   const prev = syncState[resolvedPath];
 
-  // Already synced and hasn't changed
-  if (prev && prev.size === stats.size && prev.mtime === stats.mtimeMs) {
+  if (isUploadCurrent(prev, stats)) {
     return false;
   }
 
@@ -308,6 +305,7 @@ function startWatcher() {
   console.log('[START] ══════════════════════════════════════════════════');
   console.log(`[START] Sync target : ${SYNC_URL || '(not set - check .env)'}`);
   console.log(`[START] Cloud sync  : ${cloudSyncDisabledReason ? `OFF (${cloudSyncDisabledReason})` : 'ON'}`);
+  console.log('[START] Video uploads: OFF (results, queue status, and databases only)');
   console.log(`[START] Local store : ${LOCAL_STORAGE_ROOT}`);
   console.log(`[START] Directories : ${watchDirs.length} configured`);
   watchDirs.forEach((d) => console.log(`[START]   → ${d}`));

@@ -1,21 +1,21 @@
-# ChickenSee: Optiplex-to-Vercel Video & SQLite Sync Portal
+# ChickenSee: Optiplex-to-Vercel Results & SQLite Sync Portal
 
-A production-ready bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hosted Next.js web application.
+A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hosted Next.js web application. Analysis results, live queue status, and SQLite telemetry sync to Vercel; video files remain local and are never uploaded.
 
 ```
 ┌────────────────────────────────┐                 ┌────────────────────────────────┐
 │   Local Server (Optiplex)      │                 │         Vercel Cloud           │
 │                                │                 │                                │
-│  ./data/ (chokidar watcher)    │                 │  /api/sync (x-sync-secret)     │
-│   ├── video_2026.mp4 ──────────┼──HTTP Stream───>│      │                         │
-│   └── telemetry.sqlite ────────┼──(Fetch Chunk)─>│      ▼                         │
+│  Local results/ & queue JSON   │                 │  /api/sync (x-sync-secret)     │
+│  SQLite telemetry databases    │                 │      │                         │
+│  Video files stay local        │                 │      ▼                         │
 │                                │                 │  Vercel Blob Storage           │
-│  State file: .sync-state.json  │                 │   ├── videos/*.mp4             │
+│  State file: .sync-state.json  │                 │   ├── results/*.json           │
 │                                │                 │   └── databases/*.sqlite       │
 └────────────────────────────────┘                 │      │                         │
                                                    │      ▼                         │
                                                    │  Next.js 14 Dashboard UI       │
-                                                   │   ├── Video Player List        │
+                                                   │   ├── Analysis Results & Queue │
                                                    │   └── SQLite WASM Table Viewer │
                                                    └────────────────────────────────┘
 ```
@@ -28,7 +28,7 @@ A production-ready bridge connecting an on-premise local server (Dell Optiplex) 
 .
 ├── agent/                         # Optiplex Local Watcher Client
 │   ├── data/                      # Local drop folder for .mp4, .sqlite, .db
-│   ├── watcher.js                 # Chokidar watcher with stream upload & retry
+│   ├── watcher.js                 # Chokidar watcher for results, queue, and SQLite sync
 │   ├── package.json               # Agent dependencies (chokidar, dotenv)
 │   └── .env.example               # Agent environment template
 ├── startup/                       # Windows all-in-one startup supervisor
@@ -96,7 +96,7 @@ python startup\chickensee_desktop.py
 
 Use the **Setup** tab to select video folders, choose local output storage, and optionally configure Vercel sync. **Initialize / repair** checks the model and fills in missing Python or Node packages. Use **Start ChickenSee** and **Stop ChickenSee** on the Dashboard to control services, use **Quick video test** to copy a sample MP4 into a watched folder, and select **Enable startup** to create the desktop shortcut and start services at Windows sign-in.
 
-Cloud sync is off by default. Turn it on only after entering the deployed `/api/sync` URL and matching `SYNC_SECRET`. The API runs locally at `http://localhost:8000/docs`.
+Cloud sync is off by default. Turn it on only after entering the deployed `/api/sync` URL and matching `SYNC_SECRET`. Only analysis results, queue status, and SQLite databases are uploaded; video files stay local. The API runs locally at `http://localhost:8000/docs`.
 
 See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and troubleshooting instructions.
 
@@ -104,8 +104,8 @@ See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and trouble
 
 ## 🔒 Security & Architecture Highlights
 
-1. **Memory-Efficient Streaming:**
-   The Optiplex watcher utilizes Node.js streams (`fs.createReadStream`) with HTTP chunked transfer directly into Vercel Blob (`put(pathname, req.body)`). Files of any size (even multi-gigabyte `.mp4` recordings) are streamed without buffering entire payloads into RAM.
+1. **Selective Cloud Sync:**
+   The OptiPlex watcher sends JSON analysis results, queue status, and SQLite databases to Vercel Blob. MP4 files are excluded by both the local sync agent and the upload API, and remain in local storage.
 
 2. **Serverless SQLite Inspection via WebAssembly:**
    Traditional native bindings like `better-sqlite3` fail or require custom build steps on AWS Lambda/Vercel serverless environments. This application utilizes **`sql.js` (WebAssembly)**, downloading the database buffer on demand from Vercel Blob and executing read queries in pure WebAssembly.

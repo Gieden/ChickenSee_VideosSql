@@ -1256,7 +1256,7 @@ class ChickenSeeDesktop:
         self.cloud_sync = tk.BooleanVar()
         ttk.Checkbutton(
             cloud_card,
-            text="Upload videos and analysis results to my Vercel portal",
+            text="Sync analysis results, queue status, and databases to Vercel (videos stay local)",
             variable=self.cloud_sync,
         ).pack(anchor="w", pady=(0, 10))
 

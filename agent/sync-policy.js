@@ -13,17 +13,17 @@ export function isSyncCandidate(filePath, localStorageRoot) {
   const filename = path.basename(resolvedPath);
   const extension = path.extname(filename).toLowerCase();
   const resultsDir = path.resolve(localStorageRoot, 'results');
-  const videosDir = path.resolve(localStorageRoot, 'videos');
 
-  // Skip video uploads if SYNC_VIDEOS_TO_CLOUD is set to "0" (metadata-only mode)
-  if (extension === '.mp4') {
-    if (process.env.SYNC_VIDEOS_TO_CLOUD === '0') {
-      return false;
-    }
-    return isWithinDirectory(resolvedPath, videosDir)
-      && /_detected\.mp4$/i.test(filename);
-  }
+  if (extension === '.mp4') return false;
 
   if (extension === '.sqlite' || extension === '.db') return true;
   return extension === '.json' && isWithinDirectory(resolvedPath, resultsDir);
+}
+
+export function isUploadCurrent(previousUpload, stats) {
+  return Boolean(
+    previousUpload?.url
+    && previousUpload.size === stats.size
+    && previousUpload.mtime === stats.mtimeMs,
+  );
 }

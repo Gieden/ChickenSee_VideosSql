@@ -115,7 +115,7 @@ In the Control Center, click on the **Setup** tab:
    - Default: `C:\ChickenSee_Local_Storage`
    - Keeps your raw footage safe and stores generated `results/` (JSON), `videos/` (`_detected.mp4`), and `logs/`.
 3. **Optional Vercel Cloud Sync**:
-   - Check the box: **"Upload videos and analysis results to my Vercel portal"**.
+   - Check the box: **"Sync analysis results, queue status, and databases to Vercel (videos stay local)"**.
    - **Sync URL**: Enter your deployed Vercel domain followed by `/api/sync`:
      ```text
      https://your-chickensee-portal.vercel.app/api/sync
