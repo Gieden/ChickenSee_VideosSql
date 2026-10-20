@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { list } from '@vercel/blob';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
+import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,27 +11,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Prefer the latest uploaded queue status; never report a bundled snapshot as live on Vercel.
+  // Prefer the latest synced queue status; never report a bundled snapshot as live on Vercel.
   try {
-    const { blobs } = await list({ prefix: 'results/queue_status.json' });
-    const queueBlob = blobs.find((b) => b.pathname.endsWith('queue_status.json'));
+    const files = await listStorageFiles('results');
+    const queueFile = files.find((file) => file.pathname === 'queue_status.json');
 
-    if (queueBlob) {
-      const res = await fetch(queueBlob.url, { cache: 'no-store' });
-      if (!res.ok) {
-        throw new Error(`Failed to download queue status: HTTP ${res.status}`);
-      }
-      const data = await res.json();
+    if (queueFile) {
+      const content = await downloadStorageFile(queueFile.storagePath);
+      const data = JSON.parse(await content.text());
       return NextResponse.json({
-        source: 'blob',
-        synced_at: queueBlob.uploadedAt,
+        source: 'supabase',
+        synced_at: queueFile.uploadedAt,
         ...data,
       });
     }
-  } catch (blobError) {
-    console.error('Vercel Blob queue status check failed:', blobError);
+  } catch (storageError) {
+    console.error('Supabase Storage queue status check failed:', storageError);
     return NextResponse.json(
-      { error: 'Failed to load queue status from Vercel Blob' },
+      { error: 'Failed to load queue status from Supabase Storage' },
       { status: 503 },
     );
   }

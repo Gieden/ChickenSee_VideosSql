@@ -11,28 +11,26 @@ const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
 
 console.log('Testing URL:', SYNC_URL);
-console.log('Using SYNC_SECRET:', SYNC_SECRET);
-
 async function testSync() {
   try {
     const res = await fetch(SYNC_URL, {
       method: 'POST',
       headers: {
         'x-sync-secret': SYNC_SECRET,
-        'x-action': 'get-upload-token',
-        'x-filename': 'test_upload.mp4',
+        'x-action': 'get-upload-url',
+        'x-filename': 'sync_connection_test.json',
       },
     });
 
     const status = res.status;
-    const body = await res.text();
+    const body = await res.json().catch(() => ({}));
     console.log(`Response Status: ${status}`);
-    console.log(`Response Body: ${body}`);
 
-    if (status === 200) {
-      console.log('\n SUCCESS: Sync authentication succeeded! Token generated properly.');
+    if (status === 200 && body.success && body.uploadUrl && body.storagePath) {
+      console.log('\nSUCCESS: Sync authentication and Supabase upload URL generation succeeded.');
+      console.log('Storage path:', body.storagePath);
     } else {
-      console.log('\n❌ FAILED: Status', status);
+      console.error('\nFAILED:', body.error || `Status ${status}`);
     }
   } catch (err) {
     console.error('Fetch error:', err.message);

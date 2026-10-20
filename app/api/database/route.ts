@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import { listSyncedDatabases } from '@/lib/blob';
-import { openDatabaseFromUrl, getDatabaseTables, queryTableData } from '@/lib/db-viewer';
+import { downloadStorageFile, listSyncedDatabases } from '@/lib/supabase-storage';
+import { openDatabaseFromBytes, getDatabaseTables, queryTableData } from '@/lib/db-viewer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -36,7 +36,8 @@ export async function GET(req: NextRequest) {
     : databases[0];
 
   try {
-    const db = await openDatabaseFromUrl(selectedDbMeta.url);
+    const content = await downloadStorageFile(selectedDbMeta.storagePath);
+    const db = await openDatabaseFromBytes(await content.arrayBuffer());
     const tables = getDatabaseTables(db);
     const activeTable = targetTable && tables.includes(targetTable) ? targetTable : tables[0] || null;
 

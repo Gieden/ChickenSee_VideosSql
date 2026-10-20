@@ -2,7 +2,6 @@ import chokidar from 'chokidar';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { put } from '@vercel/blob';
 import { isSyncCandidate, isUploadCurrent } from './sync-policy.js';
 
 dotenv.config();
@@ -88,7 +87,7 @@ function isPermanentCloudError(message) {
     m.includes('has been suspended')
     || m.includes('store has been suspended')
     || m.includes('payment required')
-    || m.includes('blob store') && m.includes('suspend')
+    || m.includes('storage quota exceeded')
   );
 }
 
@@ -96,7 +95,7 @@ function disableCloudSync(reason) {
   if (cloudSyncDisabledReason) return;
   cloudSyncDisabledReason = reason;
   log('WARN', `Cloud upload disabled for this session: ${reason}`);
-  log('WARN', 'Files will remain local while Vercel Blob is unavailable; sync will retry every 5 minutes.');
+  log('WARN', 'Files will remain local while cloud storage is unavailable; sync will retry every 5 minutes.');
 
   setTimeout(() => {
     if (cloudSyncDisabledReason !== reason) return;
@@ -111,26 +110,25 @@ function disableCloudSync(reason) {
   }, CLOUD_SYNC_RETRY_DELAY_MS);
 }
 
-// ─── Direct Large-File Upload using Token ─────────────────────────────────────
-async function uploadDirectWithToken(filePath, filename, ext, stats) {
-  // 1. Request client upload token from our Next.js API
+// ─── Direct Supabase Storage Upload ────────────────────────────────────────────
+async function uploadDirectToSupabase(filePath, filename, ext, stats) {
   const tokenRes = await fetch(SYNC_URL, {
     method: 'POST',
     headers: {
       'x-sync-secret': SYNC_SECRET,
       'x-filename': encodeURIComponent(filename),
-      'x-action': 'get-upload-token',
+      'x-action': 'get-upload-url',
     },
   });
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
-    throw new Error(`Token request failed (HTTP ${tokenRes.status}): ${errText}`);
+    throw new Error(`Supabase upload URL request failed (HTTP ${tokenRes.status}): ${errText}`);
   }
 
   const tokenData = await tokenRes.json();
-  if (!tokenData.clientToken) {
-    throw new Error('No clientToken returned by server');
+  if (!tokenData.uploadUrl || !tokenData.storagePath) {
+    throw new Error('Sync API did not return a Supabase upload URL and storage path');
   }
 
   const mimeType = ext === '.mp4'
@@ -138,48 +136,23 @@ async function uploadDirectWithToken(filePath, filename, ext, stats) {
     : ext === '.json'
       ? 'application/json'
       : 'application/x-sqlite3';
-  const fileStream = fs.createReadStream(filePath);
-
-  // 2. Upload directly to Vercel Blob with multipart: true
-  // This bypasses the Vercel Function 4.5MB payload limit completely!
-  const blob = await put(tokenData.blobPath, fileStream, {
-    access: 'public',
-    addRandomSuffix: false,
-    contentType: mimeType,
-    token: tokenData.clientToken,
-    multipart: true,
-  });
-
-  return blob;
-}
-
-// ─── Fallback Direct Streaming Upload ─────────────────────────────────────────
-async function uploadViaServerStream(filePath, filename, ext, stats) {
-  const mimeType = ext === '.mp4'
-    ? 'video/mp4'
-    : ext === '.json'
-      ? 'application/json'
-      : 'application/x-sqlite3';
-  const fileStream = fs.createReadStream(filePath);
-
-  const response = await fetch(SYNC_URL, {
-    method: 'POST',
+  const response = await fetch(tokenData.uploadUrl, {
+    method: 'PUT',
     headers: {
-      'x-sync-secret': SYNC_SECRET,
-      'x-filename': encodeURIComponent(filename),
       'content-type': mimeType,
       'content-length': stats.size.toString(),
+      'x-upsert': 'true',
     },
-    body: fileStream,
+    body: fs.createReadStream(filePath),
     duplex: 'half',
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`HTTP ${response.status}: ${errText}`);
+    throw new Error(`Supabase Storage upload failed (HTTP ${response.status}): ${errText}`);
   }
 
-  return await response.json();
+  return { storagePath: tokenData.storagePath };
 }
 
 // ─── Upload logic with Automatic Retry ────────────────────────────────────────
@@ -200,29 +173,23 @@ async function uploadFileWithRetry(filePath, attempt = 1) {
   log('INFO', `[Attempt ${attempt}/${MAX_RETRIES}] Uploading "${filename}" (${sizeMB} MB)...`);
 
   try {
-    let result;
+    const result = await uploadDirectToSupabase(filePath, filename, ext, stats);
 
-    // For files > 4MB (like videos), use token-based direct multipart upload to bypass Vercel 4.5MB limit
-    if (stats.size > 4 * 1024 * 1024) {
-      result = await uploadDirectWithToken(filePath, filename, ext, stats);
-    } else {
-      result = await uploadViaServerStream(filePath, filename, ext, stats);
-    }
-
-    log('SUCCESS', `Synced "${filename}" →`, result.url || result.pathname);
+    log('SUCCESS', `Synced "${filename}" →`, result.storagePath);
 
     syncState[path.resolve(filePath)] = {
       size: stats.size,
       mtime: stats.mtimeMs,
       uploadedAt: new Date().toISOString(),
-      url: result.url,
+      storage: 'supabase',
+      storagePath: result.storagePath,
     };
     saveState();
   } catch (error) {
     log('ERROR', `Upload failed for "${filename}": ${error.message}`);
     if (isPermanentCloudError(error.message)) {
       pendingCloudUploads.add(filePath);
-      disableCloudSync('Vercel Blob store is suspended');
+      disableCloudSync('Supabase Storage is unavailable');
       return;
     }
     if (attempt < MAX_RETRIES) {

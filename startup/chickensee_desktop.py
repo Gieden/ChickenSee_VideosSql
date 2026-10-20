@@ -1256,7 +1256,7 @@ class ChickenSeeDesktop:
         self.cloud_sync = tk.BooleanVar()
         ttk.Checkbutton(
             cloud_card,
-            text="Sync analysis results, queue status, and databases to Vercel (videos stay local)",
+            text="Sync analysis results, queue status, and databases to Supabase (videos stay local)",
             variable=self.cloud_sync,
         ).pack(anchor="w", pady=(0, 10))
 
@@ -1682,7 +1682,7 @@ class ChickenSeeDesktop:
                     node,
                     "--input-type=module",
                     "-e",
-                    "import('chokidar'); import('@vercel/blob')",
+                    "import('chokidar'); import('dotenv')",
                 ],
                 cwd=AGENT_DIR,
                 capture_output=True,

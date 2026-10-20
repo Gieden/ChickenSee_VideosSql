@@ -1195,7 +1195,7 @@ export default function DashboardPage() {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Automated Vercel Blob &amp; SQLite Bridge</p>
+              <p className="text-xs text-slate-400 hidden sm:block">Supabase Storage &amp; SQLite Bridge</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -1274,7 +1274,7 @@ export default function DashboardPage() {
                     <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-slate-400">
                       <span className="flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5 text-slate-500" />{formatBytes(selectedVideo.size)}</span>
                       <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-slate-500" />{new Date(selectedVideo.uploadedAt).toLocaleString()}</span>
-                      <span className="flex items-center gap-1.5 text-indigo-400"><Radio className="h-3.5 w-3.5 animate-pulse" />Vercel Blob Stream</span>
+                      <span className="flex items-center gap-1.5 text-indigo-400"><Radio className="h-3.5 w-3.5 animate-pulse" />Supabase Storage</span>
                     </div>
                   </div>
                   <a href={selectedVideo.url} download={selectedVideo.pathname} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 hover:text-white">

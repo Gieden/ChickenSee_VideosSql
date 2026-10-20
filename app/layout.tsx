@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'ChickenSee Synced Portal | Optiplex & Vercel Blob',
-  description: 'Vercel portal for synchronized poultry behavior reports, environmental sensor readings, videos, and SQLite data',
+  title: 'ChickenSee Synced Portal | Supabase Storage',
+  description: 'Vercel portal for synchronized poultry behavior reports, environmental sensor readings, and SQLite data',
   icons: {
     icon: [
       { url: '/favicon.ico' },

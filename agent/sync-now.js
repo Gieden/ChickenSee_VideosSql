@@ -44,22 +44,36 @@ async function syncAll() {
 
     try {
       process.stdout.write(`Syncing ${file} (${content.length} B)... `);
-      const res = await fetch(SYNC_URL, {
+      const signedUrlResponse = await fetch(SYNC_URL, {
         method: 'POST',
         headers: {
           'x-sync-secret': SYNC_SECRET,
-          'x-filename': file,
+          'x-filename': encodeURIComponent(file),
+          'x-action': 'get-upload-url',
+        },
+      });
+
+      const uploadInfo = await signedUrlResponse.json().catch(() => ({}));
+      if (!signedUrlResponse.ok || !uploadInfo.uploadUrl || !uploadInfo.storagePath) {
+        throw new Error(uploadInfo.error || `Upload URL request failed (${signedUrlResponse.status})`);
+      }
+
+      const uploadResponse = await fetch(uploadInfo.uploadUrl, {
+        method: 'PUT',
+        headers: {
           'content-type': 'application/json',
+          'content-length': content.length.toString(),
+          'x-upsert': 'true',
         },
         body: content,
       });
 
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json.success) {
-        console.log(`✓ OK (${json.cached ? 'cached' : 'blob'})`);
+      if (uploadResponse.ok) {
+        console.log(`✓ OK (${uploadInfo.storagePath})`);
         successCount++;
       } else {
-        console.log(`✗ ${res.status}: ${json.error || json.details || 'Upload error'}`);
+        const responseText = await uploadResponse.text();
+        console.log(`✗ ${uploadResponse.status}: ${responseText || 'Upload error'}`);
         failCount++;
       }
     } catch (err) {

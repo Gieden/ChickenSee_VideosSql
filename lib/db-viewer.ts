@@ -18,14 +18,9 @@ export interface QueryResult {
   totalRows: number;
 }
 
-export async function openDatabaseFromUrl(blobUrl: string): Promise<Database> {
+export async function openDatabaseFromBytes(content: ArrayBuffer): Promise<Database> {
   const SQL = await getSqlModule();
-  const response = await fetch(blobUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch database file from ${blobUrl}: ${response.statusText}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  const uInt8Array = new Uint8Array(arrayBuffer);
+  const uInt8Array = new Uint8Array(content);
   return new SQL.Database(uInt8Array);
 }
 

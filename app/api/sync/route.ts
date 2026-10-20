@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
-import { put } from '@vercel/blob';
+import { createStorageUploadUrl } from '@/lib/supabase-storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,7 +22,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing x-filename header' }, { status: 400 });
     }
 
-    const filename = decodeURIComponent(rawFilename);
+    let filename: string;
+    try {
+      filename = decodeURIComponent(rawFilename);
+    } catch {
+      return NextResponse.json({ error: 'Invalid filename encoding' }, { status: 400 });
+    }
     const ext = filename.split('.').pop()?.toLowerCase();
 
     if (!ext || !['sqlite', 'db', 'json'].includes(ext)) {
@@ -38,51 +42,27 @@ export async function POST(req: NextRequest) {
     }
 
     const folder = ext === 'json' ? 'results' : 'databases';
-    const blobPath = `${folder}/${filename}`;
+    const storagePath = `${folder}/${filename}`;
 
-    // Mode 1: Request an upload token (used for large files like 256MB videos to bypass Vercel 4.5MB limit)
-    const isTokenRequest = req.headers.get('x-action') === 'get-upload-token';
-    if (isTokenRequest) {
-      const clientToken = await generateClientTokenFromReadWriteToken({
-        pathname: blobPath,
-        validUntil: Date.now() + 3600 * 1000, // 1 hour
-      });
-
-      return NextResponse.json({
-        success: true,
-        blobPath,
-        clientToken,
-      });
+    if (req.headers.get('x-action') !== 'get-upload-url') {
+      return NextResponse.json({ error: 'Unsupported sync action' }, { status: 400 });
     }
 
-    // Mode 2: Direct streaming body fallback (works for small files < 4.5MB)
-    const arrayBuffer = await req.arrayBuffer();
-    if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-      return NextResponse.json({ error: 'Empty file payload' }, { status: 400 });
-    }
-
-    const buffer = Buffer.from(arrayBuffer);
-
-    const defaultContentType = ext === 'json' ? 'application/json' : 'application/x-sqlite3';
-    const contentType = req.headers.get('content-type') || defaultContentType;
-
-    const blob = await put(blobPath, buffer, {
-      access: 'public',
-      addRandomSuffix: false,
-      contentType,
-    });
+    const uploadUrl = await createStorageUploadUrl(storagePath);
 
     return NextResponse.json({
       success: true,
-      message: `File synced successfully: ${filename}`,
-      pathname: blob.pathname,
-      url: blob.url,
-      downloadUrl: blob.downloadUrl,
+      message: `Upload URL created for ${filename}`,
+      storagePath,
+      uploadUrl,
     });
-  } catch (error: any) {
-    console.error('Error during file sync to Vercel Blob:', error);
+  } catch (error) {
+    console.error('Error creating Supabase Storage upload URL:', error);
     return NextResponse.json(
-      { error: 'Internal Server Error during upload', details: error.message },
+      {
+        error: 'Failed to create Supabase Storage upload URL',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
       { status: 500 }
     );
   }

@@ -65,7 +65,7 @@ def validate_agent_settings(settings: Dict[str, object]) -> Optional[str]:
     if settings.get("cloud_sync"):
         sync_url = settings.get("sync_url")
         if not isinstance(sync_url, str) or not sync_url.startswith("https://"):
-            return "Cloud sync requires a valid HTTPS Vercel sync URL."
+            return "Cloud sync requires the HTTPS Vercel API URL that generates Supabase upload links."
         if not isinstance(settings.get("sync_secret"), str) or not settings["sync_secret"].strip():
             return "Cloud sync requires the sync secret configured in Vercel."
     return None

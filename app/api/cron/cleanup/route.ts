@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cleanupOldVideos } from '@/lib/blob';
+import { cleanupOldVideos } from '@/lib/supabase-storage';
 import { verifySessionToken, AUTH_COOKIE_NAME } from '@/lib/auth';
 
 export const runtime = 'nodejs';

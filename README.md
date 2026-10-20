@@ -9,7 +9,7 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
 │  Local results/ & queue JSON   │                 │  /api/sync (x-sync-secret)     │
 │  SQLite telemetry databases    │                 │      │                         │
 │  Video files stay local        │                 │      ▼                         │
-│                                │                 │  Vercel Blob Storage           │
+│                                │                 │  Supabase Storage (private)     │
 │  State file: .sync-state.json  │                 │   ├── results/*.json           │
 │                                │                 │   └── databases/*.sqlite       │
 └────────────────────────────────┘                 │      │                         │
@@ -41,8 +41,8 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
 ├── app/                            # Next.js 14 App Router
 │   ├── api/
 │   │   ├── auth/route.ts          # 1-User login and session management
-│   │   ├── sync/route.ts          # Authenticated Vercel Blob stream uploader
-│   │   ├── videos/route.ts        # MP4 Blob metadata lister
+│   │   ├── sync/route.ts          # Authenticated Supabase signed-upload URL
+│   │   ├── videos/route.ts        # Videos remain local; no cloud upload
 │   │   └── database/route.ts      # SQLite WebAssembly query executor (sql.js)
 │   ├── login/page.tsx             # Protected password login screen
 │   ├── page.tsx                   # Light orange-accent portal with behavior/environment reports
@@ -50,7 +50,7 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
 │   └── globals.css                # Tailwind CSS & portal theme
 ├── lib/
 │   ├── auth.ts                    # Password verification & session tokens
-│   ├── blob.ts                    # Vercel Blob SDK wrappers
+│   ├── supabase-storage.ts        # Private Supabase Storage access
 │   └── db-viewer.ts               # sql.js WebAssembly reader (serverless-safe)
 ├── middleware.ts                  # Route protection guard
 ├── tailwind.config.ts             # Tailwind CSS tokens
@@ -68,13 +68,15 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
    ```bash
    vercel
    ```
-2. In the Vercel Dashboard for your project:
-   - Navigate to **Storage** tab > Click **Create Database** > Select **Blob**.
-   - Connect the Blob Store to your project (this automatically exposes `BLOB_READ_WRITE_TOKEN`).
-3. Add the following **Environment Variables** in Vercel Project Settings:
+2. Create a Supabase project and a **private** Storage bucket named `chickensee-sync`.
+3. In Vercel Project Settings → Environment Variables, add:
+   - `SUPABASE_URL`: your Supabase project URL.
+   - `SUPABASE_STORAGE_BUCKET`: `chickensee-sync`.
+   - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role key. Keep it server-side; never place it in the desktop agent or client-side variables.
    - `SYNC_SECRET`: A high-entropy random string (e.g. `openssl rand -hex 32`)
    - `DASHBOARD_PASSWORD`: The single-user access password for viewing your dashboard.
    - `JWT_SECRET`: A 32-byte string for session cookies.
+   Redeploy after adding these values.
 
 ---
 
@@ -105,10 +107,10 @@ See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and trouble
 ## 🔒 Security & Architecture Highlights
 
 1. **Selective Cloud Sync:**
-   The OptiPlex watcher sends JSON analysis results, queue status, and SQLite databases to Vercel Blob. MP4 files are excluded by both the local sync agent and the upload API, and remain in local storage.
+   The OptiPlex watcher requests short-lived signed upload URLs from the Vercel API and sends JSON analysis results, queue status, and SQLite databases directly to the private Supabase Storage bucket. MP4 files are excluded by both the local sync agent and the upload API, and remain in local storage.
 
 2. **Serverless SQLite Inspection via WebAssembly:**
-   Traditional native bindings like `better-sqlite3` fail or require custom build steps on AWS Lambda/Vercel serverless environments. This application utilizes **`sql.js` (WebAssembly)**, downloading the database buffer on demand from Vercel Blob and executing read queries in pure WebAssembly.
+   Traditional native bindings like `better-sqlite3` fail or require custom build steps on AWS Lambda/Vercel serverless environments. This application utilizes **`sql.js` (WebAssembly)**, downloading the private database buffer from Supabase Storage on demand and executing read queries in pure WebAssembly.
 
 3. **Protection Against Partial Writes:**
    `chokidar`'s `awaitWriteFinish` option ensures that video or database files actively being written by cameras or capture scripts are not uploaded prematurely until write locks have released.

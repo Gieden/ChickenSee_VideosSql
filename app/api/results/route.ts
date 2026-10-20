@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { list } from '@vercel/blob';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
+import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
 import fs from 'fs';
 import path from 'path';
 
@@ -166,31 +166,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // 1. Try Vercel Blob first
+  // 1. Try Supabase Storage first
   try {
-    const [{ blobs: resultFiles }, { blobs: videoFiles }] = await Promise.all([
-      list({ prefix: 'results/' }),
-      list({ prefix: 'videos/' }),
-    ]);
-
-    const resultBlobs = resultFiles
-      .filter((blob) => blob.pathname.toLowerCase().endsWith('.json') && !blob.pathname.includes('queue_status'))
-      .sort((a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime())
+    const resultFiles = await listStorageFiles('results');
+    const resultObjects = resultFiles
+      .filter((file) => file.pathname.toLowerCase().endsWith('.json') && file.pathname !== 'queue_status.json')
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
       .slice(0, 50);
 
-    if (resultBlobs.length > 0) {
-      const videoByPath = new Map(videoFiles.map((blob) => [blob.pathname, blob]));
-
-      const results = await Promise.all(resultBlobs.map(async (blob) => {
-        const response = await fetch(blob.url);
-        if (!response.ok) {
-          throw new Error(`Failed to download ${blob.pathname}: HTTP ${response.status}`);
-        }
-        const analysis = await response.json() as AnalysisFile;
-        const expectedVideoName = analysis.source_video.replace(/\.[^.]+$/, '') + '_detected.mp4';
-        const detectedVideo = videoByPath.get(`videos/${expectedVideoName}`);
-        const fileName = blob.pathname.replace(/^results\//, '');
-        return parseAnalysisChunks(analysis, fileName, detectedVideo?.pathname.replace(/^videos\//, '') ?? null);
+    if (resultObjects.length > 0) {
+      const results = await Promise.all(resultObjects.map(async (file) => {
+        const content = await downloadStorageFile(file.storagePath);
+        const analysis = JSON.parse(await content.text()) as AnalysisFile;
+        const fileName = file.pathname;
+        return parseAnalysisChunks(analysis, fileName);
       }));
 
       const flattenedResults = results.flat().sort(
@@ -201,9 +190,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ results: flattenedResults });
     }
   } catch (error) {
-    console.error('Vercel Blob results check failed:', error);
+    console.error('Supabase Storage results check failed:', error);
     return NextResponse.json(
-      { error: 'Failed to load analysis results from Vercel Blob' },
+      { error: 'Failed to load analysis results from Supabase Storage' },
       { status: 503 },
     );
   }

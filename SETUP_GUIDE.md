@@ -20,12 +20,12 @@ flowchart TD
         API["🔌 Local Analytics API\n(FastAPI :8000)"] <--> Worker
         GUI["🖥️ ChickenSee Control Center\n(Desktop App)"] <--> API
         
-        Watcher["🔄 Sync Agent\n(Node.js / Chokidar)"] -->|"Watches /results & /videos"| LocalResults
+        Watcher["🔄 Sync Agent\n(Node.js / Chokidar)"] -->|"Watches result JSON & SQLite"| LocalResults
     end
 
     subgraph Vercel["☁️ Vercel Cloud Portal"]
-        Watcher -->|"HTTPS POST /api/sync\n(Bearer Sync Secret)"| VBlob["🗄️ Vercel Blob Storage\n• /results/*.json\n• /videos/*_detected.mp4\n• /results/queue_status.json\n• /databases/*.sqlite"]
-        VBlob --> WebApp["🌐 ChickenSee Synced Portal\n• Detection Queue (Live Status)\n• Behavior Analytics & KPIs\n• Synced Videos & SQLite Viewer"]
+        Watcher -->|"HTTPS POST /api/sync\n(Bearer Sync Secret)"| Supabase["🗄️ Private Supabase Storage\n• /results/*.json\n• videos remain local\n• /results/queue_status.json\n• /databases/*.sqlite"]
+        Supabase --> WebApp["🌐 ChickenSee Synced Portal\n• Detection Queue (Live Status)\n• Behavior Analytics & KPIs\n• SQLite Viewer"]
     end
 ```
 
@@ -113,9 +113,9 @@ In the Control Center, click on the **Setup** tab:
    - *Example:* `D:\CameraRecordings` or `C:\FarmVideos`.
 2. **Local Results and Logs**:
    - Default: `C:\ChickenSee_Local_Storage`
-   - Keeps your raw footage safe and stores generated `results/` (JSON), `videos/` (`_detected.mp4`), and `logs/`.
+   - Keeps raw footage and generated `videos/` (`_detected.mp4`) local; stores `results/` (JSON), queue status, and logs locally.
 3. **Optional Vercel Cloud Sync**:
-   - Check the box: **"Sync analysis results, queue status, and databases to Vercel (videos stay local)"**.
+   - Check the box: **"Sync analysis results, queue status, and databases to Supabase (videos stay local)"**.
    - **Sync URL**: Enter your deployed Vercel domain followed by `/api/sync`:
      ```text
      https://your-chickensee-portal.vercel.app/api/sync
@@ -125,16 +125,20 @@ In the Control Center, click on the **Setup** tab:
 
 ---
 
-## ☁️ Step 5: Configure Vercel Portal Environment Variables
+## ☁️ Step 5: Connect Vercel to Supabase
 
-In your [Vercel Dashboard](https://vercel.com/dashboard) under **Settings → Environment Variables**, ensure these 4 variables are set:
+In your [Vercel Dashboard](https://vercel.com/dashboard) under **Settings → Environment Variables**, set the following for Production (and Preview if used). Redeploy after changing them.
 
 | Variable | Description | Example |
 |---|---|---|
-| `BLOB_READ_WRITE_TOKEN` | Generated automatically by attaching a Vercel Blob store | `vercel_blob_rw_...` |
-| `SYNC_SECRET` | Secret key matching the OptiPlex desktop app | `your-secret-password-123` |
+| `SUPABASE_URL` | Project URL shown in Supabase API settings | `https://stovfnbqgufxtpaoznbv.supabase.co` |
+| `SUPABASE_STORAGE_BUCKET` | Private bucket created for sync | `chickensee-sync` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase server-only service-role key; never expose to browser or desktop agent | Set directly in Vercel; do not commit |
+| `SYNC_SECRET` | Secret key matching the OptiPlex desktop app | Generate a high-entropy value |
 | `DASHBOARD_PASSWORD` | Password you use to log in to the web portal | `farm-admin-2026` |
 | `JWT_SECRET` | 32-character random string for session tokens | `a-secure-random-32-char-string` |
+
+The desktop agent only needs the deployed Vercel `/api/sync` URL and matching `SYNC_SECRET`; it never receives Supabase credentials. Supabase project creation and storage are separate from existing Vercel Blob data—old Blob objects are not copied automatically.
 
 ---
 
@@ -195,7 +199,7 @@ To make sure ChickenSee automatically runs whenever the OptiPlex boots up:
   Ensure the video is in an MP4 container and has been stable (unchanged file size) for at least 20 seconds.
 - **Cloud Uploads not showing on Vercel**:
   Confirm that **Cloud Sync** is toggled ON in the Setup tab and that your `SYNC_SECRET` matches your Vercel environment variable exactly.
-  If the sync-agent log reports that the Vercel Blob store is suspended, restore or reconnect the Blob store in Vercel first. Pending local files remain queued and the agent retries cloud sync every five minutes.
+  Check that `SUPABASE_URL`, `SUPABASE_STORAGE_BUCKET`, and `SUPABASE_SERVICE_ROLE_KEY` are configured in Vercel and redeploy. Pending local files remain queued and the agent retries cloud sync.
 - **View Live Logs**:
   Click **"Open logs"** on the Dashboard to inspect `worker.log`, `watcher.log`, or `api.log`.
 - **API Documentation**:

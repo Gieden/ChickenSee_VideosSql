@@ -45,9 +45,19 @@ test('source watch folders do not sync original MP4s', () => {
   );
 });
 
-test('only files with a recorded Blob URL count as successfully uploaded', () => {
+test('only files with a confirmed Supabase Storage path count as uploaded', () => {
   const stats = { size: 100, mtimeMs: 200 };
-  assert.equal(isUploadCurrent({ size: 100, mtime: 200 }, stats), false);
-  assert.equal(isUploadCurrent({ url: 'https://blob.example/file.json', size: 100, mtime: 200 }, stats), true);
-  assert.equal(isUploadCurrent({ url: 'https://blob.example/file.json', size: 99, mtime: 200 }, stats), false);
+  assert.equal(isUploadCurrent({ storagePath: 'results/file.json', size: 100, mtime: 200 }, stats), false);
+  assert.equal(isUploadCurrent({
+    storage: 'supabase',
+    storagePath: 'results/file.json',
+    size: 100,
+    mtime: 200,
+  }, stats), true);
+  assert.equal(isUploadCurrent({
+    storage: 'supabase',
+    storagePath: 'results/file.json',
+    size: 99,
+    mtime: 200,
+  }, stats), false);
 });

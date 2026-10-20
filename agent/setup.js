@@ -109,8 +109,8 @@ async function addDirectory(config) {
   header();
   console.log('  ADD WATCH DIRECTORY');
   console.log('  ─────────────────────────────────────────────');
-  console.log('  Enter the full path to the folder containing your');
-  console.log('  .mp4 or .sqlite files. You can add multiple.');
+  console.log('  Enter the full path to a folder containing database');
+  console.log('  files to sync. Video files always remain local.');
   clearLine();
   console.log('  Examples:');
   console.log('    C:\\ChickenSee\\Recordings');
@@ -186,6 +186,7 @@ async function setVercelUrl(env) {
   console.log('  ─────────────────────────────────────────────');
   console.log(`  Current: ${env.VERCEL_SYNC_URL || '(not set)'}`);
   clearLine();
+  console.log('  This Vercel API issues private Supabase upload links.');
   console.log('  Example: https://chicken-see-videos-sql.vercel.app/api/sync');
   clearLine();
 

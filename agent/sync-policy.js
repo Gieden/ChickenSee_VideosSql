@@ -22,7 +22,8 @@ export function isSyncCandidate(filePath, localStorageRoot) {
 
 export function isUploadCurrent(previousUpload, stats) {
   return Boolean(
-    previousUpload?.url
+    previousUpload?.storage === 'supabase'
+    && previousUpload?.storagePath
     && previousUpload.size === stats.size
     && previousUpload.mtime === stats.mtimeMs,
   );
