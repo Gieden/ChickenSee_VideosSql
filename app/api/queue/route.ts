@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
+import { downloadStorageFile } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -11,36 +11,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Prefer the latest synced queue status; never report a bundled snapshot as live on Vercel.
+  // The queue has a fixed storage path, so fetch it directly instead of relying on listing.
   try {
-    const files = await listStorageFiles('results');
-    const queueFile = files.find((file) => file.pathname === 'queue_status.json');
-
-    if (queueFile) {
-      const content = await downloadStorageFile(queueFile.storagePath);
-      const data = JSON.parse(await content.text());
-      return NextResponse.json({
-        source: 'supabase',
-        synced_at: queueFile.uploadedAt,
-        ...data,
-      });
-    }
+    const content = await downloadStorageFile('results/queue_status.json');
+    const data = JSON.parse(await content.text());
+    return NextResponse.json({
+      source: 'supabase',
+      ...data,
+    }, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    });
   } catch (storageError) {
     console.error('Supabase Storage queue status check failed:', storageError);
-    return NextResponse.json(
-      { error: 'Failed to load queue status from Supabase Storage' },
-      { status: 503 },
-    );
+    if (process.env.VERCEL) {
+      return NextResponse.json(
+        { error: 'Failed to load queue status from Supabase Storage', details: storageError instanceof Error ? storageError.message : 'Unknown storage error' },
+        { status: 503 },
+      );
+    }
   }
 
-  if (process.env.VERCEL) {
-    return NextResponse.json(
-      { error: 'No queue status has been synced to Vercel yet' },
-      { status: 503 },
-    );
-  }
-
-  // Fallback to the local OptiPlex analytics API during local development.
+  // Fall back to the local OptiPlex analytics API during local development.
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1200);
@@ -88,11 +79,10 @@ export async function GET(req: NextRequest) {
         })),
       });
     }
-  } catch (localErr) {
-    // Local API not reachable from this environment
+  } catch {
+    // The local queue API may be unavailable outside the OptiPlex host.
   }
 
-  // Default to idle only after checking live local data during local development.
   return NextResponse.json({
     source: 'idle',
     updated_at: null,
