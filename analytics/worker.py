@@ -474,14 +474,15 @@ class ZampenAnalyticsWorker:
         status_str: str,
     ) -> None:
         try:
-            from local_store import write_queue_status_json
+            from local_store import update_queue_status_json
             is_proc = status_str == "PROCESSING"
-            write_queue_status_json({
+            update_queue_status_json({
                 "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
-                "is_queueing": is_proc,
-                "active_video": filename if is_proc else None,
-                "active_progress": round(pct, 1) if (is_proc and pct is not None) else None,
-                "active_frames": f"{frame_idx} / {total_frames}" if is_proc else None,
+                "job_id": job_id,
+                "video_filename": filename,
+                "status": status_str,
+                "progress_percent": round(pct, 1) if (is_proc and pct is not None) else None,
+                "frames": f"{frame_idx} / {total_frames}" if is_proc else "—",
             })
         except Exception:
             pass

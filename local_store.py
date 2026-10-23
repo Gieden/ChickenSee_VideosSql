@@ -59,6 +59,69 @@ def write_queue_status_json(payload: dict) -> Path:
     return path
 
 
+def update_queue_status_json(payload: dict) -> Path:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = RESULTS_DIR / "queue_status.json"
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            existing = {}
+    except (OSError, json.JSONDecodeError):
+        existing = {}
+
+    summary = existing.get("summary")
+    if not isinstance(summary, dict):
+        summary = {status.lower(): 0 for status in (
+            "PROCESSING", "QUEUED", "WAITING", "COMPLETED", "FAILED", "CANCELLED"
+        )}
+    else:
+        summary = dict(summary)
+
+    items = existing.get("items")
+    items = [dict(item) for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+    job_id = payload.get("job_id")
+    video_filename = payload.get("video_filename")
+    status = payload.get("status")
+    if job_id is not None and status:
+        item_id = f"job-{job_id}"
+        item_index = next(
+            (index for index, item in enumerate(items)
+             if item.get("item_id") == item_id or item.get("video_filename") == video_filename),
+            None,
+        )
+        previous_status = items[item_index].get("status") if item_index is not None else None
+        item = items[item_index] if item_index is not None else {"item_id": item_id}
+        item.update({
+            "video_filename": video_filename,
+            "status": status,
+            "progress_percent": payload.get("progress_percent"),
+            "frames": payload.get("frames", "—"),
+        })
+        if item_index is None:
+            items.insert(0, item)
+        if previous_status != status:
+            if previous_status:
+                previous_key = previous_status.lower()
+                summary[previous_key] = max(0, summary.get(previous_key, 0) - 1)
+            current_key = status.lower()
+            summary[current_key] = summary.get(current_key, 0) + 1
+
+    active_item = next((item for item in items if item.get("status") == "PROCESSING"), None)
+    result = {
+        **existing,
+        "updated_at": payload.get("updated_at"),
+        "is_queueing": sum(summary.get(status, 0) for status in ("processing", "queued", "waiting")) > 0,
+        "active_video": active_item.get("video_filename") if active_item else None,
+        "active_progress": active_item.get("progress_percent") if active_item else None,
+        "active_frames": active_item.get("frames") if active_item else None,
+        "summary": summary,
+        "items": items,
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(result, fh, indent=2, default=json_default)
+    return path
+
+
 def copy_video_locally(src: str, dest_name: Optional[str] = None) -> Optional[Path]:
     """Copies a finished video into the local videos folder."""
     if not src or not os.path.isfile(src):
