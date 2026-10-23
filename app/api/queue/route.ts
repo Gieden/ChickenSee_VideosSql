@@ -14,10 +14,46 @@ export async function GET(req: NextRequest) {
   // The queue has a fixed storage path, so fetch it directly instead of relying on listing.
   try {
     const content = await downloadStorageFile('results/queue_status.json');
-    const data = JSON.parse(await content.text());
+    const storedData = JSON.parse(await content.text());
+    const storedSummary = storedData.summary && typeof storedData.summary === 'object'
+      ? storedData.summary
+      : {};
+    const items = Array.isArray(storedData.items) ? storedData.items : [];
+    const summary = {
+      processing: Number(storedSummary.processing) || 0,
+      queued: Number(storedSummary.queued) || 0,
+      waiting: Number(storedSummary.waiting) || 0,
+      completed: Number(storedSummary.completed) || 0,
+      failed: Number(storedSummary.failed) || 0,
+      cancelled: Number(storedSummary.cancelled) || 0,
+    };
+    const activeVideo = storedData.active_video || null;
+
+    if (activeVideo && summary.processing === 0) {
+      summary.processing = 1;
+    }
+
     return NextResponse.json({
+      ...storedData,
       source: 'supabase',
-      ...data,
+      updated_at: storedData.updated_at || null,
+      is_queueing: (summary.processing + summary.queued + summary.waiting) > 0
+        || storedData.is_queueing === true,
+      active_video: activeVideo,
+      active_progress: storedData.active_progress ?? null,
+      active_frames: storedData.active_frames ?? null,
+      summary,
+      items: items.length > 0 || !activeVideo
+        ? items
+        : [{
+          item_id: 'active-sync',
+          video_filename: activeVideo,
+          status: 'PROCESSING',
+          progress_percent: storedData.active_progress ?? null,
+          frames: storedData.active_frames ?? '—',
+          details: null,
+          created_at: storedData.updated_at || null,
+        }],
     }, {
       headers: { 'Cache-Control': 'no-store, max-age=0' },
     });
