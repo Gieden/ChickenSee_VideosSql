@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 AGENT_DIR = PROJECT_ROOT / "agent"
-DEFAULT_STORAGE_ROOT = Path(r"C:\ChickenSee_Local_Storage")
+DEFAULT_STORAGE_ROOT = (PROJECT_ROOT / "local-storage").resolve()
 ENV_FILE = AGENT_DIR / ".env"
 DIRECTORIES_FILE = AGENT_DIR / "directories.json"
 

@@ -20,7 +20,7 @@ def _configured_local_root() -> str:
             if separator and key.strip() == "CHICKENSEE_LOCAL_STORAGE":
                 return value.strip().strip('"').strip("'")
 
-    return r"C:\ChickenSee_Local_Storage"
+    return str((Path(__file__).resolve().parent / "local-storage").resolve())
 
 
 LOCAL_ROOT = Path(_configured_local_root())

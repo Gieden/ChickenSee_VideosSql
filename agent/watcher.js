@@ -14,7 +14,8 @@ const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
 const CLOUD_SYNC_RETRY_DELAY_MS = 5 * 60 * 1000;
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
 const LOCAL_STORAGE_ROOT = process.env.CHICKENSEE_LOCAL_STORAGE
-  || 'C:\\ChickenSee_Local_Storage';
+  ? path.resolve(process.env.CHICKENSEE_LOCAL_STORAGE)
+  : path.resolve(process.cwd(), 'local-storage');
 const STATE_FILE = path.resolve('./.sync-state.json');
 const CONFIG_FILE = path.resolve('./directories.json');
 
