@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1200);
-    const localRes = await fetch('http://127.0.0.1:8000/queue?limit=40', {
+    const localRes = await fetch('http://127.0.0.1:8000/queue?limit=500', {
       signal: controller.signal,
       cache: 'no-store',
     });
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
           failed: summary.failed || 0,
           cancelled: summary.cancelled || 0,
         },
-        items: items.slice(0, 100).map((it: any) => ({
+        items: items.slice(0, 500).map((it: any) => ({
           item_id: it.item_id || it.id,
           video_filename: it.video_filename,
           status: it.status,

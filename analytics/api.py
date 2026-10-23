@@ -192,7 +192,7 @@ def _queue_video_dirs(directories_file: Optional[Path] = None) -> List[Path]:
 
 
 @app.get("/queue", tags=["Job State Manager"])
-def get_detection_queue(limit: int = Query(default=100, le=500)):
+def get_detection_queue(limit: int = Query(default=500, le=500)):
     """Return persisted jobs and stable or still-writing videos in worker discovery order."""
     warnings: List[str] = []
     now = time.time()
@@ -357,7 +357,7 @@ def get_detection_queue(limit: int = Query(default=100, le=500)):
                     "details": it.get("details"),
                     "created_at": it.get("created_at"),
                 }
-                for it in items[:40]
+                for it in items
             ],
         })
     except Exception:

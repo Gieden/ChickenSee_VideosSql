@@ -167,6 +167,28 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(item["total_frames"], 500)
         self.assertEqual(item["progress_percent"], 25.0)
 
+    def test_queue_status_snapshot_keeps_more_than_40_history_items(self):
+        now = datetime.datetime.now()
+        for index in range(45):
+            filename = f"camera-{index}.mp4"
+            job = self.db.lease_job(
+                filename,
+                f"/test/{filename}",
+                now,
+                now + datetime.timedelta(hours=1),
+            )
+            self.assertIsNotNone(job)
+            self.db.mark_job_completed(job.id, 100, 100, 1.0)
+
+        with patch("analytics.api.DB", self.db), patch(
+            "analytics.api._queue_video_dirs", return_value=[]
+        ), patch("local_store.write_queue_status_json") as write_snapshot:
+            response = get_detection_queue(limit=500)
+
+        self.assertEqual(len(response["items"]), 45)
+        snapshot = write_snapshot.call_args.args[0]
+        self.assertEqual(len(snapshot["items"]), 45)
+
     def test_worker_queue_updates_preserve_other_queue_items(self):
         with tempfile.TemporaryDirectory() as temporary:
             results_dir = Path(temporary) / "results"
