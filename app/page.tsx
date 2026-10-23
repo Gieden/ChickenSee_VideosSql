@@ -223,6 +223,203 @@ const TIME_OPTIONS = [
   { value: '18:00', label: '6:00 PM' },
 ] as const;
 
+const ENVIRONMENTAL_SENSOR_CHARTS = [
+  {
+    label: 'Temperature (°C)',
+    peakLabel: 'peak 12:00',
+    axisLabels: ['08:00', '11:00', '14:00'],
+    values: [29, 31, 34, 35, 32, 30],
+    color: '#4aa7dd',
+  },
+  {
+    label: 'Relative humidity (%)',
+    peakLabel: 'peak 12:00',
+    axisLabels: ['08:00', '11:00', '14:00'],
+    values: [78, 74, 69, 64, 68, 72],
+    color: '#4aa7dd',
+  },
+  {
+    label: 'Ammonia (ppm)',
+    peakLabel: 'peak 13:00',
+    axisLabels: ['08:00', '11:00', '14:00'],
+    values: [5, 8, 12, 15, 14, 11],
+    color: '#4aa7dd',
+  },
+  {
+    label: 'Sound level (dB)',
+    peakLabel: 'peak 12:00',
+    axisLabels: ['08:00', '11:00', '14:00'],
+    values: [48, 52, 60, 74, 69, 64],
+    color: '#4aa7dd',
+  },
+] as const;
+
+const HEN_STRESS_TIMELINE = [
+  { id: 'HEN-01', events: [10, 13] },
+  { id: 'HEN-02', events: [9, 11, 13] },
+  { id: 'HEN-03', events: [8, 10, 12, 13, 14] },
+  { id: 'HEN-04', events: [7, 11, 12, 14] },
+  { id: 'HEN-05', events: [9, 12, 14] },
+] as const;
+
+function makeLinePath(values: readonly number[], width: number, height: number) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(max - min, 1);
+
+  return values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * width;
+      const y = height - ((value - min) / range) * (height - 18) - 8;
+      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+    })
+    .join(' ');
+}
+
+function EnvironmentalSensorPanel() {
+  return (
+    <div className="mt-2 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <h3 className="text-base sm:text-lg font-black text-slate-900">1. Environmental sensor analysis</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          Each sensor gets its own time-series line graph so we can see how conditions change across the monitoring period.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {ENVIRONMENTAL_SENSOR_CHARTS.map((chart) => (
+            <div key={chart.label} className="rounded-lg bg-white/80 px-3 py-2 shadow-sm">
+              <div className="mb-2 flex items-center justify-between text-[11px] text-slate-500">
+                <span className="font-medium text-slate-700">{chart.label}</span>
+                <span>{chart.peakLabel}</span>
+              </div>
+
+              <svg viewBox="0 0 280 110" className="h-28 w-full" aria-label={chart.label} role="img">
+                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+                  <line
+                    key={ratio}
+                    x1="10"
+                    x2="265"
+                    y1={14 + ratio * 72}
+                    y2={14 + ratio * 72}
+                    stroke="#e2e8f0"
+                    strokeWidth="0.8"
+                  />
+                ))}
+
+                <path
+                  d={makeLinePath(chart.values, 255, 90)}
+                  fill="none"
+                  stroke={chart.color}
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+
+                {chart.values.map((value, index) => {
+                  const x = (index / (chart.values.length - 1)) * 255;
+                  const min = Math.min(...chart.values);
+                  const max = Math.max(...chart.values);
+                  const range = Math.max(max - min, 1);
+                  const y = 90 - ((value - min) / range) * (90 - 18) - 8;
+                  const isPeak = value === Math.max(...chart.values);
+
+                  return (
+                    <g key={`${chart.label}-${value}-${index}`}>
+                      <circle cx={x} cy={y} r={isPeak ? 4 : 2.6} fill={chart.color} stroke="#ffffff" strokeWidth="1.2" />
+                    </g>
+                  );
+                })}
+
+                <line x1="10" x2="265" y1="92" y2="92" stroke="#cbd5e1" strokeWidth="0.8" />
+                {chart.axisLabels.map((tick, index) => {
+                  const x = index === 0 ? 10 : index === 1 ? 130 : 250;
+                  return (
+                    <text key={tick} x={x} y="106" fill="#64748b" fontSize="8" textAnchor="middle">
+                      {tick}
+                    </text>
+                  );
+                })}
+              </svg>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <p className="mt-4 text-[11px] text-slate-400">
+        Each panel has its own scale. Values are examples, not actual ChickenSee measurements.
+      </p>
+    </div>
+  );
+}
+
+function HenStressTimelinePanel() {
+  const flaggedWindow = { start: 47, end: 78 };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <h3 className="text-base sm:text-lg font-black text-slate-900">2. Hen stress-related behavior analysis</h3>
+        <p className="mt-1 text-sm text-slate-600">
+          For every hen that can be individually identified, keep a behavioral record:
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-[11px] text-slate-500">Behavior events by hen, 08:00 to 14:00 (illustrative example data)</span>
+          <div className="flex items-center gap-3 text-[11px] text-slate-500">
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" />4 of 5 flagged</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-100 border border-sky-300" />3 of 5 flagged</span>
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-3">
+          <div className="mb-2 grid grid-cols-[70px_1fr] items-center gap-3 text-[11px] text-slate-500">
+            <div />
+            <div className="relative">
+              <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-200" />
+              <div className="relative flex justify-between px-1">
+                {['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00'].map((time) => (
+                  <span key={time}>{time}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {HEN_STRESS_TIMELINE.map((hen) => (
+            <div key={hen.id} className="mt-2 grid grid-cols-[70px_1fr] items-center gap-3">
+              <div className="text-[11px] font-medium text-slate-700">{hen.id}</div>
+              <div className="relative h-7 overflow-hidden rounded-sm border border-slate-200 bg-slate-50/60">
+                <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-slate-50 via-white to-slate-50" />
+                <div
+                  className="absolute inset-y-0 bg-sky-100/80"
+                  style={{ left: `${flaggedWindow.start}%`, width: `${flaggedWindow.end - flaggedWindow.start}%` }}
+                />
+                {hen.events.map((event) => {
+                  const left = ((event - 8) / 6) * 100;
+                  return (
+                    <span
+                      key={`${hen.id}-${event}`}
+                      className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-white bg-sky-500 shadow-sm"
+                      style={{ left: `${Math.min(Math.max(left, 0), 100)}%`, top: '50%', transform: 'translateY(-50%)' }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <p className="mt-4 text-[11px] text-slate-400">
+        Each dot is one flagged behavior event. Events are examples, not actual observations.
+      </p>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results' | 'queue'>('videos');
@@ -1865,6 +2062,9 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            <EnvironmentalSensorPanel />
+            <HenStressTimelinePanel />
 
             {/* 4. EXPANDABLE SECTION FOR DETAILED TELEMETRY LOGS & EXPORT */}
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
