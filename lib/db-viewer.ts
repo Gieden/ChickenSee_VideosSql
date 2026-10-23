@@ -1,3 +1,4 @@
+import path from 'path';
 import initSqlJs, { Database, SqlValue } from 'sql.js';
 
 let SQLModule: any = null;
@@ -5,8 +6,7 @@ let SQLModule: any = null;
 async function getSqlModule() {
   if (!SQLModule) {
     SQLModule = await initSqlJs({
-      // In serverless / Node environment, locateFile can be default or point to cdn
-      locateFile: (file) => `https://sql.js.org/dist/${file}`,
+      locateFile: (file) => path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
     });
   }
   return SQLModule;
