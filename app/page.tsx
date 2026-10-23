@@ -17,7 +17,6 @@ import {
   FileCode,
   Clock,
   Radio,
-  Trash2,
   BarChart2,
   Activity,
   Bird,
@@ -264,7 +263,9 @@ export default function DashboardPage() {
   const [chartSensor, setChartSensor] =
     useState<(typeof REPORT_SENSORS)[number]['key']>('ammonia');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isCleaning, setIsCleaning] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
 
   // ── Results Dashboard State (Mockup UI Parameters) ──
   const [reportTimeRange, setReportTimeRange] = useState<'Daily' | 'Weekly' | 'Monthly' | 'Annually' | 'Custom'>('Custom');
@@ -278,49 +279,6 @@ export default function DashboardPage() {
   const [selectedChickenProfile, setSelectedChickenProfile] = useState<string>('All Chickens');
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showDetailedLog, setShowDetailedLog] = useState(false);
-
-  // ── Custom Modal State ──
-  const [showCleanupConfirm, setShowCleanupConfirm] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<{
-    success: boolean;
-    message: string;
-    freedMB?: number;
-    deletedCount?: number;
-  } | null>(null);
-
-  function handleCleanupOldVideos() {
-    setShowCleanupConfirm(true);
-  }
-
-  async function executeCleanup() {
-    setShowCleanupConfirm(false);
-    try {
-      setIsCleaning(true);
-      const res = await fetch('/api/cron/cleanup?days=7', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setCleanupResult({
-          success: true,
-          message: data.message || `Deleted ${data.deletedFiles?.length ?? 0} video(s).`,
-          freedMB: data.freedMB ?? 0,
-          deletedCount: data.deletedFiles?.length ?? 0,
-        });
-        fetchVideos();
-      } else {
-        setCleanupResult({
-          success: false,
-          message: data.error || 'Cleanup failed. Please try again.',
-        });
-      }
-    } catch (err: any) {
-      setCleanupResult({
-        success: false,
-        message: err.message || 'Network error during cleanup.',
-      });
-    } finally {
-      setIsCleaning(false);
-    }
-  }
 
   async function fetchVideos() {
     try {
@@ -436,9 +394,20 @@ export default function DashboardPage() {
   }, [activeTab, fetchQueueStatus]);
 
   async function handleLogout() {
-    await fetch('/api/auth', { method: 'DELETE' });
-    router.push('/login');
-    router.refresh();
+    try {
+      setIsLoggingOut(true);
+      setLogoutError(null);
+      const response = await fetch('/api/auth', { method: 'DELETE' });
+      if (!response.ok) {
+        throw new Error(`Logout failed (HTTP ${response.status}). Please try again.`);
+      }
+      router.push('/login');
+      router.refresh();
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : 'Logout failed. Please try again.');
+    } finally {
+      setIsLoggingOut(false);
+    }
   }
 
   function formatBytes(bytes: number) {
@@ -1166,6 +1135,49 @@ export default function DashboardPage() {
 
   return (
     <div className="portal-shell min-h-screen bg-[#f7f8fa] text-slate-900">
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="logout-confirm-title"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <h2 id="logout-confirm-title" className="text-lg font-bold text-slate-900">
+              Sign out?
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Are you sure you want to sign out of the ChickenSee Portal?
+            </p>
+            {logoutError && (
+              <p role="alert" className="mt-3 text-sm text-red-600">
+                {logoutError}
+              </p>
+            )}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  setLogoutError(null);
+                }}
+                disabled={isLoggingOut}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                disabled={isLoggingOut}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
+              >
+                {isLoggingOut ? 'Signing out…' : 'Sign Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
           <div className="flex items-center gap-3">
@@ -1199,15 +1211,17 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={handleCleanupOldVideos} disabled={isCleaning} title="Delete synced videos older than 7 days" className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/20 hover:text-amber-200">
-              <Trash2 className={`h-3.5 w-3.5 ${isCleaning ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Clean &gt;7d</span>
-            </button>
             <button onClick={refreshAll} disabled={isRefreshing} className="flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white">
               <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-            <button onClick={handleLogout} className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 hover:text-red-300">
+            <button
+              onClick={() => {
+                setLogoutError(null);
+                setShowLogoutConfirm(true);
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+            >
               <LogOut className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Sign Out</span>
             </button>
