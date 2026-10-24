@@ -281,6 +281,7 @@ def get_detection_queue(limit: int = Query(default=500, le=500)):
             "details": details,
             "modified_at": candidate["modified_at"] if candidate else None,
             "created_at": job.created_at.isoformat() if job.created_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         })
 
     discovered_items = [
@@ -356,6 +357,7 @@ def get_detection_queue(limit: int = Query(default=500, le=500)):
                     ),
                     "details": it.get("details"),
                     "created_at": it.get("created_at"),
+                    "completed_at": it.get("completed_at"),
                 }
                 for it in items
             ],

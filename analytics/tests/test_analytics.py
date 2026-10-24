@@ -188,6 +188,8 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(len(response["items"]), 45)
         snapshot = write_snapshot.call_args.args[0]
         self.assertEqual(len(snapshot["items"]), 45)
+        self.assertIsNotNone(response["items"][0]["completed_at"])
+        self.assertIsNotNone(snapshot["items"][0]["completed_at"])
 
     def test_worker_queue_updates_preserve_other_queue_items(self):
         with tempfile.TemporaryDirectory() as temporary:

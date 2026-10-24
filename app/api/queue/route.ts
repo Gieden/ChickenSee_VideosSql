@@ -1,9 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import { downloadStorageFile } from '@/lib/supabase-storage';
+import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+let recoveredHistoryCache: { expiresAt: number; items: any[] } | null = null;
+
+function normalizeVideoName(value: string): string {
+  return (value.split(/[\\/]/).pop() || value)
+    .replace(/\.[^.]+$/, '')
+    .replace(/_(?:detected|annotated)$/i, '')
+    .toLowerCase();
+}
+
+async function recoverCompletedHistory(items: any[]) {
+  if (!recoveredHistoryCache || recoveredHistoryCache.expiresAt <= Date.now()) {
+    const resultFiles = (await listStorageFiles('results'))
+      .filter((file) => file.pathname.toLowerCase().endsWith('.json') && file.pathname !== 'queue_status.json')
+      .sort((first, second) => new Date(second.uploadedAt).getTime() - new Date(first.uploadedAt).getTime())
+      .slice(0, 500);
+    const recovered: any[] = [];
+    const knownVideos = new Set<string>();
+
+    for (let offset = 0; offset < resultFiles.length; offset += 20) {
+      const batch = resultFiles.slice(offset, offset + 20);
+      const reports = await Promise.all(batch.map(async (file) => {
+        try {
+          const content = await downloadStorageFile(file.storagePath);
+          const report = JSON.parse(await content.text());
+          const videoFilename = typeof report.source_video === 'string' ? report.source_video : '';
+          const completedAt = typeof report.processed_at === 'string'
+            ? report.processed_at
+            : file.uploadedAt;
+          return videoFilename
+            ? {
+              item_id: `recovered-${file.pathname}`,
+              video_filename: videoFilename.split(/[\\/]/).pop() || videoFilename,
+              status: 'COMPLETED',
+              progress_percent: 100,
+              frames: '—',
+              details: 'Recovered from the synchronized analysis report.',
+              created_at: completedAt,
+              completed_at: completedAt,
+            }
+            : null;
+        } catch (error) {
+          console.warn(`Could not recover queue history from "${file.pathname}":`, error);
+          return null;
+        }
+      }));
+
+      for (const report of reports) {
+        if (!report) continue;
+        const normalizedName = normalizeVideoName(report.video_filename);
+        if (!normalizedName || knownVideos.has(normalizedName)) continue;
+        knownVideos.add(normalizedName);
+        recovered.push(report);
+      }
+    }
+
+    recoveredHistoryCache = {
+      expiresAt: Date.now() + 60_000,
+      items: recovered,
+    };
+  }
+
+  const knownVideos = new Set(
+    items.map((item) => normalizeVideoName(String(item.video_filename || ''))).filter(Boolean),
+  );
+  return recoveredHistoryCache.items.filter((item) => {
+    const normalizedName = normalizeVideoName(item.video_filename);
+    if (!normalizedName || knownVideos.has(normalizedName)) return false;
+    knownVideos.add(normalizedName);
+    return true;
+  });
+}
 
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -18,7 +90,7 @@ export async function GET(req: NextRequest) {
     const storedSummary = storedData.summary && typeof storedData.summary === 'object'
       ? storedData.summary
       : {};
-    const items = Array.isArray(storedData.items) ? storedData.items : [];
+    const items = Array.isArray(storedData.items) ? [...storedData.items] : [];
     const summary = {
       processing: Number(storedSummary.processing) || 0,
       queued: Number(storedSummary.queued) || 0,
@@ -27,6 +99,17 @@ export async function GET(req: NextRequest) {
       failed: Number(storedSummary.failed) || 0,
       cancelled: Number(storedSummary.cancelled) || 0,
     };
+    let historyWarning: string | null = null;
+    if (!items.some((item) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(String(item.status || '').toUpperCase()))) {
+      try {
+        const recoveredHistory = await recoverCompletedHistory(items);
+        items.push(...recoveredHistory);
+        summary.completed = Math.max(summary.completed, recoveredHistory.length);
+      } catch (error) {
+        console.error('Failed to recover queue history from synchronized analysis reports:', error);
+        historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
+      }
+    }
     const activeVideo = storedData.active_video || null;
 
     if (activeVideo && summary.processing === 0) {
@@ -42,6 +125,7 @@ export async function GET(req: NextRequest) {
       active_video: activeVideo,
       active_progress: storedData.active_progress ?? null,
       active_frames: storedData.active_frames ?? null,
+      history_warning: historyWarning,
       summary,
       items: items.length > 0 || !activeVideo
         ? items

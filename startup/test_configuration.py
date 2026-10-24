@@ -32,6 +32,20 @@ class TestDesktopConfiguration(unittest.TestCase):
         self.assertEqual(format_queue_progress("PROCESSING", 37.5), "37.5%")
         self.assertEqual(format_queue_progress("PROCESSING", 150), "100.0%")
 
+    def test_offline_queue_does_not_overwrite_synced_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            storage = Path(temporary)
+            results_dir = storage / "results"
+            results_dir.mkdir()
+            status_file = results_dir / "queue_status.json"
+            original = '{"items":[{"video_filename":"completed.mp4","status":"COMPLETED"}]}'
+            status_file.write_text(original, encoding="utf-8")
+
+            desktop = object.__new__(ChickenSeeDesktop)
+            desktop._save_queue_status_for_sync(None)
+
+            self.assertEqual(status_file.read_text(encoding="utf-8"), original)
+
     def test_new_install_defaults_to_local_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = read_agent_settings(Path(temporary))

@@ -90,6 +90,7 @@ interface QueueStatusData {
   active_video: string | null;
   active_progress: number | null;
   active_frames: string | null;
+  history_warning?: string | null;
   summary: {
     processing: number;
     queued: number;
@@ -2469,6 +2470,12 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+
+            {queueStatus?.history_warning && (
+              <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {queueStatus.history_warning}
+              </div>
+            )}
 
             {/* Queue Item Table with Date Segregator */}
             {(() => {
