@@ -18,10 +18,8 @@ async function recoverCompletedHistory(items: any[]) {
   if (!recoveredHistoryCache || recoveredHistoryCache.expiresAt <= Date.now()) {
     const resultFiles = (await listStorageFiles('results'))
       .filter((file) => file.pathname.toLowerCase().endsWith('.json') && file.pathname !== 'queue_status.json')
-      .sort((first, second) => new Date(second.uploadedAt).getTime() - new Date(first.uploadedAt).getTime())
-      .slice(0, 500);
+      .sort((first, second) => new Date(second.uploadedAt).getTime() - new Date(first.uploadedAt).getTime());
     const recovered: any[] = [];
-    const knownVideos = new Set<string>();
 
     for (let offset = 0; offset < resultFiles.length; offset += 20) {
       const batch = resultFiles.slice(offset, offset + 20);
@@ -30,12 +28,14 @@ async function recoverCompletedHistory(items: any[]) {
           const content = await downloadStorageFile(file.storagePath);
           const report = JSON.parse(await content.text());
           const videoFilename = typeof report.source_video === 'string' ? report.source_video : '';
+          const jobId = Number.isInteger(report.job_id) ? report.job_id : null;
           const completedAt = typeof report.processed_at === 'string'
             ? report.processed_at
             : file.uploadedAt;
           return videoFilename
             ? {
               item_id: `recovered-${file.pathname}`,
+              job_id: jobId,
               video_filename: videoFilename.split(/[\\/]/).pop() || videoFilename,
               status: 'COMPLETED',
               progress_percent: 100,
@@ -53,9 +53,6 @@ async function recoverCompletedHistory(items: any[]) {
 
       for (const report of reports) {
         if (!report) continue;
-        const normalizedName = normalizeVideoName(report.video_filename);
-        if (!normalizedName || knownVideos.has(normalizedName)) continue;
-        knownVideos.add(normalizedName);
         recovered.push(report);
       }
     }
@@ -66,13 +63,28 @@ async function recoverCompletedHistory(items: any[]) {
     };
   }
 
-  const knownVideos = new Set(
-    items.map((item) => normalizeVideoName(String(item.video_filename || ''))).filter(Boolean),
-  );
+  const knownJobIds = new Set<number>();
+  const knownVideoNames = new Set<string>();
+  for (const item of items) {
+    const jobId = Number.isInteger(item.job_id)
+      ? item.job_id
+      : /^job-(\d+)$/.exec(String(item.item_id || ''))?.[1];
+    if (jobId !== undefined && jobId !== null) {
+      knownJobIds.add(Number(jobId));
+    } else {
+      const normalizedName = normalizeVideoName(String(item.video_filename || ''));
+      if (normalizedName) knownVideoNames.add(normalizedName);
+    }
+  }
   return recoveredHistoryCache.items.filter((item) => {
+    if (Number.isInteger(item.job_id)) {
+      if (knownJobIds.has(item.job_id)) return false;
+      knownJobIds.add(item.job_id);
+      return true;
+    }
     const normalizedName = normalizeVideoName(item.video_filename);
-    if (!normalizedName || knownVideos.has(normalizedName)) return false;
-    knownVideos.add(normalizedName);
+    if (!normalizedName || knownVideoNames.has(normalizedName)) return false;
+    knownVideoNames.add(normalizedName);
     return true;
   });
 }
