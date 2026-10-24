@@ -1474,15 +1474,15 @@ export default function DashboardPage() {
         </div>
       )}
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3.5 sm:px-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-orange-200/80 bg-white p-1 shadow-sm shadow-orange-500/10">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2.5 sm:px-6 sm:py-3.5">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-orange-200/80 bg-white p-1 shadow-sm shadow-orange-500/10 sm:h-10 sm:w-10">
               <img src="/favicon.png" alt="ChickenSee Logo" className="h-full w-full object-contain" />
             </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">ChickenSee Portal</h1>
-                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 border border-emerald-500/20">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <h1 className="text-sm font-bold tracking-tight text-slate-900 sm:text-lg">ChickenSee Portal</h1>
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-600 border border-emerald-500/20 sm:text-[10px]">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Optiplex Live
                 </span>
@@ -1491,7 +1491,7 @@ export default function DashboardPage() {
                     Queue status unavailable
                   </span>
                 ) : queueStatus?.is_queueing ? (
-                  <span className="flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-orange-700 border border-orange-500/30 animate-pulse">
+                  <span className="max-w-[150px] truncate flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2 py-0.5 text-[9px] font-semibold text-orange-700 border border-orange-500/30 animate-pulse sm:max-w-none sm:px-2.5 sm:text-[10px]">
                     <span className="h-1.5 w-1.5 rounded-full bg-orange-600" />
                     Queueing: {queueStatus.active_video ? `${queueStatus.active_video} (${queueStatus.active_progress ?? 0}%)` : `${queueStatus.summary.queued} queued`}
                   </span>
@@ -1505,8 +1505,8 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 hidden sm:block">Supabase Storage &amp; SQLite Bridge</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={refreshAll} disabled={isRefreshing} className="flex items-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+            <button aria-label="Refresh current page" onClick={refreshAll} disabled={isRefreshing} className="flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 px-2 sm:px-3 sm:py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white">
               <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
@@ -1515,7 +1515,8 @@ export default function DashboardPage() {
                 setLogoutError(null);
                 setShowLogoutConfirm(true);
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+              aria-label="Sign out"
+              className="flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 px-2 sm:px-3 sm:py-1.5 text-xs font-medium text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
             >
               <LogOut className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Sign Out</span>
@@ -1523,24 +1524,24 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mx-auto flex max-w-7xl border-t border-slate-200 px-4 sm:px-6">
-          <nav className="flex space-x-6">
-            <button onClick={() => setActiveTab('videos')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'videos' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+        <div className="mobile-nav-scroll mx-auto max-w-7xl border-t border-slate-200 px-2 sm:px-6">
+          <nav aria-label="Main navigation" className="flex min-w-max gap-1 sm:gap-6">
+            <button onClick={() => setActiveTab('videos')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'videos' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <Video className="h-4 w-4" />
               <span>Synced Videos</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{videos.length}</span>
             </button>
-            <button onClick={() => setActiveTab('database')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => setActiveTab('database')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <Database className="h-4 w-4" />
               <span>SQLite Tables</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{databases.length}</span>
             </button>
-            <button onClick={() => setActiveTab('results')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => setActiveTab('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <BarChart2 className="h-4 w-4" />
               <span>Behavior Results</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{results.length}</span>
             </button>
-            <button onClick={() => setActiveTab('queue')} className={`flex items-center gap-2 border-b-2 py-3 text-xs sm:text-sm font-semibold transition ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => setActiveTab('queue')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <ListFilter className="h-4 w-4" />
               <span>Detection Queue</span>
               {queueError ? (
@@ -1558,7 +1559,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
+      <main className="mx-auto max-w-7xl p-3 sm:p-6 lg:p-8">
 
         {/* VIDEOS TAB */}
         {activeTab === 'videos' && (
@@ -1644,7 +1645,7 @@ export default function DashboardPage() {
               <div className="flex flex-wrap items-center gap-4">
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Database File</label>
-                  <select value={currentDbFile || ''} onChange={(e) => fetchDatabaseData(e.target.value)} className="rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500">
+                  <select value={currentDbFile || ''} onChange={(e) => fetchDatabaseData(e.target.value)} className="w-full max-w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 sm:w-auto">
                     {databases.map((db) => (<option key={db.pathname} value={db.pathname}>{db.pathname} ({formatBytes(db.size)})</option>))}
                     {databases.length === 0 && <option value="">No databases synced</option>}
                   </select>
@@ -1652,7 +1653,7 @@ export default function DashboardPage() {
                 {tables.length > 0 && (
                   <div>
                     <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Table</label>
-                    <select value={selectedTable || ''} onChange={(e) => fetchDatabaseData(currentDbFile || undefined, e.target.value, 0)} className="rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500">
+                    <select value={selectedTable || ''} onChange={(e) => fetchDatabaseData(currentDbFile || undefined, e.target.value, 0)} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 sm:w-auto">
                       {tables.map((t) => (<option key={t} value={t}>{t}</option>))}
                     </select>
                   </div>
@@ -1707,7 +1708,7 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
-                <div className="flex items-center justify-between border-t border-slate-800 bg-slate-950/80 px-4 py-3 text-xs sm:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/80 px-3 py-3 text-xs sm:px-6">
                   <span className="text-slate-400">
                     Showing <span className="font-semibold text-slate-200">{queryResult.values.length > 0 ? pageOffset + 1 : 0}</span> to <span className="font-semibold text-slate-200">{Math.min(pageOffset + pageSize, queryResult.totalRows)}</span> of <span className="font-semibold text-slate-200">{queryResult.totalRows}</span> rows
                   </span>
@@ -1729,7 +1730,7 @@ export default function DashboardPage() {
         {activeTab === 'results' && (
           <div className="space-y-6 text-slate-800">
             {/* 1. REPORT PARAMETERS CARD */}
-            <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900">Report Parameters</h2>
                 <button
@@ -1970,7 +1971,7 @@ export default function DashboardPage() {
             </div>
 
             {/* 2. DOMINANT STRESS BEHAVIOR CARD */}
-            <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-6">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-900">Dominant Stress Behavior</h3>
@@ -2351,10 +2352,10 @@ export default function DashboardPage() {
             )}
             {/* Live Queue Hero Card */}
             {queueError ? null : queueStatus?.is_queueing ? (
-              <div className="overflow-hidden rounded-2xl border border-orange-200/90 bg-gradient-to-r from-orange-50/90 via-amber-50/70 to-white p-6 shadow-md shadow-orange-500/5">
+              <div className="overflow-hidden rounded-2xl border border-orange-200/90 bg-gradient-to-r from-orange-50/90 via-amber-50/70 to-white p-4 shadow-md shadow-orange-500/5 sm:p-6">
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-2 max-w-2xl">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="flex items-center gap-1.5 rounded-full bg-orange-600 px-3 py-1 text-xs font-bold text-white shadow-sm shadow-orange-600/30">
                         <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
                         AI VISION INFERENCE ACTIVE
@@ -2363,7 +2364,7 @@ export default function DashboardPage() {
                         OptiPlex YOLO26n + ByteTrack
                       </span>
                     </div>
-                    <h2 className="text-lg font-bold text-slate-900 sm:text-xl">
+                    <h2 className="break-all text-lg font-bold text-slate-900 sm:text-xl">
                       {queueStatus.active_video || 'Processing next video segment…'}
                     </h2>
                     <p className="text-xs sm:text-sm text-slate-600">
@@ -2391,7 +2392,7 @@ export default function DashboardPage() {
                 </div>
               </div>
             ) : (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100">
@@ -2574,10 +2575,39 @@ export default function DashboardPage() {
                 );
               };
 
+              const renderMobileCard = (item: QueueItem) => {
+                const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
+                const statusColor = statusUpper === 'COMPLETED'
+                  ? 'text-emerald-700'
+                  : statusUpper === 'FAILED'
+                    ? 'text-rose-700'
+                    : statusUpper === 'PROCESSING'
+                      ? 'text-orange-700'
+                      : 'text-slate-600';
+                const time = item.completed_at || item.created_at;
+                return (
+                  <article key={item.item_id || item.video_filename} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <Video className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                        <span className="break-all font-mono text-xs font-medium text-slate-900">{item.video_filename}</span>
+                      </div>
+                      <span className={`shrink-0 text-[10px] font-bold ${statusColor}`}>{statusUpper}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
+                      <div><span className="text-slate-500">Progress</span><div className="font-medium text-slate-800">{item.progress_percent != null ? `${item.progress_percent}%` : '—'}</div></div>
+                      <div><span className="text-slate-500">Frames</span><div className="font-mono text-slate-800">{item.frames || '—'}</div></div>
+                      <div><span className="text-slate-500">Time</span><div className="text-slate-800">{time ? new Date(time).toLocaleString() : '—'}</div></div>
+                      {item.details && <div className="col-span-2 break-words text-slate-600">{item.details}</div>}
+                    </div>
+                  </article>
+                );
+              };
+
               return (
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
                   {/* Header Strip */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-6 py-4 bg-white shrink-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4 shrink-0 sm:px-6">
                     <div className="flex items-center gap-3">
                       <div>
                         <div className="flex items-center gap-2">
@@ -2604,7 +2634,7 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Date & Status Segregator Filter Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 border-b border-slate-200 px-6 py-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 border-b border-slate-200 px-3 py-3 text-xs sm:px-6">
                     <div className="flex flex-wrap items-center gap-3">
                       {/* Date Dropdown Segregator */}
                       <div className="flex items-center gap-2">
@@ -2613,7 +2643,7 @@ export default function DashboardPage() {
                         <select
                           value={queueDateFilter}
                           onChange={(e) => setQueueDateFilter(e.target.value)}
-                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="min-h-10 max-w-[min(72vw,20rem)] rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                         >
                           <option value="All dates">All dates ({historyList.length})</option>
                           {allDates.map((dateStr) => {
@@ -2628,7 +2658,7 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Status Pills */}
-                      <div className="flex items-center gap-1.5 ml-2">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:ml-2">
                         <span className="font-semibold text-slate-700 mr-1">Status:</span>
                         {(['All', 'Completed', 'Failed', 'Cancelled'] as const).map((st) => {
                           const isActive = queueStatusFilter === st;
@@ -2637,7 +2667,7 @@ export default function DashboardPage() {
                               key={st}
                               type="button"
                               onClick={() => setQueueStatusFilter(st)}
-                              className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition ${
+                              className={`min-h-9 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
                                 isActive
                                   ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/20'
                                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
@@ -2655,7 +2685,7 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={toggleAll}
-                        className="text-[11px] text-slate-500 hover:text-orange-600 font-medium transition"
+                        className="min-h-10 text-left text-[11px] text-slate-500 hover:text-orange-600 font-medium transition"
                       >
                         {allCollapsed ? '▼ Expand All Dates' : '▲ Collapse All Dates'}
                       </button>
@@ -2667,7 +2697,7 @@ export default function DashboardPage() {
                     {/* Active / In-Flight Section */}
                     {activeList.length > 0 && (
                       <div className="border-b border-orange-200 bg-orange-50/20">
-                        <div className="flex items-center justify-between px-6 py-2.5 bg-gradient-to-r from-orange-100/70 via-amber-100/50 to-orange-50/30 border-b border-orange-200/80">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-r from-orange-100/70 via-amber-100/50 to-orange-50/30 border-b border-orange-200/80 sm:px-6">
                           <div className="flex items-center gap-2">
                             <span className="h-2 w-2 rounded-full bg-orange-600 animate-pulse" />
                             <span className="text-xs font-bold uppercase tracking-wider text-orange-900">
@@ -2679,7 +2709,9 @@ export default function DashboardPage() {
                           </div>
                           <span className="text-[11px] text-orange-800 font-medium">In-flight on daemon</span>
                         </div>
-                        <table className="w-full text-left text-xs border-collapse">
+                        <div className="space-y-2 p-3 sm:hidden">{activeList.map(renderMobileCard)}</div>
+                        <div className="hidden overflow-x-auto sm:block">
+                        <table className="w-full min-w-[700px] text-left text-xs border-collapse">
                           <thead className="border-b border-orange-200/50 bg-orange-50/60 text-[10px] font-semibold uppercase tracking-wider text-orange-800">
                             <tr>
                               <th className="px-6 py-2">Video Name</th>
@@ -2694,6 +2726,7 @@ export default function DashboardPage() {
                             {activeList.map(renderRow)}
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     )}
 
@@ -2710,7 +2743,7 @@ export default function DashboardPage() {
                             <button
                               type="button"
                               onClick={() => toggleGroup(dateLabel)}
-                              className="w-full flex items-center justify-between px-6 py-3 bg-slate-50/90 hover:bg-slate-100/90 transition-colors border-b border-slate-200/60 text-left cursor-pointer"
+                              className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-3 bg-slate-50/90 hover:bg-slate-100/90 transition-colors border-b border-slate-200/60 text-left cursor-pointer sm:px-6"
                             >
                               <div className="flex items-center gap-2.5">
                                 {isCollapsed ? (
@@ -2727,7 +2760,7 @@ export default function DashboardPage() {
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-3 text-xs">
+                              <div className="hidden items-center gap-3 text-xs sm:flex">
                                 {completedCount > 0 && (
                                   <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold text-[11px]">
                                     <CheckCircle2 className="h-3 w-3" /> {completedCount} done
@@ -2746,6 +2779,9 @@ export default function DashboardPage() {
 
                             {/* Group Table Rows */}
                             {!isCollapsed && (
+                              <>
+                              <div className="space-y-2 p-3 sm:hidden">{items.map(renderMobileCard)}</div>
+                              <div className="hidden overflow-x-auto sm:block">
                               <table className="w-full text-left text-xs border-collapse">
                                 <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                                   <tr>
@@ -2761,6 +2797,8 @@ export default function DashboardPage() {
                                   {items.map(renderRow)}
                                 </tbody>
                               </table>
+                              </div>
+                              </>
                             )}
                           </div>
                         );
