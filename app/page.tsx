@@ -223,199 +223,251 @@ const TIME_OPTIONS = [
   { value: '18:00', label: '6:00 PM' },
 ] as const;
 
-const ENVIRONMENTAL_SENSOR_CHARTS = [
-  {
-    label: 'Temperature (°C)',
-    peakLabel: 'peak 12:00',
-    axisLabels: ['08:00', '11:00', '14:00'],
-    values: [29, 31, 34, 35, 32, 30],
-    color: '#4aa7dd',
-  },
-  {
-    label: 'Relative humidity (%)',
-    peakLabel: 'peak 12:00',
-    axisLabels: ['08:00', '11:00', '14:00'],
-    values: [78, 74, 69, 64, 68, 72],
-    color: '#4aa7dd',
-  },
-  {
-    label: 'Ammonia (ppm)',
-    peakLabel: 'peak 13:00',
-    axisLabels: ['08:00', '11:00', '14:00'],
-    values: [5, 8, 12, 15, 14, 11],
-    color: '#4aa7dd',
-  },
-  {
-    label: 'Sound level (dB)',
-    peakLabel: 'peak 12:00',
-    axisLabels: ['08:00', '11:00', '14:00'],
-    values: [48, 52, 60, 74, 69, 64],
-    color: '#4aa7dd',
-  },
-] as const;
+interface VideoSensorPoint {
+  timestamp: string;
+  elapsedSeconds: number | null;
+  temperature: number | null;
+  humidity: number | null;
+  ammonia: number | null;
+  sound: number | null;
+}
 
-const HEN_STRESS_TIMELINE = [
-  { id: 'HEN-01', events: [10, 13] },
-  { id: 'HEN-02', events: [9, 11, 13] },
-  { id: 'HEN-03', events: [8, 10, 12, 13, 14] },
-  { id: 'HEN-04', events: [7, 11, 12, 14] },
-  { id: 'HEN-05', events: [9, 12, 14] },
+interface VideoBehaviorEvent {
+  timestamp: string;
+  behavior: string;
+}
+
+interface VideoBirdTimeline {
+  name: string;
+  events: VideoBehaviorEvent[];
+}
+
+interface VideoAnalysis {
+  pairedDatabases: string[];
+  sensors: VideoSensorPoint[];
+  behaviorAvailable: boolean;
+  birds: VideoBirdTimeline[];
+}
+
+const ENVIRONMENTAL_SENSOR_CHARTS = [
+  { key: 'temperature', label: 'Temperature (°C)', color: '#4aa7dd' },
+  { key: 'humidity', label: 'Relative humidity (%)', color: '#4aa7dd' },
+  { key: 'ammonia', label: 'Ammonia (ppm)', color: '#4aa7dd' },
+  { key: 'sound', label: 'Sound level (dB)', color: '#4aa7dd' },
 ] as const;
 
 function makeLinePath(values: readonly number[], width: number, height: number) {
+  if (!values.length) return '';
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(max - min, 1);
 
   return values
     .map((value, index) => {
-      const x = (index / (values.length - 1)) * width;
+      const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
       const y = height - ((value - min) / range) * (height - 18) - 8;
       return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
     })
     .join(' ');
 }
 
-function EnvironmentalSensorPanel() {
+function formatVideoChartTime(point: VideoSensorPoint): string {
+  if (point.timestamp) {
+    const date = new Date(point.timestamp);
+    if (Number.isFinite(date.getTime())) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+    return point.timestamp;
+  }
+  return point.elapsedSeconds == null ? '' : `${Math.floor(point.elapsedSeconds)}s`;
+}
+
+function EnvironmentalSensorPanel({
+  videoName,
+  analysis,
+  loading,
+  error,
+}: {
+  videoName: string | null;
+  analysis: VideoAnalysis | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const hasSensorData = analysis?.sensors.some((point) =>
+    ENVIRONMENTAL_SENSOR_CHARTS.some((chart) => point[chart.key] != null),
+  ) ?? false;
+
   return (
     <div className="mt-2 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
       <div className="mb-4">
         <h3 className="text-base sm:text-lg font-black text-slate-900">1. Environmental sensor analysis</h3>
         <p className="mt-1 text-sm text-slate-600">
-          Each sensor gets its own time-series line graph so we can see how conditions change across the monitoring period.
+          Sensor readings from the SQL database paired with {videoName || 'the selected video'}.
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {ENVIRONMENTAL_SENSOR_CHARTS.map((chart) => (
-            <div key={chart.label} className="rounded-lg bg-white/80 px-3 py-2 shadow-sm">
-              <div className="mb-2 flex items-center justify-between text-[11px] text-slate-500">
-                <span className="font-medium text-slate-700">{chart.label}</span>
-                <span>{chart.peakLabel}</span>
-              </div>
+      {loading ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">Loading paired SQL readings…</p>
+      ) : error ? (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">{error}</p>
+      ) : !analysis?.pairedDatabases.length ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          No synchronized SQL database is paired with this video.
+        </p>
+      ) : !hasSensorData ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          The paired database has no sensor readings for this video.
+        </p>
+      ) : (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {ENVIRONMENTAL_SENSOR_CHARTS.map((chart) => {
+              const points = (analysis?.sensors ?? []).flatMap((point) => {
+                const value = point[chart.key];
+                return value == null ? [] : [{ point, value }];
+              });
+              const values = points.map(({ value }) => value);
+              if (!points.length) return null;
+              const peak = Math.max(...values);
+              const step = Math.ceil(points.length / 60);
+              const displayedPoints = points.flatMap((entry, index) =>
+                index === 0 || index === points.length - 1 || index % step === 0
+                  ? [{ ...entry, index }]
+                  : [],
+              );
 
-              <svg viewBox="0 0 280 110" className="h-28 w-full" aria-label={chart.label} role="img">
-                {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
-                  <line
-                    key={ratio}
-                    x1="10"
-                    x2="265"
-                    y1={14 + ratio * 72}
-                    y2={14 + ratio * 72}
-                    stroke="#e2e8f0"
-                    strokeWidth="0.8"
-                  />
-                ))}
-
-                <path
-                  d={makeLinePath(chart.values, 255, 90)}
-                  fill="none"
-                  stroke={chart.color}
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-
-                {chart.values.map((value, index) => {
-                  const x = (index / (chart.values.length - 1)) * 255;
-                  const min = Math.min(...chart.values);
-                  const max = Math.max(...chart.values);
-                  const range = Math.max(max - min, 1);
-                  const y = 90 - ((value - min) / range) * (90 - 18) - 8;
-                  const isPeak = value === Math.max(...chart.values);
-
-                  return (
-                    <g key={`${chart.label}-${value}-${index}`}>
-                      <circle cx={x} cy={y} r={isPeak ? 4 : 2.6} fill={chart.color} stroke="#ffffff" strokeWidth="1.2" />
-                    </g>
-                  );
-                })}
-
-                <line x1="10" x2="265" y1="92" y2="92" stroke="#cbd5e1" strokeWidth="0.8" />
-                {chart.axisLabels.map((tick, index) => {
-                  const x = index === 0 ? 10 : index === 1 ? 130 : 250;
-                  return (
-                    <text key={tick} x={x} y="106" fill="#64748b" fontSize="8" textAnchor="middle">
-                      {tick}
-                    </text>
-                  );
-                })}
-              </svg>
-            </div>
-          ))}
+              return (
+                <div key={chart.key} className="rounded-lg bg-white/80 px-3 py-2 shadow-sm">
+                  <div className="mb-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span className="font-medium text-slate-700">{chart.label}</span>
+                    <span>peak {peak}</span>
+                  </div>
+                  <svg viewBox="0 0 280 110" className="h-28 w-full" aria-label={chart.label} role="img">
+                    {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+                      <line key={ratio} x1="10" x2="265" y1={14 + ratio * 72} y2={14 + ratio * 72} stroke="#e2e8f0" strokeWidth="0.8" />
+                    ))}
+                    <path
+                      d={makeLinePath(values, 255, 90)}
+                      fill="none"
+                      stroke={chart.color}
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    {displayedPoints.map(({ point, value, index }) => {
+                      const x = points.length === 1 ? 127.5 : (index / (points.length - 1)) * 255;
+                      const min = Math.min(...values);
+                      const range = Math.max(peak - min, 1);
+                      const y = 90 - ((value - min) / range) * 72 - 8;
+                      return <circle key={`${point.timestamp}-${index}`} cx={x} cy={y} r={value === peak ? 4 : 2.6} fill={chart.color} stroke="#ffffff" strokeWidth="1.2" />;
+                    })}
+                    <line x1="10" x2="265" y1="92" y2="92" stroke="#cbd5e1" strokeWidth="0.8" />
+                    {[points[0], points[Math.floor((points.length - 1) / 2)], points[points.length - 1]].map((entry, index) => (
+                      <text key={`${index}-${entry.point.timestamp}`} x={[10, 137.5, 265][index]} y="106" fill="#64748b" fontSize="8" textAnchor="middle">
+                        {formatVideoChartTime(entry.point)}
+                      </text>
+                    ))}
+                  </svg>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-[11px] text-slate-500">
+            Source: {analysis?.pairedDatabases.join(', ')} · {analysis?.sensors.length ?? 0} readings
+          </p>
         </div>
-      </div>
-
-      <p className="mt-4 text-[11px] text-slate-400">
-        Each panel has its own scale. Values are examples, not actual ChickenSee measurements.
-      </p>
+      )}
     </div>
   );
 }
 
-function HenStressTimelinePanel() {
-  const flaggedWindow = { start: 47, end: 78 };
+function HenStressTimelinePanel({
+  videoName,
+  analysis,
+  loading,
+  error,
+}: {
+  videoName: string | null;
+  analysis: VideoAnalysis | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const events = (analysis?.birds ?? []).flatMap((bird) =>
+    bird.events.map((event) => ({ ...event, bird: bird.name, time: new Date(event.timestamp).getTime() })),
+  ).filter((event) => Number.isFinite(event.time));
+  const start = events.length ? Math.min(...events.map((event) => event.time)) : 0;
+  const end = events.length ? Math.max(...events.map((event) => event.time)) : 1;
+  const duration = Math.max(end - start, 1);
 
   return (
     <div className="mt-6 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
       <div className="mb-4">
         <h3 className="text-base sm:text-lg font-black text-slate-900">2. Hen stress-related behavior analysis</h3>
         <p className="mt-1 text-sm text-slate-600">
-          For every hen that can be individually identified, keep a behavioral record:
+          Flagged bird behavior intervals from the SQL database paired with {videoName || 'the selected video'}.
         </p>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-[11px] text-slate-500">Behavior events by hen, 08:00 to 14:00 (illustrative example data)</span>
-          <div className="flex items-center gap-3 text-[11px] text-slate-500">
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-500" />4 of 5 flagged</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-sky-100 border border-sky-300" />3 of 5 flagged</span>
-          </div>
-        </div>
-
-        <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-3">
-          <div className="mb-2 grid grid-cols-[70px_1fr] items-center gap-3 text-[11px] text-slate-500">
-            <div />
-            <div className="relative">
-              <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-slate-200" />
-              <div className="relative flex justify-between px-1">
-                {['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00'].map((time) => (
-                  <span key={time}>{time}</span>
-                ))}
+      {loading ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">Loading paired behavior metrics…</p>
+      ) : error ? (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">{error}</p>
+      ) : !analysis?.pairedDatabases.length ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          No synchronized SQL database is paired with this video.
+        </p>
+      ) : !analysis.behaviorAvailable ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          The paired database has no per-bird behavior metrics.
+        </p>
+      ) : !events.length ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+          No flagged bird-level behavior intervals were found in the paired database.
+        </p>
+      ) : (
+        <>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="mb-3 flex items-center justify-between text-[11px] text-slate-500">
+              <span>Flagged intervals by bird</span>
+              <span>{events.length} flagged observations</span>
+            </div>
+            <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-white p-3">
+              <div className="mb-2 grid grid-cols-[100px_1fr] items-center gap-3 text-[11px] text-slate-500">
+                <div />
+                <div className="flex justify-between">
+                  {[start, start + duration / 2, end].map((time) => (
+                    <span key={time}>{new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  ))}
+                </div>
               </div>
+              {analysis.birds.map((bird) => (
+                <div key={bird.name} className="mt-2 grid grid-cols-[100px_1fr] items-center gap-3">
+                  <div className="truncate text-[11px] font-medium text-slate-700" title={bird.name}>{bird.name}</div>
+                  <div className="relative h-7 overflow-hidden rounded-sm border border-slate-200 bg-slate-50/60">
+                    <div className="absolute inset-y-0 left-1/2 w-px bg-slate-200" />
+                    {bird.events.map((event, index) => {
+                      const time = new Date(event.timestamp).getTime();
+                      if (!Number.isFinite(time)) return null;
+                      const left = ((time - start) / duration) * 100;
+                      return (
+                        <span
+                          key={`${event.timestamp}-${event.behavior}-${index}`}
+                          title={`${event.behavior} · ${new Date(time).toLocaleString()}`}
+                          className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-white bg-sky-500 shadow-sm"
+                          style={{ left: `${Math.min(Math.max(left, 0), 100)}%` }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-
-          {HEN_STRESS_TIMELINE.map((hen) => (
-            <div key={hen.id} className="mt-2 grid grid-cols-[70px_1fr] items-center gap-3">
-              <div className="text-[11px] font-medium text-slate-700">{hen.id}</div>
-              <div className="relative h-7 overflow-hidden rounded-sm border border-slate-200 bg-slate-50/60">
-                <div className="absolute inset-y-0 left-0 w-full bg-gradient-to-r from-slate-50 via-white to-slate-50" />
-                <div
-                  className="absolute inset-y-0 bg-sky-100/80"
-                  style={{ left: `${flaggedWindow.start}%`, width: `${flaggedWindow.end - flaggedWindow.start}%` }}
-                />
-                {hen.events.map((event) => {
-                  const left = ((event - 8) / 6) * 100;
-                  return (
-                    <span
-                      key={`${hen.id}-${event}`}
-                      className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-white bg-sky-500 shadow-sm"
-                      style={{ left: `${Math.min(Math.max(left, 0), 100)}%`, top: '50%', transform: 'translateY(-50%)' }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <p className="mt-4 text-[11px] text-slate-400">
-        Each dot is one flagged behavior event. Events are examples, not actual observations.
-      </p>
+          <p className="mt-3 text-[11px] text-slate-500">
+            A marker indicates reduced eating, lethargy, or feather-pecking activity during that SQL interval.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -436,6 +488,9 @@ export default function DashboardPage() {
   const [selectedVideo, setSelectedVideo] = useState<SyncedFileMeta | null>(null);
   const [loadingVideos, setLoadingVideos] = useState(true);
   const [videosError, setVideosError] = useState<string | null>(null);
+  const [videoAnalysis, setVideoAnalysis] = useState<VideoAnalysis | null>(null);
+  const [loadingVideoAnalysis, setLoadingVideoAnalysis] = useState(false);
+  const [videoAnalysisError, setVideoAnalysisError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const [databases, setDatabases] = useState<SyncedFileMeta[]>([]);
@@ -575,6 +630,48 @@ export default function DashboardPage() {
     const bgPoll = setInterval(() => { fetchQueueStatus(); }, pollInterval);
     return () => clearInterval(bgPoll);
   }, [fetchQueueStatus, fetchResults, queueStatus?.is_queueing]);
+
+  useEffect(() => {
+    if (!selectedVideo) {
+      setVideoAnalysis(null);
+      setLoadingVideoAnalysis(false);
+      setVideoAnalysisError(null);
+      return;
+    }
+
+    const videoPath = selectedVideo.pathname;
+    let cancelled = false;
+    async function fetchVideoAnalysis() {
+      setLoadingVideoAnalysis(true);
+      setVideoAnalysisError(null);
+      try {
+        const params = new URLSearchParams({ video: videoPath });
+        const response = await fetch(`/api/video-analysis?${params.toString()}`);
+        if (response.status === 401) {
+          router.push('/login');
+          return;
+        }
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        if (!cancelled) setVideoAnalysis(data as VideoAnalysis);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load SQL analysis for selected video:', error);
+          setVideoAnalysisError(error instanceof Error ? error.message : 'Could not load paired SQL data.');
+          setVideoAnalysis(null);
+        }
+      } finally {
+        if (!cancelled) setLoadingVideoAnalysis(false);
+      }
+    }
+
+    fetchVideoAnalysis();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedVideo?.pathname, router]);
 
   useEffect(() => {
     if (activeTab !== 'results') return;
@@ -2063,8 +2160,18 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <EnvironmentalSensorPanel />
-            <HenStressTimelinePanel />
+            <EnvironmentalSensorPanel
+              videoName={selectedVideo?.pathname ?? null}
+              analysis={videoAnalysis}
+              loading={loadingVideoAnalysis}
+              error={videoAnalysisError}
+            />
+            <HenStressTimelinePanel
+              videoName={selectedVideo?.pathname ?? null}
+              analysis={videoAnalysis}
+              loading={loadingVideoAnalysis}
+              error={videoAnalysisError}
+            />
 
             {/* 4. EXPANDABLE SECTION FOR DETAILED TELEMETRY LOGS & EXPORT */}
             <div className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
