@@ -100,15 +100,16 @@ export async function GET(req: NextRequest) {
       cancelled: Number(storedSummary.cancelled) || 0,
     };
     let historyWarning: string | null = null;
-    if (!items.some((item) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(String(item.status || '').toUpperCase()))) {
-      try {
-        const recoveredHistory = await recoverCompletedHistory(items);
-        items.push(...recoveredHistory);
-        summary.completed = Math.max(summary.completed, recoveredHistory.length);
-      } catch (error) {
-        console.error('Failed to recover queue history from synchronized analysis reports:', error);
-        historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
-      }
+    try {
+      const recoveredHistory = await recoverCompletedHistory(items);
+      items.push(...recoveredHistory);
+      const completedItems = items.filter(
+        (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
+      ).length;
+      summary.completed = Math.max(summary.completed, completedItems);
+    } catch (error) {
+      console.error('Failed to recover queue history from synchronized analysis reports:', error);
+      historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
     }
     const activeVideo = storedData.active_video || null;
 
