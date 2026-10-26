@@ -483,6 +483,18 @@ class ZampenAnalyticsWorker:
             self._raise_if_cancelled(job.id)
             writer.release()
             writer = None
+            try:
+                import imageio_ffmpeg, subprocess
+                ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+                h264_tmp = staging_path + ".h264.mp4"
+                cmd = [ffmpeg_exe, "-y", "-i", staging_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", h264_tmp]
+                res = subprocess.run(cmd, capture_output=True)
+                if res.returncode == 0 and os.path.exists(h264_tmp) and os.path.getsize(h264_tmp) > 0:
+                    os.replace(h264_tmp, staging_path)
+                elif os.path.exists(h264_tmp):
+                    os.remove(h264_tmp)
+            except Exception:
+                pass
             os.replace(staging_path, detected_path)
             DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
             self._update_persisted_queue_status(job.id, filename, 100.0, total_frames, total_frames, "COMPLETED")

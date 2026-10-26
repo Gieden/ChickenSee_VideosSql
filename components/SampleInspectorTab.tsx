@@ -96,6 +96,7 @@ export default function SampleInspectorTab() {
   const [analysisSpeedFps, setAnalysisSpeedFps] = useState<number>(30);
   const [analysisResult, setAnalysisResult] = useState<SampleAnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [videoPlayError, setVideoPlayError] = useState<string | null>(null);
 
   // UI state inside results
   const [selectedBirdProfile, setSelectedBirdProfile] = useState<string>('All Chickens');
@@ -156,8 +157,19 @@ export default function SampleInspectorTab() {
     setAnalysisResult(null);
     setIsAnalyzing(false);
     setErrorMsg(null);
+    setVideoPlayError(null);
     if (folderInputRef.current) folderInputRef.current.value = '';
     if (filesInputRef.current) filesInputRef.current.value = '';
+  };
+
+  const downloadVideoFile = () => {
+    if (!videoFile) return;
+    const url = URL.createObjectURL(videoFile);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = videoFile.name;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Run isolated detection process
@@ -701,21 +713,52 @@ export default function SampleInspectorTab() {
           {/* Result Video Player */}
           {videoUrl && (
             <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Result Video</h3>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Result Video: {videoFile?.name}
+                  </h3>
                   <p className="text-xs text-slate-500">
                     Inspected source video track paired with sample observations.
                   </p>
                 </div>
-                <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
-                  Local Video Object
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={downloadVideoFile}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  >
+                    <Download className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Save Video File</span>
+                  </button>
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
+                    Local Video Stream
+                  </span>
+                </div>
               </div>
+
+              {videoPlayError && (
+                <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-800">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                  <div>
+                    <p className="font-bold">Browser Codec Notice</p>
+                    <p className="mt-0.5">{videoPlayError}</p>
+                  </div>
+                </div>
+              )}
+
               <div className="overflow-hidden rounded-xl bg-black shadow-inner">
                 <video
+                  key={videoUrl}
                   src={videoUrl}
                   controls
+                  playsInline
+                  preload="auto"
+                  onError={() => {
+                    setVideoPlayError(
+                      'This video was encoded with a legacy format (such as raw OpenCV mp4v/FMP4) which web browsers cannot decode natively. We converted the sample video in the workspace to standard H.264 (avc1). You can also click "Save Video File" above to open it in VLC or Windows Media Player.'
+                    );
+                  }}
                   className="max-h-[460px] w-full object-contain"
                 />
               </div>
