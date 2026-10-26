@@ -7,18 +7,24 @@ Exposes endpoints for external front-ends and dashboards:
   - GET /results/range?start=...&end=...
   - GET /jobs
   - POST /jobs/process-now
+  - POST /detect-sample  ← run YOLO detection on an uploaded video, returns annotated mp4
 """
 
 import os
 import json
 import hashlib
+import shutil
+import tempfile
+import subprocess
 import psutil
 import datetime
 import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 
 from .config import CONFIG
@@ -439,10 +445,114 @@ def cancel_processing_job(job_id: int):
         )
 
 
+
+@app.post("/detect-sample", tags=["Sample Detection"])
+def detect_sample_video(video: UploadFile = File(...)):
+    """
+    Accept an uploaded video file, run YOLO26n + ByteTrack detection on every frame,
+    burn bounding boxes, IDs, leg-band colours, and a live telemetry HUD into the output,
+    transcode the result to web-compatible H.264 (avc1), and return it as an mp4 download.
+
+    Called by the Sample Inspector tab in the ChickenSee dashboard.
+    Requires the local Python analytics worker to be running (port 8000).
+    """
+    import cv2
+    from .tracker import ZampenYOLOTracker
+
+    tmp_dir = tempfile.mkdtemp(prefix="chickensee_sample_")
+    raw_path = os.path.join(tmp_dir, "input.mp4")
+    detected_raw = os.path.join(tmp_dir, "detected_raw.mp4")
+    detected_h264 = os.path.join(tmp_dir, "detected.mp4")
+
+    def _cleanup():
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    try:
+        # 1. Save uploaded bytes to disk
+        with open(raw_path, "wb") as f:
+            shutil.copyfileobj(video.file, f)
+
+        # 2. Probe video metadata
+        cap = cv2.VideoCapture(raw_path)
+        if not cap.isOpened():
+            raise HTTPException(status_code=400, detail="Could not open uploaded video file.")
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+        src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+        src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
+
+        # 3. Set up video writer (mp4v staging, then transcode to H.264)
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(detected_raw, fourcc, fps, (src_w, src_h))
+        if not writer.isOpened():
+            cap.release()
+            raise HTTPException(status_code=500, detail="Could not open video writer.")
+
+        # 4. Run YOLO + ByteTrack inference on every frame
+        tracker = ZampenYOLOTracker()
+        frame_idx = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_out = tracker.process_frame(frame, frame_idx, fps)
+            annotated = tracker.annotate_frame(frame, frame_out)
+            writer.write(annotated)
+            frame_idx += 1
+
+        cap.release()
+        writer.release()
+
+        if frame_idx == 0:
+            raise HTTPException(status_code=400, detail="Video had no readable frames.")
+
+        # 5. Transcode mp4v → H.264 for browser compatibility
+        try:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            ffmpeg_exe = "ffmpeg"
+
+        cmd = [
+            ffmpeg_exe, "-y", "-i", detected_raw,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            detected_h264,
+        ]
+        result = subprocess.run(cmd, capture_output=True)
+        if result.returncode != 0 or not os.path.exists(detected_h264) or os.path.getsize(detected_h264) == 0:
+            # Serve the raw mp4v file as fallback (some players support it)
+            return FileResponse(
+                detected_raw,
+                media_type="video/mp4",
+                filename="detected.mp4",
+                background=BackgroundTask(_cleanup),
+            )
+
+        # Remove intermediate mp4v file
+        if os.path.exists(detected_raw):
+            os.remove(detected_raw)
+
+        return FileResponse(
+            detected_h264,
+            media_type="video/mp4",
+            filename="detected.mp4",
+            background=BackgroundTask(_cleanup),
+        )
+
+    except HTTPException:
+        _cleanup()
+        raise
+    except Exception as exc:
+        _cleanup()
+        raise HTTPException(status_code=500, detail=f"Sample detection failed: {exc}") from exc
+
+
 def start_server():
     import uvicorn
     uvicorn.run("analytics.api:app", host=CONFIG.api_host, port=CONFIG.api_port, reload=False)
 
 
 if __name__ == "__main__":
-    start_server()
+    start_server()
