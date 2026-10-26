@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import initSqlJs, { Database, SqlValue } from 'sql.js';
 
@@ -5,9 +6,46 @@ let SQLModule: any = null;
 
 async function getSqlModule() {
   if (!SQLModule) {
-    SQLModule = await initSqlJs({
-      locateFile: (file) => path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
-    });
+    const candidatePaths = [
+      path.join(process.cwd(), 'public', 'sql-wasm.wasm'),
+      path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', 'sql-wasm.wasm'),
+      path.join(__dirname, 'sql-wasm.wasm'),
+      '/var/task/public/sql-wasm.wasm',
+      '/var/task/node_modules/sql.js/dist/sql-wasm.wasm',
+    ];
+
+    let wasmBinary: ArrayBuffer | undefined;
+    for (const candidate of candidatePaths) {
+      try {
+        if (fs.existsSync(candidate)) {
+          const buf = fs.readFileSync(candidate);
+          wasmBinary = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          break;
+        }
+      } catch {
+        // ignore and continue
+      }
+    }
+
+    if (wasmBinary) {
+      SQLModule = await initSqlJs({ wasmBinary });
+    } else {
+      SQLModule = await initSqlJs({
+        locateFile: (file) => {
+          for (const candidate of [
+            path.join(process.cwd(), 'public', file),
+            path.join(process.cwd(), 'node_modules', 'sql.js', 'dist', file),
+          ]) {
+            try {
+              if (fs.existsSync(candidate)) return candidate;
+            } catch {
+              // ignore
+            }
+          }
+          return path.join(process.cwd(), 'public', file);
+        },
+      });
+    }
   }
   return SQLModule;
 }
