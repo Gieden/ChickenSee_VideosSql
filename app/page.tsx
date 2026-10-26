@@ -478,6 +478,33 @@ function HenStressTimelinePanel({
 export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'database' | 'results' | 'queue' | 'sample'>('database');
+
+  const handleTabChange = useCallback((tab: 'database' | 'results' | 'queue' | 'sample') => {
+    setActiveTab(tab);
+    try {
+      localStorage.setItem('chickensee_active_tab', tab);
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.replaceState({}, '', url.toString());
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Restore active tab on initial load from URL or localStorage
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      const savedTab = localStorage.getItem('chickensee_active_tab');
+      const targetTab = (tabParam || savedTab) as 'database' | 'results' | 'queue' | 'sample';
+      if (targetTab && ['database', 'results', 'queue', 'sample'].includes(targetTab)) {
+        setActiveTab(targetTab);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
@@ -1609,17 +1636,17 @@ export default function DashboardPage() {
 
         <div className="mobile-nav-scroll mx-auto max-w-7xl border-t border-slate-200 px-2 sm:px-6">
           <nav aria-label="Main navigation" className="flex min-w-max gap-1 sm:gap-6">
-            <button onClick={() => setActiveTab('database')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => handleTabChange('database')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <Database className="h-4 w-4" />
               <span>SQLite Data Viewer</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{databases.length}</span>
             </button>
-            <button onClick={() => setActiveTab('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => handleTabChange('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <BarChart2 className="h-4 w-4" />
               <span>Behavior Results</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{results.length}</span>
             </button>
-            <button onClick={() => setActiveTab('queue')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => handleTabChange('queue')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <ListFilter className="h-4 w-4" />
               <span>Detection Queue</span>
               {queueError ? (
@@ -1633,7 +1660,7 @@ export default function DashboardPage() {
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Idle</span>
               )}
             </button>
-            <button onClick={() => setActiveTab('sample')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sample' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+            <button onClick={() => handleTabChange('sample')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sample' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <FolderUp className="h-4 w-4" />
               <span>Sample Inspector</span>
               <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Offline</span>
@@ -2949,8 +2976,10 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* SAMPLE INSPECTOR TAB */}
-        {activeTab === 'sample' && <SampleInspectorTab />}
+        {/* SAMPLE INSPECTOR TAB (kept mounted in DOM to preserve state across tab switches) */}
+        <div className={activeTab === 'sample' ? 'block' : 'hidden'}>
+          <SampleInspectorTab />
+        </div>
 
       </main>
     </div>
