@@ -84,6 +84,9 @@ export default function SampleInspectorTab() {
   const [selectedFolderFiles, setSelectedFolderFiles] = useState<File[]>([]);
   const [folderName, setFolderName] = useState<string>('');
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [detectedVideoFile, setDetectedVideoFile] = useState<File | null>(null);
+  const [rawVideoFile, setRawVideoFile] = useState<File | null>(null);
+  const [activeTrack, setActiveTrack] = useState<'detected' | 'raw'>('detected');
   const [sqliteFile, setSqliteFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
@@ -125,24 +128,50 @@ export default function SampleInspectorTab() {
     }
     setFolderName(detectedFolder);
 
-    // Find video file
-    const vFile = fileArray.find((f) =>
-      /\.(mp4|avi|mov|mkv|webm|m4v)$/i.test(f.name),
+    // Find video files (separate detected/annotated video from raw input video)
+    const detectedFile = fileArray.find(
+      (f) =>
+        /(?:_detected|detection_|annotated)/i.test(f.name) &&
+        /\.(mp4|avi|mov|mkv|webm|m4v)$/i.test(f.name),
     );
+    const rawFile = fileArray.find(
+      (f) =>
+        !/(?:_detected|detection_|annotated)/i.test(f.name) &&
+        /\.(mp4|avi|mov|mkv|webm|m4v)$/i.test(f.name),
+    );
+    const primaryVideo = detectedFile || rawFile;
+
     // Find SQLite file
     const sFile = fileArray.find((f) =>
       /\.(sqlite|sqlite3|db)$/i.test(f.name),
     );
 
-    if (!vFile) {
+    if (!primaryVideo) {
       setErrorMsg('No video file (.mp4, .avi, .mov, etc.) found in the selected folder/files.');
       setVideoFile(null);
+      setDetectedVideoFile(null);
+      setRawVideoFile(null);
     } else {
-      setVideoFile(vFile);
+      setVideoFile(primaryVideo);
+      setDetectedVideoFile(detectedFile || null);
+      setRawVideoFile(rawFile || null);
+      setActiveTrack(detectedFile ? 'detected' : 'raw');
     }
 
     setSqliteFile(sFile || null);
     setAnalysisResult(null);
+  };
+
+  const switchVideoTrack = (track: 'detected' | 'raw') => {
+    setActiveTrack(track);
+    const targetFile = track === 'detected' ? (detectedVideoFile || videoFile) : (rawVideoFile || videoFile);
+    if (!targetFile) return;
+    if (videoUrl) {
+      URL.revokeObjectURL(videoUrl);
+    }
+    const newUrl = URL.createObjectURL(targetFile);
+    setVideoUrl(newUrl);
+    setVideoPlayError(null);
   };
 
   const clearSelection = () => {
@@ -153,6 +182,9 @@ export default function SampleInspectorTab() {
     setSelectedFolderFiles([]);
     setFolderName('');
     setVideoFile(null);
+    setDetectedVideoFile(null);
+    setRawVideoFile(null);
+    setActiveTrack('detected');
     setSqliteFile(null);
     setAnalysisResult(null);
     setIsAnalyzing(false);
@@ -162,12 +194,16 @@ export default function SampleInspectorTab() {
     if (filesInputRef.current) filesInputRef.current.value = '';
   };
 
-  const downloadVideoFile = () => {
-    if (!videoFile) return;
-    const url = URL.createObjectURL(videoFile);
+  const downloadVideoFile = (track?: 'detected' | 'raw') => {
+    const targetFile =
+      (track === 'raw' || (!track && activeTrack === 'raw'))
+        ? (rawVideoFile || videoFile)
+        : (detectedVideoFile || videoFile);
+    if (!targetFile) return;
+    const url = URL.createObjectURL(targetFile);
     const a = document.createElement('a');
     a.href = url;
-    a.download = videoFile.name;
+    a.download = targetFile.name;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -575,10 +611,23 @@ export default function SampleInspectorTab() {
                     </span>
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600">
-                    <span className="flex items-center gap-1 font-medium text-slate-800">
-                      <FileVideo className="h-3.5 w-3.5 text-orange-600" />
-                      {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(1)} MB)
-                    </span>
+                    {detectedVideoFile ? (
+                      <span className="flex items-center gap-1 font-semibold text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                        {detectedVideoFile.name} ({(detectedVideoFile.size / (1024 * 1024)).toFixed(1)} MB • AI Detections Active)
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 font-medium text-slate-800">
+                        <FileVideo className="h-3.5 w-3.5 text-orange-600" />
+                        {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(1)} MB • Raw Source Feed)
+                      </span>
+                    )}
+                    {rawVideoFile && detectedVideoFile && (
+                      <span className="flex items-center gap-1 text-slate-500 text-[11px]">
+                        <FileVideo className="h-3 w-3 text-slate-400" />
+                        Raw: {rawVideoFile.name}
+                      </span>
+                    )}
                     {sqliteFile ? (
                       <span className="flex items-center gap-1 font-medium text-emerald-700">
                         <Database className="h-3.5 w-3.5" />
@@ -715,27 +764,78 @@ export default function SampleInspectorTab() {
             <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Result Video: {videoFile?.name}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Inspected source video track paired with sample observations.
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-bold text-slate-900">
+                      Result Video: {activeTrack === 'detected' && detectedVideoFile ? detectedVideoFile.name : (rawVideoFile?.name || videoFile?.name)}
+                    </h3>
+                    {detectedVideoFile && activeTrack === 'detected' ? (
+                      <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                        AI Detections &amp; Bounding Boxes Burned In
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600">
+                        Raw Camera Track (No Overlays)
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {detectedVideoFile && activeTrack === 'detected'
+                      ? 'Displaying AI tracking feed with bounding boxes, ID numbers, leg band colors, and real-time HUD.'
+                      : 'Displaying original unmodified camera recording track.'}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {detectedVideoFile && rawVideoFile && (
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-semibold">
+                      <button
+                        type="button"
+                        onClick={() => switchVideoTrack('detected')}
+                        className={`rounded-md px-2.5 py-1 text-xs transition ${
+                          activeTrack === 'detected'
+                            ? 'bg-white text-orange-700 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Detection Track
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => switchVideoTrack('raw')}
+                        className={`rounded-md px-2.5 py-1 text-xs transition ${
+                          activeTrack === 'raw'
+                            ? 'bg-white text-orange-700 shadow-sm'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Raw Track
+                      </button>
+                    </div>
+                  )}
+
                   <button
                     type="button"
-                    onClick={downloadVideoFile}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    onClick={() => downloadVideoFile(activeTrack)}
+                    className="flex items-center gap-1.5 rounded-lg border border-orange-300 bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-600"
                   >
-                    <Download className="h-3.5 w-3.5 text-slate-500" />
-                    <span>Save Video File</span>
+                    <Download className="h-3.5 w-3.5" />
+                    <span>
+                      {detectedVideoFile && activeTrack === 'detected'
+                        ? 'Download Detection Video'
+                        : 'Download Video File'}
+                    </span>
                   </button>
-                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">
-                    Local Video Stream
-                  </span>
                 </div>
               </div>
+
+              {!detectedVideoFile && (
+                <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50/70 p-3 text-xs text-blue-800">
+                  <p className="font-semibold">Looking for detection bounding boxes?</p>
+                  <p className="mt-0.5 text-blue-700">
+                    The currently selected file is the raw camera video. To generate bounding boxes and behavioral overlays, run the ChickenSee Edge AI daemon (<code>python -m edge.pipeline</code> or <code>analytics/worker.py</code>). The resulting <code>*_detected.mp4</code> will automatically pair here with full visual detections.
+                  </p>
+                </div>
+              )}
 
               {videoPlayError && (
                 <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-800">
@@ -756,7 +856,7 @@ export default function SampleInspectorTab() {
                   preload="auto"
                   onError={() => {
                     setVideoPlayError(
-                      'This video was encoded with a legacy format (such as raw OpenCV mp4v/FMP4) which web browsers cannot decode natively. We converted the sample video in the workspace to standard H.264 (avc1). You can also click "Save Video File" above to open it in VLC or Windows Media Player.'
+                      'This video was encoded with an OpenCV legacy format (mp4v/FMP4) which web browsers cannot decode in an HTML5 video tag. Standard browsers require H.264 (avc1). We converted the sample video to H.264 in the workspace and Downloads folder. If video_detected.mp4 is available, select that to view detections natively, or open this raw file in VLC Media Player.'
                     );
                   }}
                   className="max-h-[460px] w-full object-contain"
