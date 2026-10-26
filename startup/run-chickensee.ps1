@@ -24,12 +24,22 @@ if (Test-Path $AgentEnv -PathType Leaf) {
         }
     }
 }
-if (-not $StorageRoot) {
-    $StorageRoot = "C:\ChickenSee_Local_Storage"
+$FallbackStorage = Join-Path $ProjectRoot "local-storage"
+$LogDir = $null
+if ($StorageRoot) {
+    try {
+        $TestLogDir = Join-Path $StorageRoot "logs"
+        New-Item -Path $TestLogDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        $LogDir = $TestLogDir
+    } catch {
+        $StorageRoot = $FallbackStorage
+    }
 }
-
-$LogDir = Join-Path $StorageRoot "logs"
-New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+if (-not $LogDir) {
+    $StorageRoot = $FallbackStorage
+    $LogDir = Join-Path $StorageRoot "logs"
+    New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
+}
 $SupervisorLog = Join-Path $LogDir "startup-supervisor.log"
 $StopRequest = Join-Path $AgentDir ".stop-request"
 $LegacyStopRequest = Join-Path $LogDir "stop-request"

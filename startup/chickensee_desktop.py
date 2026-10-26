@@ -1176,6 +1176,13 @@ class ChickenSeeDesktop:
             state="disabled",
         )
         self.remove_directory_button.pack(side="left", padx=(8, 0))
+        self.clean_directory_button = ttk.Button(
+            f_buttons,
+            text="🧹  Clean missing",
+            style="Secondary.TButton",
+            command=self.clean_invalid_directories,
+        )
+        self.clean_directory_button.pack(side="left", padx=(8, 0))
         tk.Label(
             f_buttons,
             text="Video files in watched directories are never altered or deleted.",
@@ -1404,7 +1411,15 @@ class ChickenSeeDesktop:
         if resolved in existing:
             messagebox.showinfo("Already added", "That folder is already in the watch list.")
             return
+
         row = self.directory_tree.insert("", "end", values=(resolved,))
+
+        # Prune non-existent paths from previous machines
+        for item_row in list(self.directory_tree.get_children()):
+            item_path = self.directory_tree.item(item_row, "values")[0]
+            if item_row != row and not Path(item_path).is_dir():
+                self.directory_tree.delete(item_row)
+
         directories = [
             self.directory_tree.item(item, "values")[0]
             for item in self.directory_tree.get_children()
@@ -1418,6 +1433,8 @@ class ChickenSeeDesktop:
             return
         self.settings["directories"] = directories
         self._update_test_directory_options()
+        if hasattr(self, "_update_remove_directory_button"):
+            self._update_remove_directory_button()
         self._log("Added watched folder to saved settings. Restart ChickenSee services to apply the change to the folder watcher.")
         messagebox.showinfo(
             "Watched folder added",
@@ -1434,21 +1451,25 @@ class ChickenSeeDesktop:
             self.directory_tree.item(row, "values")[0]
             for row in self.directory_tree.get_children()
         ]
+        selected_dirs = {
+            self.directory_tree.item(row, "values")[0]
+            for row in selected
+        }
         remaining = [
             directory
-            for row, directory in zip(
-                self.directory_tree.get_children(), current_directories
-            )
-            if row not in selected
+            for directory in current_directories
+            if directory not in selected_dirs and Path(directory).is_dir()
         ]
         if not remaining:
-            messagebox.showerror(
-                "Keep one watched folder",
-                "ChickenSee needs at least one watched folder. Add another folder before removing this one.",
-            )
-            return
-        for row in selected:
+            default_dir = (PROJECT_ROOT / "agent" / "data").resolve()
+            default_dir.mkdir(parents=True, exist_ok=True)
+            remaining = [str(default_dir)]
+
+        for row in list(self.directory_tree.get_children()):
             self.directory_tree.delete(row)
+        for directory in remaining:
+            self.directory_tree.insert("", "end", values=(directory,))
+
         try:
             write_watch_directories(remaining)
         except (OSError, ValueError) as error:
@@ -1467,6 +1488,37 @@ class ChickenSeeDesktop:
             "Watched folder removed",
             "The folder was removed from saved settings. Its files were not deleted.\n\n"
             "Restart ChickenSee services to apply the change to the folder watcher.",
+        )
+
+    def clean_invalid_directories(self) -> None:
+        current_directories = [
+            self.directory_tree.item(row, "values")[0]
+            for row in self.directory_tree.get_children()
+        ]
+        valid_directories = [d for d in current_directories if Path(d).is_dir()]
+        if not valid_directories:
+            default_dir = (PROJECT_ROOT / "agent" / "data").resolve()
+            default_dir.mkdir(parents=True, exist_ok=True)
+            valid_directories = [str(default_dir)]
+
+        for row in list(self.directory_tree.get_children()):
+            self.directory_tree.delete(row)
+        for directory in valid_directories:
+            self.directory_tree.insert("", "end", values=(directory,))
+
+        try:
+            write_watch_directories(valid_directories)
+        except (OSError, ValueError) as error:
+            messagebox.showerror("Could not clean folders", str(error))
+            return
+
+        self.settings["directories"] = valid_directories
+        self._update_test_directory_options()
+        self._update_remove_directory_button()
+        self._log("Cleaned folders from settings that do not exist on this device.")
+        messagebox.showinfo(
+            "Cleaned invalid folders",
+            "Folders from other devices that do not exist on this computer were removed.",
         )
 
     def _update_remove_directory_button(self, _event=None) -> None:

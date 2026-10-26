@@ -13,9 +13,26 @@ const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '250', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
 const CLOUD_SYNC_RETRY_DELAY_MS = 5 * 60 * 1000;
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
-const LOCAL_STORAGE_ROOT = process.env.CHICKENSEE_LOCAL_STORAGE
-  ? path.resolve(process.env.CHICKENSEE_LOCAL_STORAGE)
-  : path.resolve(process.cwd(), 'local-storage');
+function resolveLocalStorageRoot() {
+  if (process.env.CHICKENSEE_LOCAL_STORAGE) {
+    const configured = path.resolve(process.env.CHICKENSEE_LOCAL_STORAGE);
+    try {
+      if (!fs.existsSync(configured)) {
+        fs.mkdirSync(configured, { recursive: true });
+      }
+      return configured;
+    } catch {
+      // Fallback if permission error or non-existent user profile
+    }
+  }
+  const fallback = path.resolve(process.cwd(), '..', 'local-storage');
+  try {
+    fs.mkdirSync(fallback, { recursive: true });
+  } catch {}
+  return fallback;
+}
+
+const LOCAL_STORAGE_ROOT = resolveLocalStorageRoot();
 const STATE_FILE = path.resolve('./.sync-state.json');
 const CONFIG_FILE = path.resolve('./directories.json');
 
@@ -26,13 +43,22 @@ const pendingCloudUploads = new Set();
 // Priority: directories.json > WATCH_DIRS env (comma-separated) > WATCH_DIR > ./data
 function resolveWatchDirs() {
   const dirs = new Set();
+  const defaultDataDir = path.resolve(process.cwd(), 'data');
 
   // 1. Read from directories.json (set via `npm run setup`)
   if (fs.existsSync(CONFIG_FILE)) {
     try {
       const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
       if (Array.isArray(config.directories)) {
-        config.directories.forEach((d) => dirs.add(path.resolve(d)));
+        config.directories.forEach((d) => {
+          let resolved = path.resolve(d);
+          if (!fs.existsSync(resolved) && (d.endsWith('/agent/data') || d.endsWith('\\agent\\data'))) {
+            resolved = defaultDataDir;
+          }
+          if (fs.existsSync(resolved)) {
+            dirs.add(resolved);
+          }
+        });
       }
     } catch (err) {
       console.warn('[WARN] Could not parse directories.json:', err.message);
@@ -44,16 +70,37 @@ function resolveWatchDirs() {
     process.env.WATCH_DIRS.split(',')
       .map((d) => d.trim())
       .filter(Boolean)
-      .forEach((d) => dirs.add(path.resolve(d)));
+      .forEach((d) => {
+        let resolved = path.resolve(d);
+        if (!fs.existsSync(resolved) && (d.endsWith('/agent/data') || d.endsWith('\\agent\\data'))) {
+          resolved = defaultDataDir;
+        }
+        if (fs.existsSync(resolved)) {
+          dirs.add(resolved);
+        }
+      });
   }
 
   // 3. Fallback single WATCH_DIR env var or ./data
   if (dirs.size === 0) {
-    dirs.add(path.resolve(process.env.WATCH_DIR || './data'));
+    const fallbackDir = process.env.WATCH_DIR ? path.resolve(process.env.WATCH_DIR) : defaultDataDir;
+    if (fs.existsSync(fallbackDir)) {
+      dirs.add(fallbackDir);
+    } else {
+      try {
+        fs.mkdirSync(defaultDataDir, { recursive: true });
+        dirs.add(defaultDataDir);
+      } catch (err) {
+        console.warn('[WARN] Could not create fallback watch dir:', err.message);
+      }
+    }
   }
 
   // Analysis reports are written outside the source folders and need syncing too.
-  dirs.add(path.resolve(LOCAL_STORAGE_ROOT, 'results'));
+  const resultsDir = path.resolve(LOCAL_STORAGE_ROOT, 'results');
+  if (fs.existsSync(resultsDir)) {
+    dirs.add(resultsDir);
+  }
   return Array.from(dirs);
 }
 

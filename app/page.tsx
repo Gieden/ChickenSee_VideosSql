@@ -475,7 +475,7 @@ function HenStressTimelinePanel({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'videos' | 'database' | 'results' | 'queue'>('videos');
+  const [activeTab, setActiveTab] = useState<'database' | 'results' | 'queue'>('database');
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
@@ -615,15 +615,13 @@ export default function DashboardPage() {
 
   async function refreshAll() {
     setIsRefreshing(true);
-    if (activeTab === 'videos') await fetchVideos();
-    else if (activeTab === 'database') await fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset);
+    if (activeTab === 'database') await fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset);
     else if (activeTab === 'results') await fetchResults();
     else if (activeTab === 'queue') await fetchQueueStatus();
     setTimeout(() => setIsRefreshing(false), 400);
   }
 
   useEffect(() => {
-    fetchVideos();
     fetchDatabaseData();
     fetchQueueStatus();
     fetchResults();
@@ -718,21 +716,76 @@ export default function DashboardPage() {
   }
 
   const dateFilteredResults = results.filter((result) => {
-    const resultDate = result.chunk_start.slice(0, 10);
-    if (reportTimeRange === 'Custom') {
-      if (customRangeMode === 'specific' && selectedSpecificDate && selectedSpecificDate !== 'All Dates') {
+    const resultDateStr = result.chunk_start.slice(0, 10); // 'YYYY-MM-DD'
+
+    // Apply quick preset ranges
+    if (reportTimeRange !== 'Custom') {
+      const now = new Date();
+      const resultDate = new Date(resultDateStr);
+      if (reportTimeRange === 'Daily') {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const rd = new Date(resultDate.getFullYear(), resultDate.getMonth(), resultDate.getDate());
+        if (rd.getTime() !== today.getTime()) return false;
+      } else if (reportTimeRange === 'Weekly') {
+        const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
+        if (resultDate < weekAgo) return false;
+      } else if (reportTimeRange === 'Monthly') {
+        if (resultDate.getFullYear() !== now.getFullYear() || resultDate.getMonth() !== now.getMonth()) return false;
+      } else if (reportTimeRange === 'Annually') {
+        if (resultDate.getFullYear() !== now.getFullYear()) return false;
+      }
+      return true;
+    }
+
+    // Custom mode
+    if (customRangeMode === 'specific') {
+      if (!selectedSpecificDate || selectedSpecificDate === 'All Dates') return true;
+      // selectedSpecificDate is 'MMM D, YYYY' from availableDates
+      try {
+        const resultLocalDate = new Date(result.chunk_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        if (resultLocalDate !== selectedSpecificDate) return false;
+      } catch {
+        return false;
+      }
+      // Apply time filter if within the day
+      if (specificStartTime && specificEndTime) {
         try {
-          const itemDateStr = new Date(result.chunk_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-          if (itemDateStr !== selectedSpecificDate) {
-            return false;
+          const d = new Date(result.chunk_start);
+          const hours = d.getHours();
+          const minutes = d.getMinutes();
+          const timeVal = hours * 60 + minutes;
+          const parseTime = (t: string) => {
+            const match = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+            if (!match) return null;
+            let h = parseInt(match[1]); const m = parseInt(match[2]); const ampm = match[3].toUpperCase();
+            if (ampm === 'PM' && h !== 12) h += 12;
+            if (ampm === 'AM' && h === 12) h = 0;
+            return h * 60 + m;
+          };
+          const startMinutes = parseTime(specificStartTime);
+          const endMinutes = parseTime(specificEndTime);
+          if (startMinutes !== null && endMinutes !== null) {
+            if (timeVal < startMinutes || timeVal > endMinutes) return false;
           }
         } catch {
-          // Ignore parse error
+          // keep
         }
       }
+      return true;
     }
-    return (!reportStartDate || resultDate >= reportStartDate) &&
-      (!reportEndDate || resultDate <= reportEndDate);
+
+    // Range mode — parse the 'MMM D-MMM D' format
+    if (customRangeMode === 'range') {
+      if (!selectedDateRange || selectedDateRange === 'All Recorded') return true;
+      // selectedDateRange is a key like '2026-10-01_2026-10-07'
+      if (selectedDateRange.includes('_')) {
+        const [fromStr, toStr] = selectedDateRange.split('_');
+        if (resultDateStr < fromStr || resultDateStr > toStr) return false;
+      }
+      return true;
+    }
+
+    return true;
   });
   const reportRows = dateFilteredResults.filter((result) =>
     selectedReportProfile === 'Flock' ||
@@ -897,6 +950,7 @@ export default function DashboardPage() {
       results.map((r) => {
         try {
           const d = new Date(r.chunk_start);
+          if (isNaN(d.getTime())) return '';
           return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         } catch {
           return '';
@@ -904,6 +958,33 @@ export default function DashboardPage() {
       }).filter(Boolean)
     )
   );
+
+  // Build weekly ranges from available results for date range dropdown
+  const availableWeekRanges = (() => {
+    const dates = results.map(r => r.chunk_start.slice(0, 10)).filter(Boolean).sort();
+    if (!dates.length) return [];
+    const earliest = dates[0];
+    const latest = dates[dates.length - 1];
+    const start = new Date(earliest);
+    const end = new Date(latest);
+    const ranges: { label: string; key: string }[] = [];
+    const cur = new Date(start);
+    cur.setDate(cur.getDate() - cur.getDay()); // rewind to Sunday
+    while (cur <= end) {
+      const weekStart = new Date(cur);
+      const weekEnd = new Date(cur);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const startStr = weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const endStr = weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const startKey = weekStart.toISOString().slice(0, 10);
+      const endKey = weekEnd.toISOString().slice(0, 10);
+      // Only include weeks that actually contain data
+      const hasData = dates.some(d => d >= startKey && d <= endKey);
+      if (hasData) ranges.push({ label: `${startStr} – ${endStr}`, key: `${startKey}_${endKey}` });
+      cur.setDate(cur.getDate() + 7);
+    }
+    return ranges;
+  })();
 
   const rawReducedFeeding = reportRows.reduce((sum, r) => sum + (r.reduced_eating_events || 0), 0);
   const rawReducedDrinking = reportRows.reduce((sum, r) => sum + Math.round((r.drinking_count || 0) * 0.4), 0);
@@ -1526,14 +1607,9 @@ export default function DashboardPage() {
 
         <div className="mobile-nav-scroll mx-auto max-w-7xl border-t border-slate-200 px-2 sm:px-6">
           <nav aria-label="Main navigation" className="flex min-w-max gap-1 sm:gap-6">
-            <button onClick={() => setActiveTab('videos')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'videos' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-              <Video className="h-4 w-4" />
-              <span>Synced Videos</span>
-              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{videos.length}</span>
-            </button>
             <button onClick={() => setActiveTab('database')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <Database className="h-4 w-4" />
-              <span>SQLite Tables</span>
+              <span>SQLite Data Viewer</span>
               <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{databases.length}</span>
             </button>
             <button onClick={() => setActiveTab('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
@@ -1561,168 +1637,186 @@ export default function DashboardPage() {
 
       <main className="mx-auto max-w-7xl p-3 sm:p-6 lg:p-8">
 
-        {/* VIDEOS TAB */}
-        {activeTab === 'videos' && (
-          <div className="space-y-6">
-            {selectedVideo && (
-              <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl backdrop-blur-sm">
-                <div className="aspect-video w-full bg-black">
-                  <video
-                    ref={videoRef}
-                    key={selectedVideo.pathname}
-                    src={getProxyUrl(selectedVideo)}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="h-full w-full object-contain"
-                    onError={(e) => console.error('Video error:', e)}
-                  />
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:p-6">
-                  <div>
-                    <h2 className="text-lg font-bold text-white sm:text-xl">{selectedVideo.pathname}</h2>
-                    <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-slate-400">
-                      <span className="flex items-center gap-1.5"><HardDrive className="h-3.5 w-3.5 text-slate-500" />{formatBytes(selectedVideo.size)}</span>
-                      <span className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-slate-500" />{new Date(selectedVideo.uploadedAt).toLocaleString()}</span>
-                      <span className="flex items-center gap-1.5 text-indigo-400"><Radio className="h-3.5 w-3.5 animate-pulse" />Supabase Storage</span>
-                    </div>
-                  </div>
-                  <a href={selectedVideo.url} download={selectedVideo.pathname} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700 hover:text-white">
-                    <Download className="h-4 w-4" />
-                    <span>Download MP4</span>
-                  </a>
-                </div>
-              </div>
-            )}
-
-            <div>
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Available Media Files ({videos.length})</h3>
-              </div>
-              {loadingVideos ? (
-                <div className="flex h-48 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/30">
-                  <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
-                </div>
-              ) : videosError ? (
-                <div role="alert" className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">
-                  Could not load synchronized videos: {videosError}
-                </div>
-              ) : videos.length === 0 ? (
-                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 p-12 text-center">
-                  <Video className="mb-4 h-12 w-12 text-slate-600" />
-                  <h4 className="text-base font-semibold text-slate-300">No MP4 files synchronized yet</h4>
-                  <p className="mt-1 text-sm text-slate-500 max-w-md">Videos are analyzed locally first. Only the completed annotated detection video is synchronized here; original uploads are not duplicated.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {videos.map((vid) => {
-                    const isCurrent = selectedVideo?.pathname === vid.pathname;
-                    return (
-                      <div key={vid.pathname} onClick={() => setSelectedVideo(vid)} className={`group relative cursor-pointer overflow-hidden rounded-xl border p-4 transition ${isCurrent ? 'border-indigo-500/80 bg-indigo-950/20 shadow-lg shadow-indigo-500/10' : 'border-slate-800 bg-slate-900/50 hover:border-slate-700 hover:bg-slate-900'}`}>
-                        <div className="flex items-start justify-between">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 group-hover:scale-105 transition">
-                            <Play className="h-5 w-5 fill-indigo-400" />
-                          </div>
-                          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-300">{formatBytes(vid.size)}</span>
-                        </div>
-                        <div className="mt-3">
-                          <p className="truncate text-sm font-semibold text-slate-100 group-hover:text-indigo-300">{vid.pathname}</p>
-                          <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-500"><Clock className="h-3 w-3" />{new Date(vid.uploadedAt).toLocaleDateString()}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* DATABASE TAB */}
+        {/* DATABASE / SQLITE DATA VIEWER TAB */}
         {activeTab === 'database' && (
           <div className="space-y-6">
-            <div className="flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <div className="flex flex-wrap items-center gap-4">
+
+            {/* Header strip – mirrors Detection Queue style */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4 sm:px-6">
                 <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Database File</label>
-                  <select value={currentDbFile || ''} onChange={(e) => fetchDatabaseData(e.target.value)} className="w-full max-w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 sm:w-auto">
-                    {databases.map((db) => (<option key={db.pathname} value={db.pathname}>{db.pathname} ({formatBytes(db.size)})</option>))}
-                    {databases.length === 0 && <option value="">No databases synced</option>}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <Database className="h-5 w-5 text-orange-600" />
+                    <h3 className="font-bold text-slate-900 text-base">SQLite Data Viewer</h3>
+                    {databases.length > 0 && (
+                      <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                        {databases.length} {databases.length === 1 ? 'database' : 'databases'}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">Paired video recordings with sensor data — grouped by date from the SQLite bridge.</p>
                 </div>
-                {tables.length > 0 && (
-                  <div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Select Table</label>
-                    <select value={selectedTable || ''} onChange={(e) => fetchDatabaseData(currentDbFile || undefined, e.target.value, 0)} className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2 text-xs font-medium text-slate-200 outline-none focus:border-indigo-500 sm:w-auto">
-                      {tables.map((t) => (<option key={t} value={t}>{t}</option>))}
+                <div className="flex items-center gap-3">
+                  {tables.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Table:</label>
+                      <select value={selectedTable || ''} onChange={(e) => fetchDatabaseData(currentDbFile || undefined, e.target.value, 0)} className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-orange-500">
+                        {tables.map((t) => (<option key={t} value={t}>{t}</option>))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Database:</label>
+                    <select value={currentDbFile || ''} onChange={(e) => fetchDatabaseData(e.target.value)} className="max-w-[min(60vw,20rem)] rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-orange-500">
+                      {databases.map((db) => (<option key={db.pathname} value={db.pathname}>{db.pathname} ({formatBytes(db.size)})</option>))}
+                      {databases.length === 0 && <option value="">No databases synced</option>}
                     </select>
                   </div>
-                )}
-              </div>
-              {queryResult && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2 text-xs text-slate-400">
-                  Total Rows: <span className="font-semibold text-white">{queryResult.totalRows}</span>
+                  <button onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset)} disabled={loadingDb} className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">
+                    <RefreshCw className={`h-3.5 w-3.5 ${loadingDb ? 'animate-spin' : ''}`} />
+                    <span>Refresh</span>
+                  </button>
                 </div>
-              )}
-            </div>
+              </div>
 
-            {loadingDb ? (
-              <div className="flex h-64 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/30">
-                <RefreshCw className="h-6 w-6 animate-spin text-indigo-400" />
-              </div>
-            ) : databaseError ? (
-              <div role="alert" className="rounded-2xl border border-red-500/30 bg-red-500/5 p-5 text-sm text-red-300">
-                Could not load synchronized databases: {databaseError}
-              </div>
-            ) : !queryResult || !queryResult.columns.length ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 p-12 text-center">
-                <FileCode className="mb-4 h-12 w-12 text-slate-600" />
-                <h4 className="text-base font-semibold text-slate-300">No SQLite tables to display</h4>
-                <p className="mt-1 text-sm text-slate-500 max-w-md">Place <code className="text-indigo-400">.sqlite</code> or <code className="text-indigo-400">.db</code> files in Optiplex <code className="text-indigo-400">./data</code>. They will be parsed with WebAssembly and displayed here.</p>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 shadow-xl overflow-hidden">
-                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead className="sticky top-0 z-10 bg-slate-950 text-slate-300 shadow-sm">
-                      <tr>
-                        <th className="border-b border-slate-800 px-4 py-3 font-semibold text-slate-500 w-12">#</th>
-                        {queryResult.columns.map((col) => (<th key={col} className="border-b border-slate-800 px-4 py-3 font-semibold tracking-wider text-slate-300 whitespace-nowrap">{col}</th>))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                      {queryResult.values.length === 0 ? (
-                        <tr><td colSpan={queryResult.columns.length + 1} className="px-4 py-8 text-center text-slate-500 italic">Table contains no records</td></tr>
-                      ) : (
-                        queryResult.values.map((row, rIdx) => (
-                          <tr key={rIdx} className="hover:bg-slate-800/40 transition-colors">
-                            <td className="px-4 py-3 text-slate-600 font-mono">{pageOffset + rIdx + 1}</td>
-                            {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="px-4 py-3 whitespace-nowrap font-mono max-w-xs truncate" title={cell !== null ? String(cell) : 'NULL'}>
-                                {cell === null ? <span className="text-slate-600 italic">null</span> : String(cell)}
-                              </td>
-                            ))}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+              {/* Table content – Detection Queue style rows */}
+              {loadingDb ? (
+                <div className="flex h-48 items-center justify-center p-8">
+                  <RefreshCw className="h-6 w-6 animate-spin text-orange-500" />
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950/80 px-3 py-3 text-xs sm:px-6">
-                  <span className="text-slate-400">
-                    Showing <span className="font-semibold text-slate-200">{queryResult.values.length > 0 ? pageOffset + 1 : 0}</span> to <span className="font-semibold text-slate-200">{Math.min(pageOffset + pageSize, queryResult.totalRows)}</span> of <span className="font-semibold text-slate-200">{queryResult.totalRows}</span> rows
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, Math.max(0, pageOffset - pageSize))} disabled={pageOffset === 0 || loadingDb} className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-40">
-                      <ChevronLeft className="h-3.5 w-3.5" /><span>Previous</span>
-                    </button>
-                    <button onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset + pageSize)} disabled={pageOffset + pageSize >= queryResult.totalRows || loadingDb} className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 font-medium text-slate-200 transition hover:bg-slate-700 disabled:opacity-40">
-                      <span>Next</span><ChevronRight className="h-3.5 w-3.5" />
-                    </button>
+              ) : databaseError ? (
+                <div role="alert" className="p-6 text-sm text-red-600">
+                  Could not load databases: {databaseError}
+                </div>
+              ) : !queryResult || !queryResult.columns.length ? (
+                <div className="flex flex-col items-center justify-center p-12 text-center">
+                  <FileCode className="mb-4 h-12 w-12 text-slate-300" />
+                  <h4 className="text-base font-semibold text-slate-700">No SQLite data to display</h4>
+                  <p className="mt-1 text-sm text-slate-400 max-w-md">Sync a <code className="text-orange-600">.sqlite</code> database to the Supabase storage bucket. Once synced, sensor logs and recording metadata will appear here grouped by date.</p>
+                </div>
+              ) : (() => {
+                // Group rows by date extracted from captured_at or recorded_at columns
+                const capturedAtIdx = queryResult.columns.findIndex(c => ['captured_at','recorded_at','started_at'].includes(c.toLowerCase()));
+                type DbRow = { date: string; dateObj: Date | null; row: any[]; rowIndex: number };
+                const rowsWithDate: DbRow[] = queryResult.values.map((row, idx) => {
+                  let dateObj: Date | null = null;
+                  let dateStr = 'Date Unknown';
+                  if (capturedAtIdx >= 0 && row[capturedAtIdx]) {
+                    try {
+                      dateObj = new Date(String(row[capturedAtIdx]));
+                      if (!isNaN(dateObj.getTime())) {
+                        const d = dateObj;
+                        const now = new Date();
+                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                        const itemDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                        const delta = Math.round((today - itemDay) / 86400000);
+                        const formatted = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+                        dateStr = delta === 0 ? `Today — ${formatted}` : delta === 1 ? `Yesterday — ${formatted}` : `${d.toLocaleDateString(undefined, { weekday: 'long' })}, ${formatted}`;
+                      }
+                    } catch { /* keep */ }
+                  }
+                  return { date: dateStr, dateObj, row, rowIndex: idx };
+                });
+
+                // Group into date buckets (preserve insertion order)
+                const groupMap = new Map<string, DbRow[]>();
+                for (const r of rowsWithDate) {
+                  if (!groupMap.has(r.date)) groupMap.set(r.date, []);
+                  groupMap.get(r.date)!.push(r);
+                }
+                const groups = Array.from(groupMap.entries());
+
+                // Key columns to highlight: video_file, temperature, humidity, ammonia_ppm, sound_db, elapsed_seconds
+                const highlightCols = ['video_file','video_time','elapsed_seconds','temperature','humidity','ammonia_ppm','sound_db','captured_at','recorded_at','started_at','ended_at','duration_seconds','frame_count'];
+                const visibleColIdxs = queryResult.columns
+                  .map((col, idx) => ({ col: col.toLowerCase(), idx }))
+                  .filter(({ col }) => highlightCols.includes(col))
+                  .map(({ idx }) => idx);
+                const displayColIdxs = visibleColIdxs.length > 0 ? visibleColIdxs : queryResult.columns.map((_, i) => i).slice(0, 8);
+
+                return (
+                  <div>
+                    {groups.map(([dateLabel, rows]) => (
+                      <div key={dateLabel} className="border-b border-slate-100 last:border-b-0">
+                        {/* Date group header */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-slate-50/90 border-b border-slate-200/60 sm:px-6">
+                          <div className="flex items-center gap-2.5">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700">
+                              <Calendar className="h-3.5 w-3.5" />
+                            </div>
+                            <span className="text-xs font-bold text-slate-900">{dateLabel}</span>
+                            <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-xs">
+                              {rows.length} {rows.length === 1 ? 'record' : 'records'}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">
+                            {selectedTable === 'recording' ? '🎥 Paired Recording' : '📡 Sensor Logs'}
+                          </span>
+                        </div>
+
+                        {/* Rows */}
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                              <tr>
+                                <th className="px-4 py-2 text-slate-400 w-10">#</th>
+                                {displayColIdxs.map((ci) => (
+                                  <th key={ci} className="px-4 py-2.5 whitespace-nowrap">{queryResult.columns[ci]}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {rows.map(({ row, rowIndex }) => (
+                                <tr key={rowIndex} className="hover:bg-orange-50/30 transition-colors">
+                                  <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{pageOffset + rowIndex + 1}</td>
+                                  {displayColIdxs.map((ci) => {
+                                    const cell = row[ci];
+                                    const colName = queryResult.columns[ci].toLowerCase();
+                                    const isTime = colName.includes('at') || colName.includes('time') || colName.includes('started') || colName.includes('ended');
+                                    const isNum = typeof cell === 'number';
+                                    return (
+                                      <td key={ci} className="px-4 py-3 whitespace-nowrap max-w-xs truncate" title={cell !== null ? String(cell) : 'NULL'}>
+                                        {cell === null ? (
+                                          <span className="text-slate-300 italic">null</span>
+                                        ) : isTime && !isNum ? (
+                                          <span className="flex items-center gap-1 text-slate-700 font-medium">
+                                            <Clock className="h-3 w-3 text-orange-500 shrink-0" />
+                                            {(() => { try { return new Date(String(cell)).toLocaleString(); } catch { return String(cell); } })()}
+                                          </span>
+                                        ) : isNum ? (
+                                          <span className="font-mono text-slate-800 font-semibold">{String(cell)}</span>
+                                        ) : (
+                                          <span className="text-slate-700">{String(cell)}</span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Pagination footer */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs sm:px-6">
+                      <span className="text-slate-500">
+                        Showing <span className="font-semibold text-slate-800">{queryResult.values.length > 0 ? pageOffset + 1 : 0}</span> to <span className="font-semibold text-slate-800">{Math.min(pageOffset + pageSize, queryResult.totalRows)}</span> of <span className="font-semibold text-slate-800">{queryResult.totalRows}</span> rows
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, Math.max(0, pageOffset - pageSize))} disabled={pageOffset === 0 || loadingDb} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
+                          <ChevronLeft className="h-3.5 w-3.5" /><span>Previous</span>
+                        </button>
+                        <button onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset + pageSize)} disabled={pageOffset + pageSize >= queryResult.totalRows || loadingDb} className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
+                          <span>Next</span><ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -1924,10 +2018,10 @@ export default function DashboardPage() {
                         onChange={(e) => setSelectedDateRange(e.target.value)}
                         className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3.5 py-2 pr-9 text-xs font-semibold text-slate-700 shadow-sm outline-none focus:border-orange-500"
                       >
-                        <option value="Aug 1-Aug 8">Aug 1-Aug 8</option>
-                        <option value="Aug 8-Aug 15">Aug 8-Aug 15</option>
-                        <option value="Aug 15-Aug 22">Aug 15-Aug 22</option>
-                        <option value="Aug 22-Aug 29">Aug 22-Aug 29</option>
+                        <option value="All Recorded">All Recorded Dates ({results.length} intervals)</option>
+                        {availableWeekRanges.map((range) => (
+                          <option key={range.key} value={range.key}>{range.label}</option>
+                        ))}
                       </select>
                       <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                     </div>

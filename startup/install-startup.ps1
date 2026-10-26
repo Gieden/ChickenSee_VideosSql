@@ -36,13 +36,11 @@ if (-not (Test-Path $DirectoriesFile -PathType Leaf)) {
 }
 $DirectoryConfig = Get-Content $DirectoriesFile -Raw | ConvertFrom-Json
 $WatchedDirectories = @($DirectoryConfig.directories)
-if ($WatchedDirectories.Count -eq 0) {
-    throw "No watched folders are configured. Add at least one folder in ChickenSee Control Center."
-}
-foreach ($Directory in $WatchedDirectories) {
-    if (-not (Test-Path $Directory -PathType Container)) {
-        throw "A configured watched folder does not exist: $Directory"
-    }
+$ValidDirectories = @($WatchedDirectories | Where-Object { Test-Path $_ -PathType Container })
+if ($ValidDirectories.Count -eq 0) {
+    $DefaultData = Join-Path $AgentDir "data"
+    New-Item -Path $DefaultData -ItemType Directory -Force | Out-Null
+    $ValidDirectories = @($DefaultData)
 }
 & $Python -c "import cv2, fastapi, psutil, sqlalchemy, tkinter, ultralytics, uvicorn"
 if ($LASTEXITCODE -ne 0) {

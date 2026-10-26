@@ -9,18 +9,38 @@ from typing import Any, Optional
 
 
 def _configured_local_root() -> str:
+    fallback = (Path(__file__).resolve().parent / "local-storage").resolve()
+
+    def _try_path(p_str: str) -> Optional[str]:
+        try:
+            p = Path(p_str).expanduser()
+            if not p.is_absolute():
+                p = (Path(__file__).resolve().parent / p).resolve()
+            p.mkdir(parents=True, exist_ok=True)
+            return str(p.resolve())
+        except Exception:
+            return None
+
     configured = os.getenv("CHICKENSEE_LOCAL_STORAGE")
     if configured:
-        return configured
+        resolved = _try_path(configured)
+        if resolved:
+            return resolved
 
     agent_env = Path(__file__).resolve().parent / "agent" / ".env"
     if agent_env.is_file():
         for line in agent_env.read_text(encoding="utf-8").splitlines():
             key, separator, value = line.partition("=")
             if separator and key.strip() == "CHICKENSEE_LOCAL_STORAGE":
-                return value.strip().strip('"').strip("'")
+                resolved = _try_path(value.strip().strip('"').strip("'"))
+                if resolved:
+                    return resolved
 
-    return str((Path(__file__).resolve().parent / "local-storage").resolve())
+    try:
+        fallback.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return str(fallback)
 
 
 LOCAL_ROOT = Path(_configured_local_root())

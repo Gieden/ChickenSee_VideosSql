@@ -238,5 +238,32 @@ class TestDesktopConfiguration(unittest.TestCase):
             self.assertTrue((storage / "logs" / "startup-launch.log").is_file())
 
 
+    def test_device_transfer_recovers_from_stale_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            agent_dir = root / "agent"
+            agent_dir.mkdir()
+
+            # Simulate config transferred from another machine with DELL paths
+            stale_dirs_file = agent_dir / "directories.json"
+            stale_dirs_file.write_text(
+                json.dumps(
+                    {
+                        "directories": [
+                            "C:\\Users\\DELL\\Desktop\\ChickenSee_Videos(sql)\\agent\\data",
+                            "C:\\Users\\DELL\\Desktop\\New folder\\ChickenSee\\recordings",
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            settings = read_agent_settings(root)
+            # The agent/data path should auto-remap to the local project's agent/data
+            expected_local_data = str((agent_dir / "data").resolve())
+            self.assertIn(expected_local_data, settings["directories"])
+            self.assertNotIn("C:\\Users\\DELL\\Desktop\\New folder\\ChickenSee\\recordings", settings["directories"])
+
+
 if __name__ == "__main__":
     unittest.main()
