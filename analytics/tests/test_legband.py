@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -75,6 +76,76 @@ class TestLegBandDetection(unittest.TestCase):
         # 8th consistent vote locks the label
         tracker._record_track_label(12, "Hen3 (Blue)")
         self.assertEqual(tracker.track_label_cache[12], "Hen3 (Blue)")
+
+    def test_analytics_track_ids_are_sequential_and_stable(self):
+        class FakeTensor:
+            def __init__(self, values):
+                self.values = np.asarray(values)
+
+            def cpu(self):
+                return self
+
+            def numpy(self):
+                return self.values
+
+            def int(self):
+                return FakeTensor(self.values.astype(int))
+
+            def tolist(self):
+                return self.values.tolist()
+
+        class FakeBoxes(SimpleNamespace):
+            def __len__(self):
+                return len(self.xyxy.values)
+
+        class FakeModel:
+            names = {0: "Chicken"}
+
+            def __init__(self):
+                self.results = iter([
+                    [SimpleNamespace(boxes=FakeBoxes(
+                        xyxy=FakeTensor([[10, 10, 30, 30], [50, 50, 70, 70]]),
+                        conf=FakeTensor([0.9, 0.9]),
+                        cls=FakeTensor([0, 0]),
+                        id=FakeTensor([84, 309]),
+                    ))],
+                    [SimpleNamespace(boxes=FakeBoxes(
+                        xyxy=FakeTensor([[50, 50, 70, 70], [10, 10, 30, 30]]),
+                        conf=FakeTensor([0.9, 0.9]),
+                        cls=FakeTensor([0, 0]),
+                        id=FakeTensor([309, 84]),
+                    ))],
+                ])
+
+            def track(self, *args, **kwargs):
+                return next(self.results)
+
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.model = FakeModel()
+        tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.conf = 0.15
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.class_map = {0: "Chicken"}
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 0
+        tracker.short_id_map = {}
+        tracker._next_short_id = 1
+
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        first = tracker.process_frame(frame, 0)
+        second = tracker.process_frame(frame, 1)
+
+        self.assertEqual([bird.track_id for bird in first.birds], [1, 2])
+        self.assertEqual([bird.track_id for bird in second.birds], [2, 1])
+        self.assertIsNone(tracker._resolve_short_id(None))
+        self.assertEqual(tracker._next_short_id, 3)
 
     def test_explicit_model_path_is_used(self):
         with tempfile.TemporaryDirectory() as temporary:

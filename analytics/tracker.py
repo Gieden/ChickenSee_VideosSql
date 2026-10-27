@@ -100,6 +100,16 @@ class ZampenYOLOTracker:
         self.track_resolved_classes: Dict[int, int] = {}
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
+        self.short_id_map: Dict[int, int] = {}
+        self._next_short_id = 1
+
+    def _resolve_short_id(self, raw_track_id: Optional[int]) -> Optional[int]:
+        if raw_track_id is None:
+            return None
+        if raw_track_id not in self.short_id_map:
+            self.short_id_map[raw_track_id] = self._next_short_id
+            self._next_short_id += 1
+        return self.short_id_map[raw_track_id]
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
@@ -358,6 +368,9 @@ class ZampenYOLOTracker:
         drinkers = [
             detection for _, _, label, detection in equipment if label == "Drinker"
         ]
+
+        for bird in birds:
+            bird.track_id = self._resolve_short_id(bird.track_id)
 
         return TrackerFrameOutput(
             frame_idx=frame_idx,
