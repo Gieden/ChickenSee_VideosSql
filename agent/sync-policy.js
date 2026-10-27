@@ -15,6 +15,7 @@ export function isSyncCandidate(filePath, localStorageRoot) {
   const extension = path.extname(filename).toLowerCase();
   const resultsDir = path.resolve(localStorageRoot, 'results');
 
+  if (filename.toLowerCase() === 'detection_status.json') return false;
   if (extension === '.mp4') return false;
   if (
     extension === '.jpg'
