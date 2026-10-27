@@ -30,9 +30,13 @@ export async function POST(req: NextRequest) {
     }
     const ext = filename.split('.').pop()?.toLowerCase();
 
-    if (!ext || !['sqlite', 'db', 'json'].includes(ext)) {
+    if (
+      !ext
+      || !['sqlite', 'db', 'json', 'jpg'].includes(ext)
+      || (ext === 'jpg' && filename !== 'live_detection.jpg')
+    ) {
       return NextResponse.json(
-        { error: `Unsupported file type: .${ext}. Only .sqlite, .db, and analysis .json files are allowed.` },
+        { error: `Unsupported file type: .${ext}. Only .sqlite, .db, analysis .json, and the live_detection.jpg preview are allowed.` },
         { status: 400 }
       );
     }
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Filename must not contain a path' }, { status: 400 });
     }
 
-    const folder = ext === 'json' ? 'results' : 'databases';
+    const folder = ext === 'json' || ext === 'jpg' ? 'results' : 'databases';
     const storagePath = `${folder}/${filename}`;
 
     if (req.headers.get('x-action') !== 'get-upload-url') {

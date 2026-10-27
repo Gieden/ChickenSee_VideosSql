@@ -2056,7 +2056,6 @@ class ChickenSeeDesktop:
             self.queue_summary.configure(
                 text="Start ChickenSee services on the Dashboard tab to begin automatic video detection and queue processing."
             )
-            self._save_queue_status_for_sync(None)
             return
 
         items = queue_data.get("items", [])
@@ -2114,7 +2113,6 @@ class ChickenSeeDesktop:
         for warning in queue_data.get("warnings", []):
             self.queue_summary.configure(text=f"{self.queue_summary.cget('text')}  ·  {warning}")
 
-        self._save_queue_status_for_sync(queue_data)
         self._cached_queue_data = queue_data
         self._render_queue_tree()
 
@@ -2286,55 +2284,6 @@ class ChickenSeeDesktop:
                     tags=(status.lower(),),
                 )
 
-
-    def _save_queue_status_for_sync(self, queue_data: Optional[Dict[str, Any]]) -> None:
-        if not queue_data:
-            return
-
-        try:
-            storage_root = self.settings.get("storage_root", DEFAULT_STORAGE_ROOT)
-            results_dir = Path(str(storage_root)).expanduser() / "results"
-            results_dir.mkdir(parents=True, exist_ok=True)
-            status_file = results_dir / "queue_status.json"
-
-            summary = queue_data.get("summary", {})
-            items = queue_data.get("items", [])
-            active = next((it for it in items if it.get("status") == "PROCESSING"), None)
-            payload = {
-                "updated_at": datetime.utcnow().isoformat() + "Z",
-                "is_queueing": (summary.get("processing", 0) + summary.get("queued", 0) + summary.get("waiting", 0)) > 0,
-                "active_video": active.get("video_filename") if active else None,
-                "active_progress": active.get("progress_percent") if active else None,
-                "active_frames": (
-                    f"{active.get('progress_frames', 0)} / {active.get('total_frames', 0)}"
-                    if active and active.get("total_frames")
-                    else None
-                ),
-                "summary": summary,
-                "items": [
-                    {
-                        "item_id": it.get("item_id"),
-                        "video_filename": it.get("video_filename"),
-                        "status": it.get("status"),
-                        "progress_percent": it.get("progress_percent"),
-                        "frames": (
-                            f"{it.get('progress_frames', 0)} / {it.get('total_frames', 0)}"
-                            if it.get("total_frames")
-                            else "—"
-                        ),
-                        "details": it.get("details"),
-                        "created_at": it.get("created_at"),
-                        "completed_at": it.get("completed_at"),
-                        "queued_at": it.get("queued_at"),
-                        "date": it.get("date"),
-                    }
-                    for it in items[:100]
-                ],
-            }
-
-            status_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except Exception:
-            pass
 
     def _set_busy(self, busy: bool) -> None:
         state = "disabled" if busy else "normal"

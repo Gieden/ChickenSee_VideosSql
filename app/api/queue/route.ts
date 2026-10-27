@@ -6,12 +6,31 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 let recoveredHistoryCache: { expiresAt: number; items: any[] } | null = null;
+const MAX_QUEUE_STALENESS_SECONDS = 15;
 
 function normalizeVideoName(value: string): string {
   return (value.split(/[\\/]/).pop() || value)
     .replace(/\.[^.]+$/, '')
     .replace(/_(?:detected|annotated)$/i, '')
     .toLowerCase();
+}
+
+function getQueueFreshness(
+  updatedAt: string | null,
+  activeDetection: { captured_at?: string } | null,
+  isProcessing: boolean,
+) {
+  const freshnessTimestamp = isProcessing && activeDetection?.captured_at
+    ? activeDetection.captured_at
+    : updatedAt;
+  const timestamp = Date.parse(String(freshnessTimestamp || ''));
+  const ageSeconds = Number.isFinite(timestamp)
+    ? Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
+    : null;
+  return {
+    source_stale: ageSeconds === null || ageSeconds > MAX_QUEUE_STALENESS_SECONDS,
+    source_age_seconds: ageSeconds,
+  };
 }
 
 async function recoverCompletedHistory(items: any[]) {
@@ -105,17 +124,24 @@ async function getLocalQueueResponse() {
     const items = q.items || [];
     const summary = q.summary || {};
     const active = items.find((item: any) => item.status === 'PROCESSING');
+    const activeDetection = q.active_detection || null;
+    const freshness = getQueueFreshness(
+      new Date().toISOString(),
+      activeDetection,
+      Boolean(active),
+    );
     const isQueueing = (summary.processing || 0) + (summary.queued || 0) + (summary.waiting || 0) > 0;
     return NextResponse.json({
       source: 'local-api',
       updated_at: new Date().toISOString(),
+      ...freshness,
       is_queueing: isQueueing,
       active_video: active?.video_filename || null,
       active_progress: active?.progress_percent ?? null,
       active_frames: active?.progress_frames != null && active?.total_frames
         ? `${active.progress_frames} / ${active.total_frames}`
         : null,
-      active_detection: q.active_detection || null,
+      active_detection: activeDetection,
       summary: {
         processing: summary.processing || 0,
         queued: summary.queued || 0,
@@ -172,18 +198,27 @@ export async function GET(req: NextRequest) {
       cancelled: Number(storedSummary.cancelled) || 0,
     };
     let historyWarning: string | null = null;
-    try {
-      const recoveredHistory = await recoverCompletedHistory(items);
-      items.push(...recoveredHistory);
-      const completedItems = items.filter(
-        (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
-      ).length;
-      summary.completed = Math.max(summary.completed, completedItems);
-    } catch (error) {
-      console.error('Failed to recover queue history from synchronized analysis reports:', error);
-      historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
+    const hasPendingWork = summary.processing + summary.queued + summary.waiting > 0;
+    if (!hasPendingWork) {
+      try {
+        const recoveredHistory = await recoverCompletedHistory(items);
+        items.push(...recoveredHistory);
+        const completedItems = items.filter(
+          (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
+        ).length;
+        summary.completed = Math.max(summary.completed, completedItems);
+      } catch (error) {
+        console.error('Failed to recover queue history from synchronized analysis reports:', error);
+        historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
+      }
     }
     const activeVideo = storedData.active_video || null;
+    const activeDetection = storedData.active_detection || null;
+    const freshness = getQueueFreshness(
+      typeof storedData.updated_at === 'string' ? storedData.updated_at : null,
+      activeDetection,
+      Boolean(activeVideo || summary.processing > 0),
+    );
 
     if (activeVideo && summary.processing === 0) {
       summary.processing = 1;
@@ -193,12 +228,13 @@ export async function GET(req: NextRequest) {
       ...storedData,
       source: 'supabase',
       updated_at: storedData.updated_at || null,
+      ...freshness,
       is_queueing: (summary.processing + summary.queued + summary.waiting) > 0
         || storedData.is_queueing === true,
       active_video: activeVideo,
       active_progress: storedData.active_progress ?? null,
       active_frames: storedData.active_frames ?? null,
-      active_detection: storedData.active_detection ?? null,
+      active_detection: activeDetection,
       history_warning: historyWarning,
       summary,
       items: items.length > 0 || !activeVideo
@@ -231,6 +267,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     source: 'idle',
     updated_at: null,
+    source_stale: true,
+    source_age_seconds: null,
     is_queueing: false,
     active_video: null,
     active_progress: null,

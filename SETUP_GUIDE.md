@@ -140,6 +140,8 @@ In your [Vercel Dashboard](https://vercel.com/dashboard) under **Settings → En
 
 The desktop agent only needs the deployed Vercel `/api/sync` URL and matching `SYNC_SECRET`; it never receives Supabase credentials. Supabase project creation and storage are separate from existing Vercel Blob data—old Blob objects are not copied automatically.
 
+The analytics API is the single writer for `results/queue_status.json`; the Control Center reads the same live `/queue` API and must not overwrite that snapshot. The sync agent prioritizes queue snapshots and the `live_detection.jpg` preview ahead of large database uploads. Vercel reports the queue as delayed if it has not received a desktop heartbeat for 15 seconds. Keep Cloud Sync enabled and all three desktop services running for live cloud queue updates.
+
 ---
 
 ## 🧪 Step 6: Test Video Analysis & Live Queueing

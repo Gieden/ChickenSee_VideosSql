@@ -2,7 +2,11 @@ import chokidar from 'chokidar';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import { isSyncCandidate, isUploadCurrent } from './sync-policy.js';
+import {
+  isRealtimeSyncCandidate,
+  isSyncCandidate,
+  isUploadCurrent,
+} from './sync-policy.js';
 
 dotenv.config();
 
@@ -38,6 +42,8 @@ const CONFIG_FILE = path.resolve('./directories.json');
 
 let cloudSyncDisabledReason = ENABLE_CLOUD_SYNC ? null : 'disabled by ENABLE_CLOUD_SYNC=0';
 const pendingCloudUploads = new Set();
+const realtimeSyncRequested = new Set();
+let realtimeSyncRunning = false;
 
 // ─── Resolve watch directories ────────────────────────────────────────────────
 // Priority: directories.json > WATCH_DIRS env (comma-separated) > WATCH_DIR > ./data
@@ -98,9 +104,7 @@ function resolveWatchDirs() {
 
   // Analysis reports are written outside the source folders and need syncing too.
   const resultsDir = path.resolve(LOCAL_STORAGE_ROOT, 'results');
-  if (fs.existsSync(resultsDir)) {
-    dirs.add(resultsDir);
-  }
+  dirs.add(resultsDir);
   return Array.from(dirs);
 }
 
@@ -183,7 +187,9 @@ async function uploadDirectToSupabase(filePath, filename, ext, stats) {
     ? 'video/mp4'
     : ext === '.json'
       ? 'application/json'
-      : 'application/x-sqlite3';
+      : ext === '.jpg'
+        ? 'image/jpeg'
+        : 'application/x-sqlite3';
   const response = await fetch(tokenData.uploadUrl, {
     method: 'PUT',
     headers: {
@@ -281,6 +287,33 @@ const uploadQueue = [];
 let isProcessingQueue = false;
 
 function enqueueUpload(filePath) {
+  if (isRealtimeSyncCandidate(filePath, LOCAL_STORAGE_ROOT)) {
+    realtimeSyncRequested.add(filePath);
+    if (realtimeSyncRunning) return;
+
+    realtimeSyncRunning = true;
+    void (async () => {
+      try {
+        while (realtimeSyncRequested.size > 0) {
+          const [nextFile] = realtimeSyncRequested;
+          realtimeSyncRequested.delete(nextFile);
+          if (shouldSync(nextFile)) {
+            log('QUEUE', `Prioritizing live status sync for "${path.basename(nextFile)}".`);
+            await uploadFileWithRetry(nextFile);
+          }
+        }
+      } catch (error) {
+        log('ERROR', 'Could not synchronize live detection status:', error.message);
+      } finally {
+        realtimeSyncRunning = false;
+        if (realtimeSyncRequested.size > 0) {
+          enqueueUpload(realtimeSyncRequested.values().next().value);
+        }
+      }
+    })();
+    return;
+  }
+
   if (!uploadQueue.includes(filePath)) {
     uploadQueue.push(filePath);
     // Sort queue by file size ascending so small files sync first

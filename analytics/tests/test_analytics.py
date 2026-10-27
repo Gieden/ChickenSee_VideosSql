@@ -368,6 +368,37 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertIsNotNone(response["items"][0]["completed_at"])
         self.assertIsNotNone(snapshot["items"][0]["completed_at"])
 
+    def test_queue_snapshot_refreshes_heartbeat_without_losing_live_detection(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results_dir = Path(temporary) / "results"
+            live_detection = {"job_id": 7, "frame_idx": 125, "bird_count": 4}
+            first_updated_at = (
+                datetime.datetime.now(datetime.timezone.utc)
+                - datetime.timedelta(seconds=6)
+            ).isoformat().replace("+00:00", "Z")
+            latest_updated_at = datetime.datetime.now(
+                datetime.timezone.utc
+            ).isoformat().replace("+00:00", "Z")
+            with patch.object(local_store, "RESULTS_DIR", results_dir):
+                local_store.write_queue_status_json({
+                    "updated_at": first_updated_at,
+                    "active_video": "camera.mp4",
+                    "active_detection": live_detection,
+                    "summary": {"processing": 1},
+                })
+                local_store.write_queue_status_json({
+                    "updated_at": latest_updated_at,
+                    "active_video": "camera.mp4",
+                    "active_detection": live_detection,
+                    "summary": {"processing": 1},
+                })
+                snapshot = json.loads(
+                    (results_dir / "queue_status.json").read_text(encoding="utf-8")
+                )
+
+        self.assertEqual(snapshot["updated_at"], latest_updated_at)
+        self.assertEqual(snapshot["active_detection"], live_detection)
+
     def test_worker_queue_updates_preserve_other_queue_items(self):
         with tempfile.TemporaryDirectory() as temporary:
             results_dir = Path(temporary) / "results"

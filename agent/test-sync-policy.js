@@ -3,7 +3,11 @@ import os from 'os';
 import path from 'path';
 import test from 'node:test';
 
-import { isSyncCandidate, isUploadCurrent } from './sync-policy.js';
+import {
+  isRealtimeSyncCandidate,
+  isSyncCandidate,
+  isUploadCurrent,
+} from './sync-policy.js';
 
 test('video files are never synced, even when legacy video-sync setting is enabled', () => {
   const storage = path.join(os.tmpdir(), 'chickensee-sync-policy');
@@ -33,6 +37,9 @@ test('video files are never synced, even when legacy video-sync setting is enabl
   assert.equal(isSyncCandidate(path.join(storage, 'results', 'other.jpg'), storage), false);
   assert.equal(isSyncCandidate(path.join(storage, 'other', 'live_detection.jpg'), storage), false);
   assert.equal(isSyncCandidate(path.join(storage, 'telemetry.sqlite'), storage), true);
+  assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'queue_status.json'), storage), true);
+  assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'live_detection.jpg'), storage), true);
+  assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'other.json'), storage), false);
 });
 
 test('source watch folders do not sync original MP4s', () => {

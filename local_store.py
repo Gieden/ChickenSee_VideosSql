@@ -48,6 +48,7 @@ LOCAL_ROOT = Path(_configured_local_root())
 VIDEOS_DIR = LOCAL_ROOT / "videos"
 RESULTS_DIR = LOCAL_ROOT / "results"
 _QUEUE_STATUS_LOCK = threading.Lock()
+_QUEUE_HEARTBEAT_INTERVAL_SECONDS = 5
 
 
 def ensure_dirs() -> None:
@@ -84,7 +85,21 @@ def write_queue_status_json(payload: dict) -> Path:
         if isinstance(existing, dict):
             previous = {key: value for key, value in existing.items() if key != "updated_at"}
             current = {key: value for key, value in payload.items() if key != "updated_at"}
-            if previous == current:
+            try:
+                updated_at = datetime.fromisoformat(
+                    str(existing["updated_at"]).replace("Z", "+00:00")
+                )
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=datetime.now().astimezone().tzinfo)
+                heartbeat_age = max(0, (
+                    datetime.now().astimezone() - updated_at.astimezone()
+                ).total_seconds())
+            except (KeyError, TypeError, ValueError):
+                heartbeat_age = _QUEUE_HEARTBEAT_INTERVAL_SECONDS
+            if (
+                previous == current
+                and 0 <= heartbeat_age < _QUEUE_HEARTBEAT_INTERVAL_SECONDS
+            ):
                 return path
         _write_json_atomically(path, payload)
     return path

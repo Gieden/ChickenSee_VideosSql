@@ -100,6 +100,8 @@ interface QueueStatusData {
   source?: string;
   synced_at?: string;
   updated_at: string | null;
+  source_stale?: boolean;
+  source_age_seconds?: number | null;
   is_queueing: boolean;
   active_video: string | null;
   active_progress: number | null;
@@ -1617,6 +1619,10 @@ export default function DashboardPage() {
                   <span className="flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 border border-red-500/20">
                     Queue status unavailable
                   </span>
+                ) : queueStatus?.source_stale ? (
+                  <span className="flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700 border border-amber-500/20">
+                    Desktop sync delayed
+                  </span>
                 ) : queueStatus?.is_queueing ? (
                   <span className="max-w-[150px] truncate flex items-center gap-1.5 rounded-full bg-orange-500/10 px-2 py-0.5 text-[9px] font-semibold text-orange-700 border border-orange-500/30 animate-pulse sm:max-w-none sm:px-2.5 sm:text-[10px]">
                     <span className="h-1.5 w-1.5 rounded-full bg-orange-600" />
@@ -2495,8 +2501,25 @@ export default function DashboardPage() {
                 Queue status is unavailable from Vercel: {queueError}
               </div>
             )}
+            {!queueError && queueStatus?.source_stale && (
+              <div role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                {queueStatus.is_queueing
+                  ? 'Live detection updates are delayed. Showing the last known state'
+                  : 'Desktop queue updates are delayed. Showing the last known state'}
+                {queueStatus.source_age_seconds != null
+                  ? ` from ${queueStatus.source_age_seconds} seconds ago`
+                  : ''}. Check that the desktop worker and sync agent are running.
+              </div>
+            )}
             {/* Live Queue Hero Card */}
-            {queueError ? null : queueStatus?.is_queueing ? (
+            {queueError ? null : queueStatus?.source_stale ? (
+              <div className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
+                <h2 className="text-base font-bold text-slate-900">Desktop status is stale</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  The cloud is not receiving fresh queue heartbeats, so the previous processing state is not presented as live.
+                </p>
+              </div>
+            ) : queueStatus?.is_queueing ? (
               <div className="overflow-hidden rounded-2xl border border-orange-200/90 bg-gradient-to-r from-orange-50/90 via-amber-50/70 to-white p-4 shadow-md shadow-orange-500/5 sm:p-6">
                 <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="space-y-2 max-w-2xl">

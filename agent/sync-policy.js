@@ -25,6 +25,15 @@ export function isSyncCandidate(filePath, localStorageRoot) {
   return extension === '.json' && isWithinDirectory(resolvedPath, resultsDir);
 }
 
+export function isRealtimeSyncCandidate(filePath, localStorageRoot) {
+  const resolvedPath = path.resolve(filePath);
+  const resultsDir = path.resolve(localStorageRoot, 'results');
+  return [
+    path.join(resultsDir, 'queue_status.json'),
+    path.join(resultsDir, 'live_detection.jpg'),
+  ].some((candidate) => resolvedPath === path.resolve(candidate));
+}
+
 export function isUploadCurrent(previousUpload, stats) {
   return Boolean(
     previousUpload?.storage === 'supabase'
