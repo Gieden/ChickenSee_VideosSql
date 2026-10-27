@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import test from 'node:test';
 
 import {
+  createUploadBody,
   isRealtimeSyncCandidate,
   isSyncCandidate,
   isUploadCurrent,
@@ -40,6 +42,26 @@ test('video files are never synced, even when legacy video-sync setting is enabl
   assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'queue_status.json'), storage), true);
   assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'live_detection.jpg'), storage), true);
   assert.equal(isRealtimeSyncCandidate(path.join(storage, 'results', 'other.json'), storage), false);
+});
+
+test('realtime uploads buffer the source so cloud requests do not lock queue files', (t) => {
+  const storage = fs.mkdtempSync(path.join(os.tmpdir(), 'chickensee-sync-policy-'));
+  t.after(() => fs.rmSync(storage, { recursive: true, force: true }));
+
+  const results = path.join(storage, 'results');
+  fs.mkdirSync(results);
+  const queuePath = path.join(results, 'queue_status.json');
+  fs.writeFileSync(queuePath, '{"updated_at":"first"}');
+
+  const body = createUploadBody(queuePath, storage);
+  assert.ok(Buffer.isBuffer(body));
+  assert.equal(body.toString(), '{"updated_at":"first"}');
+
+  const replacementPath = `${queuePath}.replacement`;
+  fs.writeFileSync(replacementPath, '{"updated_at":"second"}');
+  fs.renameSync(queuePath, `${queuePath}.old`);
+  fs.renameSync(replacementPath, queuePath);
+  assert.equal(fs.readFileSync(queuePath, 'utf8'), '{"updated_at":"second"}');
 });
 
 test('source watch folders do not sync original MP4s', () => {
