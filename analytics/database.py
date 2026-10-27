@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
-    create_engine, Column, Integer, BigInteger, String, Float, DateTime,
+    create_engine, Column, Integer, BigInteger, String, Float, DateTime, Boolean,
     ForeignKey, Text, Index, Enum as SQLEnum, select, func, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
@@ -85,6 +85,7 @@ class HalfHourMetrics(Base):
     lux_avg = Column(Float, nullable=False, default=0.0)
     thi_avg = Column(Float, nullable=False, default=0.0)
     heat_stress_level = Column(String(32), nullable=False, default="Normal")
+    sensor_data_available = Column(Boolean, nullable=False, default=False)
 
     # Flock Vision & ByteTrack Metrics
     unique_birds_tracked = Column(Integer, nullable=False, default=0)
@@ -180,6 +181,27 @@ class DatabaseManager:
                     connection.execute(text(
                         f"ALTER TABLE processing_jobs ADD COLUMN {name} {sql_type}"
                     ))
+
+            metric_columns = {
+                column["name"]
+                for column in inspect(self.engine).get_columns("half_hour_metrics")
+            }
+            if "sensor_data_available" not in metric_columns:
+                connection.execute(text(
+                    "ALTER TABLE half_hour_metrics "
+                    "ADD COLUMN sensor_data_available BOOLEAN NOT NULL DEFAULT 0"
+                ))
+                connection.execute(text("""
+                    UPDATE half_hour_metrics
+                    SET sensor_data_available = CASE
+                        WHEN lower(heat_stress_level) != 'unavailable'
+                          OR temp_avg_c != 0 OR temp_min_c != 0 OR temp_max_c != 0
+                          OR humidity_avg_pct != 0 OR humidity_min_pct != 0 OR humidity_max_pct != 0
+                          OR ammonia_ppm_avg != 0 OR ammonia_ppm_max != 0
+                          OR lux_avg != 0 OR thi_avg != 0
+                        THEN 1 ELSE 0
+                    END
+                """))
 
     def get_session(self) -> Session:
         return self.SessionLocal()
@@ -351,6 +373,17 @@ class DatabaseManager:
         with self.get_session() as session:
             for m_dict, birds in zip(metrics_list, bird_records_list):
                 database_metrics = dict(m_dict)
+                sensor_data_available = database_metrics.pop("sensor_data_available", None)
+                if sensor_data_available is None:
+                    sensor_data_available = any(
+                        database_metrics.get(field) is not None
+                        for field in (
+                            "temp_avg_c", "temp_min_c", "temp_max_c",
+                            "humidity_avg_pct", "humidity_min_pct", "humidity_max_pct",
+                            "ammonia_ppm_avg", "ammonia_ppm_max", "lux_avg", "thi_avg",
+                        )
+                    )
+                database_metrics["sensor_data_available"] = bool(sensor_data_available)
                 for field in (
                     "temp_avg_c", "temp_min_c", "temp_max_c",
                     "humidity_avg_pct", "humidity_min_pct", "humidity_max_pct",
@@ -360,7 +393,6 @@ class DatabaseManager:
                         database_metrics[field] = 0.0
                 if database_metrics.get("heat_stress_level") is None:
                     database_metrics["heat_stress_level"] = "Unavailable"
-                database_metrics.pop("sensor_data_available", None)
                 metric = HalfHourMetrics(job_id=job_id, **database_metrics)
                 session.add(metric)
                 session.flush()
@@ -396,14 +428,17 @@ class DatabaseManager:
                         "start_time": c.chunk_start.isoformat(),
                         "end_time": c.chunk_end.isoformat(),
                         "sensors": {
-                            "temp_avg_c": c.temp_avg_c,
-                            "temp_min_c": c.temp_min_c,
-                            "temp_max_c": c.temp_max_c,
-                            "humidity_avg_pct": c.humidity_avg_pct,
-                            "ammonia_ppm_avg": c.ammonia_ppm_avg,
-                            "lux_avg": c.lux_avg,
-                            "thi_avg": c.thi_avg,
-                            "heat_stress_level": c.heat_stress_level,
+                            "temp_avg_c": c.temp_avg_c if c.sensor_data_available else None,
+                            "temp_min_c": c.temp_min_c if c.sensor_data_available else None,
+                            "temp_max_c": c.temp_max_c if c.sensor_data_available else None,
+                            "humidity_avg_pct": c.humidity_avg_pct if c.sensor_data_available else None,
+                            "ammonia_ppm_avg": c.ammonia_ppm_avg if c.sensor_data_available else None,
+                            "lux_avg": c.lux_avg if c.sensor_data_available else None,
+                            "thi_avg": c.thi_avg if c.sensor_data_available else None,
+                            "heat_stress_level": (
+                                c.heat_stress_level if c.sensor_data_available else "Unavailable"
+                            ),
+                            "sensor_data_available": c.sensor_data_available,
                         },
                         "behaviors": {
                             "unique_birds": c.unique_birds_tracked,
@@ -444,12 +479,15 @@ class DatabaseManager:
                     "start_time": c.chunk_start.isoformat(),
                     "end_time": c.chunk_end.isoformat(),
                     "environment": {
-                        "temperature_c": c.temp_avg_c,
-                        "humidity_pct": c.humidity_avg_pct,
-                        "ammonia_ppm": c.ammonia_ppm_avg,
-                        "lux": c.lux_avg,
-                        "thi": c.thi_avg,
-                        "heat_stress_level": c.heat_stress_level
+                        "temperature_c": c.temp_avg_c if c.sensor_data_available else None,
+                        "humidity_pct": c.humidity_avg_pct if c.sensor_data_available else None,
+                        "ammonia_ppm": c.ammonia_ppm_avg if c.sensor_data_available else None,
+                        "lux": c.lux_avg if c.sensor_data_available else None,
+                        "thi": c.thi_avg if c.sensor_data_available else None,
+                        "heat_stress_level": (
+                            c.heat_stress_level if c.sensor_data_available else "Unavailable"
+                        ),
+                        "sensor_data_available": c.sensor_data_available,
                     },
                     "behavior_analytics": {
                         "unique_birds": c.unique_birds_tracked,

@@ -36,7 +36,7 @@ interface AnalysisChunk {
   lux_avg: number | null;
   thi_avg: number | null;
   heat_stress_level: string | null;
-  sensor_data_available: boolean;
+  sensor_data_available?: boolean;
   sound_avg_db?: number | null;
   sound_db_avg?: number | null;
   bird_records?: BirdRecord[];
@@ -69,7 +69,29 @@ interface AnalysisFile {
 
 function parseAnalysisChunks(analysis: AnalysisFile, fileName: string, detectedVideoName: string | null = null) {
   return (analysis.chunks || []).map((chunk, index) => {
-    const sensorsAvailable = chunk.sensor_data_available === true;
+    const soundValue = chunk.sound_avg_db ?? chunk.sound_db_avg;
+    const sensorValues = [
+      chunk.temp_avg_c,
+      chunk.temp_min_c,
+      chunk.temp_max_c,
+      chunk.humidity_avg_pct,
+      chunk.humidity_min_pct,
+      chunk.humidity_max_pct,
+      chunk.ammonia_ppm_avg,
+      chunk.ammonia_ppm_max,
+      chunk.lux_avg,
+      chunk.thi_avg,
+      soundValue,
+    ];
+    const hasSensorMeasurements = sensorValues.some(
+      (value) => typeof value === 'number' && Number.isFinite(value) && value !== 0,
+    );
+    const sensorsAvailable = hasSensorMeasurements
+      && chunk.sensor_data_available !== false;
+    const sensorValue = (value: number | null | undefined) =>
+      sensorsAvailable && typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : null;
 
     return {
       result_id: `${fileName}:${chunk.chunk_index}`,
@@ -95,19 +117,17 @@ function parseAnalysisChunks(analysis: AnalysisFile, fileName: string, detectedV
       feather_pecking_count: chunk.feather_pecking_events,
       agitation_score: chunk.agitation_score,
       avg_velocity: chunk.flock_mobility_px_s,
-      temp_avg: sensorsAvailable ? chunk.temp_avg_c : null,
-      temp_min: sensorsAvailable ? chunk.temp_min_c : null,
-      temp_max: sensorsAvailable ? chunk.temp_max_c : null,
-      humidity_avg: sensorsAvailable ? chunk.humidity_avg_pct : null,
-      humidity_min: sensorsAvailable ? chunk.humidity_min_pct : null,
-      humidity_max: sensorsAvailable ? chunk.humidity_max_pct : null,
-      ammonia_avg: sensorsAvailable ? chunk.ammonia_ppm_avg : null,
-      ammonia_max: sensorsAvailable ? chunk.ammonia_ppm_max : null,
-      lux_avg: sensorsAvailable ? chunk.lux_avg : null,
-      thi_avg: sensorsAvailable ? chunk.thi_avg : null,
-      sound_avg_db: sensorsAvailable
-        ? chunk.sound_avg_db ?? chunk.sound_db_avg ?? null
-        : null,
+      temp_avg: sensorValue(chunk.temp_avg_c),
+      temp_min: sensorValue(chunk.temp_min_c),
+      temp_max: sensorValue(chunk.temp_max_c),
+      humidity_avg: sensorValue(chunk.humidity_avg_pct),
+      humidity_min: sensorValue(chunk.humidity_min_pct),
+      humidity_max: sensorValue(chunk.humidity_max_pct),
+      ammonia_avg: sensorValue(chunk.ammonia_ppm_avg),
+      ammonia_max: sensorValue(chunk.ammonia_ppm_max),
+      lux_avg: sensorValue(chunk.lux_avg),
+      thi_avg: sensorValue(chunk.thi_avg),
+      sound_avg_db: sensorValue(soundValue),
       heat_stress_level: sensorsAvailable
         ? chunk.heat_stress_level
         : 'Unavailable',

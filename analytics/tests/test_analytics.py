@@ -73,6 +73,58 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         duplicate_lease = self.db.lease_job(filename, "/dummy/path.mp4", now, end)
         self.assertIsNone(duplicate_lease)
 
+    def test_sensor_results_keep_missing_values_null(self):
+        start = datetime.datetime(2026, 10, 14, 6, 0)
+        end = start + datetime.timedelta(minutes=30)
+        job = self.db.lease_job("no-sensors.mp4", "/test/no-sensors.mp4", start, end)
+        self.db.save_30m_metrics(job.id, [{
+            "date_slot": "2026-10-14",
+            "hour_slot": "06:00",
+            "chunk_index": 1,
+            "chunk_start": start,
+            "chunk_end": end,
+            "temp_avg_c": None,
+            "humidity_avg_pct": None,
+            "ammonia_ppm_avg": None,
+            "heat_stress_level": "Unavailable",
+            "sensor_data_available": False,
+        }], [[]])
+        self.db.mark_job_completed(job.id, 0, 0, 0.0)
+
+        latest = self.db.get_latest_metrics()
+        ranged = self.db.get_metrics_by_range(start, end)
+
+        self.assertFalse(latest["chunks_30m"][0]["sensors"]["sensor_data_available"])
+        self.assertIsNone(latest["chunks_30m"][0]["sensors"]["temp_avg_c"])
+        self.assertIsNone(ranged[0]["environment"]["temperature_c"])
+        self.assertFalse(ranged[0]["environment"]["sensor_data_available"])
+
+        measured_start = end + datetime.timedelta(minutes=30)
+        measured_end = measured_start + datetime.timedelta(minutes=30)
+        measured_job = self.db.lease_job(
+            "with-sensors.mp4",
+            "/test/with-sensors.mp4",
+            measured_start,
+            measured_end,
+        )
+        self.db.save_30m_metrics(measured_job.id, [{
+            "date_slot": "2026-10-14",
+            "hour_slot": "07:00",
+            "chunk_index": 1,
+            "chunk_start": measured_start,
+            "chunk_end": measured_end,
+            "temp_avg_c": 24.5,
+            "humidity_avg_pct": 55.0,
+            "ammonia_ppm_avg": 0.0,
+            "heat_stress_level": "Normal",
+            "sensor_data_available": True,
+        }], [[]])
+        self.db.mark_job_completed(measured_job.id, 0, 0, 0.0)
+
+        measured = self.db.get_latest_metrics()["chunks_30m"][0]
+        self.assertTrue(measured["sensors"]["sensor_data_available"])
+        self.assertEqual(measured["sensors"]["temp_avg_c"], 24.5)
+
     def test_recreated_video_at_same_path_is_queued_for_reanalysis(self):
         with tempfile.TemporaryDirectory() as temporary:
             video_path = Path(temporary) / "repeat.mp4"
