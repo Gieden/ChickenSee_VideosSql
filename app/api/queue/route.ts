@@ -198,20 +198,29 @@ export async function GET(req: NextRequest) {
       cancelled: Number(storedSummary.cancelled) || 0,
     };
     let historyWarning: string | null = null;
-    const hasPendingWork = summary.processing + summary.queued + summary.waiting > 0;
-    if (!hasPendingWork) {
-      try {
-        const recoveredHistory = await recoverCompletedHistory(items);
-        items.push(...recoveredHistory);
-        const completedItems = items.filter(
-          (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
-        ).length;
-        summary.completed = Math.max(summary.completed, completedItems);
-      } catch (error) {
-        console.error('Failed to recover queue history from synchronized analysis reports:', error);
-        historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
-      }
+    try {
+      const recoveredHistory = await recoverCompletedHistory(items);
+      items.push(...recoveredHistory);
+      const completedItems = items.filter(
+        (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
+      ).length;
+      summary.completed = Math.max(summary.completed, completedItems);
+    } catch (error) {
+      console.error('Failed to recover queue history from synchronized analysis reports:', error);
+      historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
     }
+    const activeAndPendingItems = items.filter((item) =>
+      ['PROCESSING', 'QUEUED', 'WAITING'].includes(String(item.status || '').toUpperCase()),
+    );
+    const historyItems = items
+      .filter((item) =>
+        !['PROCESSING', 'QUEUED', 'WAITING'].includes(String(item.status || '').toUpperCase()),
+      )
+      .sort((first, second) =>
+        Date.parse(String(second.completed_at || second.created_at || ''))
+        - Date.parse(String(first.completed_at || first.created_at || '')),
+      );
+    const mergedItems = [...activeAndPendingItems, ...historyItems];
     const activeVideo = storedData.active_video || null;
     const activeDetection = storedData.active_detection || null;
     const freshness = getQueueFreshness(
@@ -237,8 +246,8 @@ export async function GET(req: NextRequest) {
       active_detection: activeDetection,
       history_warning: historyWarning,
       summary,
-      items: items.length > 0 || !activeVideo
-        ? items
+      items: mergedItems.length > 0 || !activeVideo
+        ? mergedItems
         : [{
           item_id: 'active-sync',
           video_filename: activeVideo,
