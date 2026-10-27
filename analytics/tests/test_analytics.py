@@ -111,6 +111,62 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(replacement_job.status, JobStatus.PROCESSING)
         self.assertEqual(replacement_job.source_size, replacement_signature[0])
 
+    def test_failed_file_version_is_not_retried_until_file_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            video_path = Path(temporary) / "unreadable.mp4"
+            video_path.write_bytes(b"invalid video")
+            signature = self.db.file_signature(str(video_path))
+            now = datetime.datetime.now()
+            job = self.db.lease_job(
+                video_path.name,
+                str(video_path),
+                now,
+                now,
+                signature=signature,
+            )
+            self.db.mark_job_failed(job.id, "Could not open video")
+
+            self.assertTrue(
+                self.db.has_failed_file_version(str(video_path), signature)
+            )
+
+            video_path.write_bytes(b"replaced video content")
+            changed_signature = self.db.file_signature(str(video_path))
+            self.assertFalse(
+                self.db.has_failed_file_version(str(video_path), changed_signature)
+            )
+
+    def test_worker_skips_failed_video_and_advances_to_next_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            failed_path = root / "unreadable.mp4"
+            next_path = root / "next.mp4"
+            failed_path.write_bytes(b"invalid video")
+            next_path.write_bytes(b"next video")
+            old_time = time.time() - 60
+            os.utime(failed_path, (old_time, old_time))
+            os.utime(next_path, (old_time + 1, old_time + 1))
+
+            now = datetime.datetime.now()
+            failed_job = self.db.lease_job(
+                failed_path.name,
+                str(failed_path),
+                now,
+                now,
+                signature=self.db.file_signature(str(failed_path)),
+            )
+            self.db.mark_job_failed(failed_job.id, "Could not open video")
+
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker.cfg = SimpleNamespace(stability_threshold_s=0)
+            with patch("analytics.worker.DB", self.db), patch.object(
+                worker, "_video_input_dirs", return_value=[root]
+            ):
+                candidate = worker._find_next_completed_hourly_video()
+
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate[0], str(next_path.resolve()))
+
     def test_queue_shows_replaced_video_even_when_path_was_completed(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -138,6 +194,34 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(item["status"], "QUEUED")
         self.assertIn("queued for reanalysis", item["details"])
         self.assertIsNone(item["progress_percent"])
+
+    def test_queue_keeps_unchanged_failed_video_out_of_pending_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            video_path = root / "unreadable.mp4"
+            video_path.write_bytes(b"invalid video")
+            os.utime(video_path, (time.time() - 60, time.time() - 60))
+            signature = self.db.file_signature(str(video_path))
+            now = datetime.datetime.now()
+            job = self.db.lease_job(
+                video_path.name,
+                str(video_path),
+                now,
+                now,
+                signature=signature,
+            )
+            self.db.mark_job_failed(job.id, "Could not open video")
+
+            with patch("analytics.api.DB", self.db), patch(
+                "analytics.api._queue_video_dirs", return_value=[root]
+            ):
+                response = get_detection_queue(limit=100)
+
+        item = next(item for item in response["items"] if item["video_path"] == str(video_path))
+        self.assertEqual(item["status"], "FAILED")
+        self.assertEqual(item["details"], "Could not open video")
+        self.assertEqual(response["summary"]["queued"], 0)
+        self.assertEqual(response["summary"]["failed"], 1)
 
     def test_queue_progress_does_not_exceed_video_length(self):
         job = ProcessingJob(
@@ -415,6 +499,70 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(result["ammonia_ppm_avg"], 6.0)
         self.assertEqual(result["lux_avg"], 150.0)
         self.assertEqual(result["heat_stress_level"], "Moderate")
+
+    def test_paired_sensor_logs_schema_is_aggregated_by_recording_elapsed_time(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            database_path = Path(temporary) / "sensors.sqlite"
+            recording_start = datetime.datetime.now().astimezone().replace(tzinfo=None)
+            connection = sqlite3.connect(database_path)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE recording (
+                        id INTEGER PRIMARY KEY,
+                        started_at TEXT NOT NULL
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE sensor_logs (
+                        elapsed_seconds REAL NOT NULL,
+                        captured_at TEXT NOT NULL,
+                        temperature REAL,
+                        humidity REAL,
+                        ammonia_ppm REAL
+                    )
+                    """
+                )
+                connection.execute(
+                    "INSERT INTO recording (started_at) VALUES (?)",
+                    (recording_start.astimezone().isoformat(),),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO sensor_logs
+                        (elapsed_seconds, captured_at, temperature, humidity, ammonia_ppm)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (0.0, "2026-10-24T02:42:06+00:00", 34.0, 60.0, 0.00001),
+                        (30.0, "2026-10-24T02:42:36+00:00", 36.0, 62.0, 0.00003),
+                        (90.0, "2026-10-24T02:43:36+00:00", 99.0, 99.0, 99.0),
+                    ],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker.cfg = SimpleNamespace(
+                sensor_db_url=f"sqlite:///{database_path.as_posix()}"
+            )
+            result = worker._pull_sensor_averages_for_range(
+                recording_start,
+                recording_start + datetime.timedelta(seconds=60),
+                paired_db=database_path,
+            )
+
+        self.assertTrue(result["sensor_data_available"])
+        self.assertEqual(result["temp_avg_c"], 35.0)
+        self.assertEqual(result["temp_min_c"], 34.0)
+        self.assertEqual(result["temp_max_c"], 36.0)
+        self.assertEqual(result["humidity_avg_pct"], 61.0)
+        self.assertEqual(result["ammonia_ppm_avg"], 0.00002)
+        self.assertIsNone(result["lux_avg"])
+        self.assertIsNotNone(result["thi_avg"])
 
     def test_unavailable_sensor_values_can_be_saved_in_analytics_database(self):
         start = datetime.datetime(2026, 10, 15, 12, 0)

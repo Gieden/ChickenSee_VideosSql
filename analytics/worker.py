@@ -15,6 +15,7 @@ import sqlite3
 import datetime
 import traceback
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import cv2
@@ -164,10 +165,15 @@ class ZampenAnalyticsWorker:
 
             # Skip if already processed in DB
             filepath = str(p.resolve())
+            signature = DB.file_signature(filepath)
             if DB.is_file_processed(
                 filepath,
                 filepath=filepath,
-                signature=DB.file_signature(filepath),
+                signature=signature,
+            ):
+                continue
+            if DB.has_failed_file_version(
+                filepath, signature
             ):
                 continue
 
@@ -300,13 +306,98 @@ class ZampenAnalyticsWorker:
             start_iso = chunk_start.strftime("%Y-%m-%d %H:%M:%S")
             end_iso = chunk_end.strftime("%Y-%m-%d %H:%M:%S")
 
-            with sqlite3.connect(sensor_db) as conn:
+            with closing(sqlite3.connect(sensor_db)) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 
-                # Query environmental_logs_raw
+                tables = {
+                    row["name"]
+                    for row in cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+                if "sensor_logs" in tables:
+                    recording_start = None
+                    if "recording" in tables:
+                        recording = cursor.execute(
+                            "SELECT started_at FROM recording ORDER BY id LIMIT 1"
+                        ).fetchone()
+                        if recording and recording["started_at"]:
+                            recording_start = datetime.datetime.fromisoformat(
+                                recording["started_at"].replace("Z", "+00:00")
+                            )
+                            if recording_start.tzinfo is not None:
+                                recording_start = recording_start.astimezone().replace(tzinfo=None)
+
+                    if recording_start is not None:
+                        elapsed_start = max(0.0, (chunk_start - recording_start).total_seconds())
+                        elapsed_end = max(0.0, (chunk_end - recording_start).total_seconds())
+                        cursor.execute("""
+                            SELECT
+                                AVG(temperature) as t_avg, MIN(temperature) as t_min, MAX(temperature) as t_max,
+                                AVG(humidity) as h_avg, MIN(humidity) as h_min, MAX(humidity) as h_max,
+                                AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max
+                            FROM sensor_logs
+                            WHERE elapsed_seconds >= ? AND elapsed_seconds <= ?
+                        """, (elapsed_start, elapsed_end))
+                    else:
+                        chunk_start_utc = chunk_start.astimezone(datetime.timezone.utc).isoformat()
+                        chunk_end_utc = chunk_end.astimezone(datetime.timezone.utc).isoformat()
+                        cursor.execute("""
+                            SELECT
+                                AVG(temperature) as t_avg, MIN(temperature) as t_min, MAX(temperature) as t_max,
+                                AVG(humidity) as h_avg, MIN(humidity) as h_min, MAX(humidity) as h_max,
+                                AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max
+                            FROM sensor_logs
+                            WHERE datetime(captured_at) >= datetime(?) AND datetime(captured_at) <= datetime(?)
+                        """, (chunk_start_utc, chunk_end_utc))
+                    row = cursor.fetchone()
+                    sensor_data_available = row and any(
+                        row[key] is not None for key in ("t_avg", "h_avg", "nh3_avg")
+                    )
+                    if sensor_data_available:
+                        temp_avg = float(row["t_avg"]) if row["t_avg"] is not None else None
+                        humidity_avg = float(row["h_avg"]) if row["h_avg"] is not None else None
+                        thi = (
+                            0.8 * temp_avg
+                            + (humidity_avg / 100.0) * (temp_avg - 14.4)
+                            + 46.4
+                            if temp_avg is not None and humidity_avg is not None
+                            else None
+                        )
+                        if thi is None:
+                            heat_level = "Unavailable"
+                        elif thi >= 84.0:
+                            heat_level = "Emergency"
+                        elif thi >= 79.0:
+                            heat_level = "Severe"
+                        elif thi >= 74.0:
+                            heat_level = "Moderate"
+                        else:
+                            heat_level = "Normal"
+
+                        return {
+                            "temp_avg_c": round(temp_avg, 2) if temp_avg is not None else None,
+                            "temp_min_c": round(float(row["t_min"]), 2) if row["t_min"] is not None else None,
+                            "temp_max_c": round(float(row["t_max"]), 2) if row["t_max"] is not None else None,
+                            "humidity_avg_pct": round(humidity_avg, 1) if humidity_avg is not None else None,
+                            "humidity_min_pct": round(float(row["h_min"]), 1) if row["h_min"] is not None else None,
+                            "humidity_max_pct": round(float(row["h_max"]), 1) if row["h_max"] is not None else None,
+                            "ammonia_ppm_avg": round(float(row["nh3_avg"]), 6) if row["nh3_avg"] is not None else None,
+                            "ammonia_ppm_max": round(float(row["nh3_max"]), 6) if row["nh3_max"] is not None else None,
+                            "lux_avg": None,
+                            "thi_avg": round(thi, 2) if thi is not None else None,
+                            "heat_stress_level": heat_level,
+                            "sensor_data_available": True,
+                        }
+                    return defaults
+
+                if "environmental_logs_raw" not in tables:
+                    print(f"[WORKER SENSOR WARN] No supported sensor table found in {sensor_db}")
+                    return defaults
+
                 cursor.execute("""
-                    SELECT 
+                    SELECT
                         AVG(temperature_c) as t_avg, MIN(temperature_c) as t_min, MAX(temperature_c) as t_max,
                         AVG(humidity_pct) as h_avg, MIN(humidity_pct) as h_min, MAX(humidity_pct) as h_max,
                         AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,

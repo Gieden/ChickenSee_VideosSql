@@ -120,10 +120,13 @@ function parseAnalysisChunks(analysis: AnalysisFile, fileName: string, detectedV
 }
 
 function loadLocalResults(): any[] {
+  const localStorageRoot = process.env.CHICKENSEE_LOCAL_STORAGE
+    || path.join(process.cwd(), 'local-storage');
   const candidateDirs = [
+    path.join(localStorageRoot, 'results'),
     '/tmp/results',
     path.join(process.cwd(), 'data', 'results'),
-    path.join(process.env.CHICKENSEE_LOCAL_STORAGE || 'C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results'),
+    path.join('C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results'),
   ];
 
   const filesFound = new Map<string, string>(); // filename -> fullPath
@@ -164,6 +167,21 @@ export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!verifySessionToken(token)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  if (!process.env.VERCEL) {
+    try {
+      const localResults = loadLocalResults();
+      if (localResults.length > 0) {
+        localResults.sort(
+          (first, second) =>
+            new Date(second.chunk_start).getTime() - new Date(first.chunk_start).getTime(),
+        );
+        return NextResponse.json({ results: localResults });
+      }
+    } catch (error) {
+      console.error('Failed to load local analysis results:', error);
+    }
   }
 
   // 1. Try Supabase Storage first

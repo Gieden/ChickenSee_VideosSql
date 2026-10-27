@@ -232,6 +232,21 @@ class DatabaseManager:
                 return False
             return signature is None or self.file_version_matches(job, signature)
 
+    def has_failed_file_version(
+        self, filepath: str, signature: tuple[int, int, int]
+    ) -> bool:
+        """Checks whether this exact file version has already failed analysis."""
+        with self.get_session() as session:
+            job = session.query(ProcessingJob).filter(
+                ProcessingJob.video_path == filepath,
+                ProcessingJob.status == JobStatus.FAILED,
+            ).first()
+            return bool(
+                job
+                and job.source_size is not None
+                and self.file_version_matches(job, signature)
+            )
+
     def lease_job(
         self,
         filename: str,

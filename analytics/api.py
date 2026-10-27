@@ -257,11 +257,16 @@ def get_detection_queue(limit: int = Query(default=100, le=500)):
         state = job.status.value
         details = job.error_message
         if job.status == JobStatus.FAILED and candidate:
-            state = candidate["status"]
-            if state == "QUEUED":
-                details = f"Retry pending. Previous error: {job.error_message}"
+            if DB.file_version_matches(job, candidate["signature"]):
+                state = JobStatus.FAILED.value
+                details = job.error_message
             else:
-                details = f"Waiting for the file to finish writing. Previous error: {job.error_message}"
+                state = candidate["status"]
+                details = (
+                    "File changed since its previous failed analysis; queued for retry."
+                    if state == "QUEUED"
+                    else "Waiting for the file to finish writing after a failed analysis."
+                )
         elif (
             job.status == JobStatus.COMPLETED
             and candidate
