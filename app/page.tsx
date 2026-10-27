@@ -53,6 +53,18 @@ interface QueueItem {
   date?: string | null;
 }
 
+interface LiveDetectionStatus {
+  job_id: number;
+  status: string;
+  frame_idx?: number;
+  total_frames?: number;
+  bird_count?: number;
+  identified_count?: number;
+  rooster_count?: number;
+  paired_sensor_database?: string | null;
+  captured_at?: string;
+}
+
 function getQueueItemDateLabel(item: QueueItem): string {
   const rawDate = item.completed_at || item.queued_at || item.created_at || (item.date ? `${item.date}T00:00:00` : null);
   if (!rawDate) return 'Date Unknown';
@@ -92,6 +104,7 @@ interface QueueStatusData {
   active_video: string | null;
   active_progress: number | null;
   active_frames: string | null;
+  active_detection?: LiveDetectionStatus | null;
   history_warning?: string | null;
   summary: {
     processing: number;
@@ -508,6 +521,7 @@ export default function DashboardPage() {
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
+  const queueRequestInFlight = useRef(false);
 
   // ── Queue Segregation & Filter State ──
   const [queueDateFilter, setQueueDateFilter] = useState<string>('All dates');
@@ -625,6 +639,8 @@ export default function DashboardPage() {
   }, [router]);
 
   const fetchQueueStatus = useCallback(async () => {
+    if (queueRequestInFlight.current) return;
+    queueRequestInFlight.current = true;
     try {
       setLoadingQueue(true);
       const res = await fetch('/api/queue');
@@ -639,6 +655,7 @@ export default function DashboardPage() {
       setQueueError(err instanceof Error ? err.message : 'Could not load queue status from Vercel.');
     } finally {
       setLoadingQueue(false);
+      queueRequestInFlight.current = false;
     }
   }, [router]);
 
@@ -654,10 +671,17 @@ export default function DashboardPage() {
     fetchDatabaseData();
     fetchQueueStatus();
     fetchResults();
-    const pollInterval = queueStatus?.is_queueing ? 2_000 : 8_000;
-    const bgPoll = setInterval(() => { fetchQueueStatus(); }, pollInterval);
-    return () => clearInterval(bgPoll);
-  }, [fetchQueueStatus, fetchResults, queueStatus?.is_queueing]);
+  }, [fetchQueueStatus, fetchResults]);
+
+  useEffect(() => {
+    const pollInterval = activeTab === 'queue'
+      ? 1_500
+      : queueStatus?.is_queueing
+        ? 5_000
+        : 15_000;
+    const queueTimer = setInterval(() => { fetchQueueStatus(); }, pollInterval);
+    return () => clearInterval(queueTimer);
+  }, [activeTab, fetchQueueStatus, queueStatus?.is_queueing]);
 
   useEffect(() => {
     if (!selectedVideo) {
@@ -707,13 +731,6 @@ export default function DashboardPage() {
     const refreshTimer = setInterval(() => { fetchResults(); }, 30_000);
     return () => clearInterval(refreshTimer);
   }, [activeTab, fetchResults]);
-
-  useEffect(() => {
-    if (activeTab !== 'queue') return;
-    fetchQueueStatus();
-    const queueTimer = setInterval(() => { fetchQueueStatus(); }, 1_500);
-    return () => clearInterval(queueTimer);
-  }, [activeTab, fetchQueueStatus]);
 
   async function handleLogout() {
     try {
@@ -2504,7 +2521,7 @@ export default function DashboardPage() {
                       {queueStatus.active_progress != null ? `${queueStatus.active_progress}%` : 'In progress'}
                     </span>
                     <span className="text-xs text-slate-500">
-                      {queueStatus.synced_at ? `Synced ${new Date(queueStatus.synced_at).toLocaleTimeString()}` : 'Live monitoring'}
+                      {queueStatus.updated_at ? `Updated ${new Date(queueStatus.updated_at).toLocaleTimeString()}` : 'Live monitoring'}
                     </span>
                   </div>
                 </div>
@@ -2518,6 +2535,50 @@ export default function DashboardPage() {
                     />
                   </div>
                 </div>
+
+                {queueStatus.active_detection?.frame_idx ? (
+                  <div className="mt-5 grid gap-4 border-t border-orange-200/80 pt-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(14rem,1fr)]">
+                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-950">
+                      <img
+                        key={queueStatus.active_detection.captured_at}
+                        src={`/api/queue/live-frame?frame=${encodeURIComponent(queueStatus.active_detection.captured_at || String(queueStatus.active_detection.frame_idx))}`}
+                        alt={`Live detection preview for ${queueStatus.active_video || 'active video'}`}
+                        className="aspect-video w-full object-contain"
+                      />
+                      <div className="flex items-center justify-between bg-slate-900 px-3 py-2 text-[11px] text-slate-300">
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                          LIVE DETECTION PREVIEW
+                        </span>
+                        <span>Frame {queueStatus.active_detection.frame_idx.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 content-start">
+                      <div className="rounded-xl border border-orange-100 bg-white p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Chickens in frame</p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">{queueStatus.active_detection.bird_count ?? '—'}</p>
+                      </div>
+                      <div className="rounded-xl border border-emerald-100 bg-white p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Identified</p>
+                        <p className="mt-1 text-2xl font-bold text-emerald-700">{queueStatus.active_detection.identified_count ?? '—'}</p>
+                      </div>
+                      <div className="rounded-xl border border-red-100 bg-white p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Roosters</p>
+                        <p className="mt-1 text-2xl font-bold text-red-700">{queueStatus.active_detection.rooster_count ?? '—'}</p>
+                      </div>
+                      <div className="col-span-2 rounded-xl border border-sky-100 bg-white p-3">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paired sensor database</p>
+                        <p className="mt-1 break-all font-mono text-xs font-medium text-slate-800">
+                          {queueStatus.active_detection.paired_sensor_database || 'No paired SQLite database found'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-4 border-t border-orange-200/80 pt-4 text-xs text-slate-500">
+                    Live detection preview and chicken counts will appear after the first analyzed frame.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -2539,7 +2600,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div className="text-xs text-slate-400 sm:text-right">
-                    {queueStatus?.synced_at ? `Checked ${new Date(queueStatus.synced_at).toLocaleTimeString()}` : 'System ready'}
+                    {queueStatus?.updated_at ? `Checked ${new Date(queueStatus.updated_at).toLocaleTimeString()}` : 'System ready'}
                   </div>
                 </div>
               </div>

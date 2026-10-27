@@ -26,7 +26,12 @@ from .tracker import ZampenYOLOTracker
 from .behavior_engine import BehaviorAnalysisEngine, BehaviorChunkSummary
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from local_store import VIDEOS_DIR, write_results_json
+from local_store import (
+    VIDEOS_DIR,
+    write_detection_status_json,
+    write_live_detection_frame,
+    write_results_json,
+)
 
 
 class AnalysisCancelled(Exception):
@@ -51,6 +56,8 @@ class ZampenAnalyticsWorker:
         self._fs_event = threading.Event()
         self._fs_stop_event = threading.Event()
         self._watcher_thread: Optional[threading.Thread] = None
+        self._queue_snapshot_stop_event = threading.Event()
+        self._queue_snapshot_thread: Optional[threading.Thread] = None
         
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         self._start_filesystem_watcher()
@@ -75,8 +82,8 @@ class ZampenAnalyticsWorker:
                                 self._fs_event.set()
                     except Exception:
                         time.sleep(1)
-            except Exception:
-                pass
+            except Exception as error:
+                print(f"[WORKER WARN] Filesystem watcher failed: {error}")
 
         self._watcher_thread = threading.Thread(target=_watch_target_dirs, daemon=True)
         self._watcher_thread.start()
@@ -87,6 +94,12 @@ class ZampenAnalyticsWorker:
 
     def start_daemon(self):
         """Main polling loop running continuously as an OptiPlex background service."""
+        self._publish_queue_status_snapshot()
+        self._queue_snapshot_thread = threading.Thread(
+            target=self._publish_queue_status_periodically,
+            daemon=True,
+        )
+        self._queue_snapshot_thread.start()
         print("═══════════════════════════════════════════════════════════════")
         print("  ZAMPEN Layer Chicken Analytics Pipeline - OptiPlex Daemon")
         print("  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack")
@@ -119,6 +132,26 @@ class ZampenAnalyticsWorker:
                 print(f"[DAEMON ERROR] Unexpected loop exception: {e}")
                 traceback.print_exc()
                 time.sleep(2)
+        self._queue_snapshot_stop_event.set()
+        if self._queue_snapshot_thread:
+            self._queue_snapshot_thread.join(timeout=3)
+
+    def _publish_queue_status_periodically(self) -> None:
+        while self.running and not self._queue_snapshot_stop_event.is_set():
+            self._queue_snapshot_stop_event.wait(timeout=3)
+            if self.running and not self._queue_snapshot_stop_event.is_set():
+                self._publish_queue_status_snapshot()
+
+    @staticmethod
+    def _publish_queue_status_snapshot() -> None:
+        try:
+            from .api import get_detection_queue
+            response = get_detection_queue(limit=500)
+            warnings = response.get("warnings", [])
+            if warnings:
+                print(f"[QUEUE WARN] Queue snapshot warnings: {'; '.join(warnings)}")
+        except Exception as error:
+            print(f"[QUEUE WARN] Could not publish current queue snapshot: {error}")
 
     def _video_input_dirs(self, directories_file: Optional[Path] = None) -> List[Path]:
         project_root = Path(__file__).resolve().parent.parent
@@ -165,7 +198,10 @@ class ZampenAnalyticsWorker:
         mp4_files = []
         for video_dir in self._video_input_dirs():
             if video_dir.is_dir():
-                mp4_files.extend(video_dir.rglob("*.mp4"))
+                mp4_files.extend(
+                    path for path in video_dir.rglob("*")
+                    if path.is_file() and path.suffix.casefold() == ".mp4"
+                )
 
         mp4_files.sort(key=lambda path: path.stat().st_mtime)
 
@@ -268,19 +304,27 @@ class ZampenAnalyticsWorker:
         Looks for a paired sensor SQLite file inside the same session folder as the video.
 
         Structure: watched_dir / cam_folder / rec_<timestamp> / video.mp4
-                                                              \ sensors.db   ← paired here
+                                                              \\ sensors.db   ← paired here
 
-        Accepts any .db, .sqlite, or .sql extension (case-insensitive).
+        Prefers a same-basename .db/.sqlite file, or the only SQLite file in the folder.
         Returns the first match found, or None if the session folder contains no DB file.
         """
         session_dir = Path(video_path).parent
-        for ext in (".db", ".sqlite", ".sql"):
-            candidates = sorted(session_dir.glob(f"*{ext}"))
-            if candidates:
-                paired = candidates[0]
-                print(f"[WORKER] Paired sensor DB found: {paired}")
-                return paired
-        return None
+        video_stem = Path(video_path).stem.casefold()
+        try:
+            candidates = sorted(
+                path for path in session_dir.iterdir()
+                if path.is_file() and path.suffix.casefold() in (".db", ".sqlite", ".sqlite3")
+            )
+        except OSError as error:
+            print(f"[WORKER WARN] Could not inspect paired sensor databases in {session_dir}: {error}")
+            return None
+        paired = next((path for path in candidates if path.stem.casefold() == video_stem), None)
+        if paired is None and len(candidates) == 1:
+            paired = candidates[0]
+        if paired is not None:
+            print(f"[WORKER] Paired sensor DB found: {paired}")
+        return paired
 
     def _pull_sensor_averages_for_range(
         self,
@@ -467,7 +511,9 @@ class ZampenAnalyticsWorker:
         self.current_progress_pct = 0.0
         self.tracker.reset_video_state()
         DB.update_job_progress(job.id, 0, total_frames)
-        self._update_persisted_queue_status(job.id, filename, 0.0, 0, total_frames, "PROCESSING")
+        self._update_persisted_queue_status(
+            job.id, filename, 0.0, 0, total_frames, "PROCESSING", video_path
+        )
         t_start_processing = time.time()
         src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
@@ -479,11 +525,25 @@ class ZampenAnalyticsWorker:
             cap.release()
             error = f"Could not create annotated detection video for {filename}"
             DB.mark_job_failed(job.id, error)
-            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "FAILED")
+            self._update_persisted_queue_status(
+                job.id, filename, None, 0, total_frames, "FAILED", video_path
+            )
             self.current_job_id = None
             raise RuntimeError(error)
 
         paired_db = self._find_paired_sensor_db(video_path)
+        write_detection_status_json({
+            "job_id": job.id,
+            "video_filename": filename,
+            "status": "PROCESSING",
+            "frame_idx": 0,
+            "total_frames": total_frames,
+            "bird_count": 0,
+            "identified_count": 0,
+            "rooster_count": 0,
+            "paired_sensor_database": paired_db.name if paired_db else None,
+            "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
+        })
 
         try:
             frames_processed, elapsed_s = self._run_chunked_inference(
@@ -514,18 +574,46 @@ class ZampenAnalyticsWorker:
                     os.replace(h264_tmp, staging_path)
                 elif os.path.exists(h264_tmp):
                     os.remove(h264_tmp)
-            except Exception:
-                pass
+            except Exception as error:
+                print(f"[WORKER WARN] H.264 transcode failed for {filename}: {error}")
             os.replace(staging_path, detected_path)
             DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
-            self._update_persisted_queue_status(job.id, filename, 100.0, total_frames, total_frames, "COMPLETED")
+            self._update_persisted_queue_status(
+                job.id, filename, 100.0, total_frames, total_frames, "COMPLETED", video_path
+            )
+            write_detection_status_json({
+                "job_id": job.id,
+                "video_filename": filename,
+                "status": "COMPLETED",
+                "paired_sensor_database": paired_db.name if paired_db else None,
+                "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
+            })
         except AnalysisCancelled:
+            write_detection_status_json({
+                "job_id": job.id,
+                "video_filename": filename,
+                "status": "CANCELLED",
+                "paired_sensor_database": paired_db.name if paired_db else None,
+                "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
+            })
             DB.cancel_processing_job(job.id)
-            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "CANCELLED")
+            self._update_persisted_queue_status(
+                job.id, filename, None, 0, total_frames, "CANCELLED", video_path
+            )
             print(f"[WORKER] Analysis cancelled by user: {filename}")
         except Exception as error:
+            write_detection_status_json({
+                "job_id": job.id,
+                "video_filename": filename,
+                "status": "FAILED",
+                "error": str(error),
+                "paired_sensor_database": paired_db.name if paired_db else None,
+                "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
+            })
             DB.mark_job_failed(job.id, str(error))
-            self._update_persisted_queue_status(job.id, filename, None, 0, total_frames, "FAILED")
+            self._update_persisted_queue_status(
+                job.id, filename, None, 0, total_frames, "FAILED", video_path
+            )
             raise
         finally:
             if cap is not None:
@@ -557,20 +645,29 @@ class ZampenAnalyticsWorker:
         frame_idx: int,
         total_frames: int,
         status_str: str,
+        video_path: str,
     ) -> None:
         try:
-            from local_store import update_queue_status_json
+            from local_store import read_detection_status_json, update_queue_status_json
             is_proc = status_str == "PROCESSING"
+            detection_status = read_detection_status_json()
+            active_detection = (
+                detection_status
+                if is_proc and detection_status and detection_status.get("job_id") == job_id
+                else None
+            )
             update_queue_status_json({
                 "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
                 "job_id": job_id,
                 "video_filename": filename,
+                "source_item_id": f"file-{hashlib.sha256(os.path.normcase(os.path.abspath(video_path)).encode('utf-8')).hexdigest()[:20]}",
                 "status": status_str,
                 "progress_percent": round(pct, 1) if (is_proc and pct is not None) else None,
                 "frames": f"{frame_idx} / {total_frames}" if is_proc else "—",
+                "active_detection": active_detection,
             })
-        except Exception:
-            pass
+        except Exception as error:
+            print(f"[QUEUE WARN] Could not update queue status for {filename}: {error}")
 
     def _run_chunked_inference(
         self,
@@ -617,21 +714,68 @@ class ZampenAnalyticsWorker:
                     video_ended = True
                     break
 
+                frame_out = None
+                annotated = None
                 if frame_idx % stride == 0:
                     frame_out = self.tracker.process_frame(frame, frame_idx, fps)
                     self.behavior_engine.process_frame(frame_out, dt)
                     frames_processed += 1
                     if writer is not None:
-                        writer.write(self.tracker.annotate_frame(frame, frame_out))
+                        annotated = self.tracker.annotate_frame(frame, frame_out)
+                        writer.write(annotated)
 
                 frame_idx += 1
-                if frames_processed % 25 == 0:
+                if frame_out is not None and (
+                    frames_processed == 1 or frames_processed % 25 == 0
+                ):
                     self.current_progress_pct = (frame_idx / total_frames) * 100.0
                     DB.update_job_progress(job.id, frame_idx, total_frames)
-                    if frames_processed % 100 == 0:
-                        self._update_persisted_queue_status(
-                            job.id, filename, self.current_progress_pct, frame_idx, total_frames, "PROCESSING"
-                        )
+                    bird_count = len(frame_out.birds)
+                    identified_count = sum(
+                        bird.bird_label != "Chicken" for bird in frame_out.birds
+                    )
+                    rooster_count = sum(
+                        bird.class_name == "Rooster" for bird in frame_out.birds
+                    )
+                    paired_name = paired_db.name if paired_db else None
+                    captured_at = datetime.datetime.utcnow().isoformat() + "Z"
+                    write_detection_status_json({
+                        "job_id": job.id,
+                        "video_filename": filename,
+                        "status": "PROCESSING",
+                        "frame_idx": frame_idx,
+                        "total_frames": total_frames,
+                        "bird_count": bird_count,
+                        "identified_count": identified_count,
+                        "rooster_count": rooster_count,
+                        "paired_sensor_database": paired_name,
+                        "captured_at": captured_at,
+                    })
+                    self._update_persisted_queue_status(
+                        job.id, filename, self.current_progress_pct, frame_idx,
+                        total_frames, "PROCESSING", video_path
+                    )
+                    if annotated is not None:
+                        try:
+                            preview_width = min(640, annotated.shape[1])
+                            preview_height = max(
+                                1,
+                                round(annotated.shape[0] * preview_width / annotated.shape[1]),
+                            )
+                            preview = cv2.resize(
+                                annotated,
+                                (preview_width, preview_height),
+                                interpolation=cv2.INTER_AREA,
+                            )
+                            encoded, image_buffer = cv2.imencode(
+                                ".jpg", preview, [cv2.IMWRITE_JPEG_QUALITY, 70]
+                            )
+                            if encoded:
+                                write_live_detection_frame(image_buffer.tobytes())
+                            else:
+                                print("[WORKER WARN] Could not encode live detection preview as JPEG.")
+                        except (OSError, cv2.error) as error:
+                            print(f"[WORKER WARN] Could not update live detection preview: {error}")
                 if frame_idx % 200 == 0:
                     print(f"[PROGRESS] Frame {frame_idx}/{total_frames} ({self.current_progress_pct:.1f}%)")
 

@@ -8,6 +8,13 @@ export interface SyncedFileMeta {
   uploadedAt: string;
 }
 
+export class StorageDownloadError extends Error {
+  constructor(storagePath: string, message: string, readonly statusCode: number | null) {
+    super(`Failed to download Supabase Storage object "${storagePath}": ${message}`);
+    this.name = 'StorageDownloadError';
+  }
+}
+
 type StorageObject = {
   name: string;
   created_at?: string;
@@ -96,7 +103,12 @@ export async function downloadStorageFile(storagePath: string) {
     .download(storagePath);
 
   if (error) {
-    throw new Error(`Failed to download Supabase Storage object "${storagePath}": ${error.message}`);
+    const statusCode = Number(error.statusCode);
+    throw new StorageDownloadError(
+      storagePath,
+      error.message,
+      Number.isInteger(statusCode) ? statusCode : null,
+    );
   }
 
   return data;

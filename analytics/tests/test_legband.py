@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from analytics.tracker import LABEL_COLORS_BGR, ZampenYOLOTracker
+from analytics.tracker import LABEL_COLORS_BGR, TrackedDetection, ZampenYOLOTracker
 from edge.detector import COLOR_MAP as EDGE_COLOR_MAP
 from legband import (
     BAND_CLASS_TO_HEN,
@@ -154,6 +154,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.processed_frame_count = 0
         tracker.short_id_map = {}
         tracker._next_short_id = 1
+        tracker.short_track_positions = {}
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         first = tracker.process_frame(frame, 0)
@@ -170,6 +171,43 @@ class TestLegBandDetection(unittest.TestCase):
         next_video = tracker.process_frame(frame, 0)
         self.assertEqual([bird.track_id for bird in next_video.birds], [1, 2])
         self.assertEqual(tracker._next_short_id, 3)
+
+    def test_tracker_reuses_id_for_nearby_reappearing_chicken(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.short_id_map = {}
+        tracker.short_track_positions = {}
+        tracker._next_short_id = 1
+        tracker.processed_frame_count = 1
+
+        def bird(raw_id, center_x, center_y):
+            return TrackedDetection(
+                box=[center_x - 10, center_y - 10, center_x + 10, center_y + 10],
+                centroid=(center_x, center_y),
+                confidence=0.9,
+                class_id=0,
+                class_name="Chicken",
+                track_id=raw_id,
+                bird_label="Chicken",
+            )
+
+        first = bird(1000, 100, 100)
+        tracker._assign_display_ids([first], (360, 640, 3))
+        self.assertEqual(first.track_id, 1)
+
+        tracker.processed_frame_count += 5
+        reappeared = bird(2000, 130, 120)
+        tracker._assign_display_ids([reappeared], (360, 640, 3))
+        self.assertEqual(reappeared.track_id, 1)
+
+        tracker.processed_frame_count += 1
+        distant = bird(3000, 500, 300)
+        tracker._assign_display_ids([distant], (360, 640, 3))
+        self.assertEqual(distant.track_id, 2)
+
+        tracker.processed_frame_count += 31
+        expired = bird(4000, 500, 300)
+        tracker._assign_display_ids([expired], (360, 640, 3))
+        self.assertEqual(expired.track_id, 3)
 
     def test_explicit_model_path_is_used(self):
         with tempfile.TemporaryDirectory() as temporary:

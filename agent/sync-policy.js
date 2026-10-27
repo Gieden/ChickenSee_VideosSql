@@ -15,6 +15,11 @@ export function isSyncCandidate(filePath, localStorageRoot) {
   const resultsDir = path.resolve(localStorageRoot, 'results');
 
   if (extension === '.mp4') return false;
+  if (
+    extension === '.jpg'
+    && filename.toLowerCase() === 'live_detection.jpg'
+    && isWithinDirectory(resolvedPath, resultsDir)
+  ) return true;
 
   if (extension === '.sqlite' || extension === '.db') return true;
   return extension === '.json' && isWithinDirectory(resolvedPath, resultsDir);

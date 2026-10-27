@@ -29,6 +29,9 @@ test('video files are never synced, even when legacy video-sync setting is enabl
 
   assert.equal(isSyncCandidate(path.join(storage, 'results', 'sample.json'), storage), true);
   assert.equal(isSyncCandidate(path.join(storage, 'results', 'queue_status.json'), storage), true);
+  assert.equal(isSyncCandidate(path.join(storage, 'results', 'live_detection.jpg'), storage), true);
+  assert.equal(isSyncCandidate(path.join(storage, 'results', 'other.jpg'), storage), false);
+  assert.equal(isSyncCandidate(path.join(storage, 'other', 'live_detection.jpg'), storage), false);
   assert.equal(isSyncCandidate(path.join(storage, 'telemetry.sqlite'), storage), true);
 });
 

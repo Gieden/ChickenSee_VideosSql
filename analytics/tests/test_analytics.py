@@ -239,9 +239,17 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         job = self.db.lease_job("camera.mp4", "/test/camera.mp4", now, now)
         self.assertIsNotNone(job)
         self.db.update_job_progress(job.id, 125, 500)
+        detection = {
+            "job_id": job.id,
+            "frame_idx": 125,
+            "bird_count": 4,
+            "paired_sensor_database": "camera.sqlite",
+        }
 
         with patch("analytics.api.DB", self.db), patch(
             "analytics.api._queue_video_dirs", return_value=[]
+        ), patch(
+            "local_store.read_detection_status_json", return_value=detection
         ):
             response = get_detection_queue(limit=100)
 
@@ -250,6 +258,39 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(item["progress_frames"], 125)
         self.assertEqual(item["total_frames"], 500)
         self.assertEqual(item["progress_percent"], 25.0)
+        self.assertEqual(response["active_detection"], detection)
+
+    def test_queue_summary_counts_items_beyond_response_limit(self):
+        now = datetime.datetime.now()
+        for index in range(3):
+            job = self.db.lease_job(
+                f"camera-{index}.mp4",
+                f"/test/camera-{index}.mp4",
+                now,
+                now,
+            )
+            self.assertIsNotNone(job)
+            self.db.mark_job_completed(job.id, 10, 10, 0.5)
+
+        with patch("analytics.api.DB", self.db), patch(
+            "analytics.api._queue_video_dirs", return_value=[]
+        ), patch("local_store.write_queue_status_json"):
+            response = get_detection_queue(limit=1)
+
+        self.assertEqual(len(response["items"]), 1)
+        self.assertEqual(response["summary"]["completed"], 3)
+
+    def test_live_detection_frame_endpoint_serves_latest_jpeg(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results_dir = Path(temporary)
+            preview = results_dir / "live_detection.jpg"
+            preview.write_bytes(b"jpeg-preview")
+            with patch.object(local_store, "RESULTS_DIR", results_dir):
+                response = TestClient(app).get("/queue/live-frame")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "image/jpeg")
+        self.assertEqual(response.content, b"jpeg-preview")
 
     def test_queue_status_snapshot_keeps_more_than_40_history_items(self):
         now = datetime.datetime.now()
@@ -283,7 +324,7 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
             status_file.write_text(json.dumps({
                 "summary": {
                     "processing": 0,
-                    "queued": 1,
+                    "queued": 2,
                     "waiting": 0,
                     "completed": 0,
                     "failed": 0,
@@ -293,6 +334,10 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
                     "item_id": "job-2",
                     "video_filename": "next.mp4",
                     "status": "QUEUED",
+                }, {
+                    "item_id": "file-source-1",
+                    "video_filename": "active.mp4",
+                    "status": "QUEUED",
                 }],
             }), encoding="utf-8")
 
@@ -301,9 +346,11 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
                     "updated_at": "2026-10-23T12:00:00Z",
                     "job_id": 1,
                     "video_filename": "active.mp4",
+                    "source_item_id": "file-source-1",
                     "status": "PROCESSING",
                     "progress_percent": 25.0,
                     "frames": "25 / 100",
+                    "active_detection": {"job_id": 1, "bird_count": 3},
                 })
                 processing = json.loads(status_file.read_text(encoding="utf-8"))
                 self.assertEqual(processing["summary"]["processing"], 1)
@@ -311,6 +358,8 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
                 self.assertEqual(len(processing["items"]), 2)
                 self.assertTrue(processing["is_queueing"])
                 self.assertEqual(processing["active_video"], "active.mp4")
+                self.assertEqual(processing["active_detection"]["bird_count"], 3)
+                self.assertIn("job-1", {item["item_id"] for item in processing["items"]})
 
                 local_store.update_queue_status_json({
                     "updated_at": "2026-10-23T12:01:00Z",
@@ -327,7 +376,35 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(completed["summary"]["completed"], 1)
         self.assertTrue(completed["is_queueing"])
         self.assertIsNone(completed["active_video"])
+        self.assertIsNone(completed["active_detection"])
         self.assertEqual({item["video_filename"] for item in completed["items"]}, {"active.mp4", "next.mp4"})
+
+    def test_paired_sensor_database_prefers_video_basename(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            session = Path(temporary)
+            video = session / "camera.mp4"
+            video.touch()
+            other_database = session / "sensors.sqlite"
+            matching_database = session / "camera.db"
+            other_database.touch()
+            matching_database.touch()
+
+            self.assertEqual(
+                ZampenAnalyticsWorker._find_paired_sensor_db(str(video)),
+                matching_database,
+            )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            session = Path(temporary)
+            video = session / "camera.mp4"
+            video.touch()
+            paired_database = session / "sensors.sqlite"
+            paired_database.touch()
+
+            self.assertEqual(
+                ZampenAnalyticsWorker._find_paired_sensor_db(str(video)),
+                paired_database,
+            )
 
     def test_cancel_active_job_and_reject_repeat_cancellation(self):
         now = datetime.datetime.now()
