@@ -13,6 +13,34 @@ body {
   overflow-x: hidden;
 }
 
+.mobile-nav-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-nav-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.portal-shell select,
+.portal-shell input {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .portal-shell table {
+    font-size: 11px;
+  }
+
+  .portal-shell button,
+  .portal-shell select,
+  .portal-shell input {
+    touch-action: manipulation;
+  }
+}
+
 .portal-shell [class*="bg-slate-950"],
 .portal-shell [class*="bg-slate-900"] {
   background-color: #ffffff !important;

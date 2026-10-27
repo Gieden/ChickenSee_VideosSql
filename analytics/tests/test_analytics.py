@@ -32,6 +32,7 @@ from analytics.behavior_engine import BehaviorAnalysisEngine
 from analytics.worker import AnalysisCancelled, ZampenAnalyticsWorker
 from fastapi.testclient import TestClient
 from analytics.api import _progress_percent, _queue_video_dirs, app, get_detection_queue
+import local_store
 
 
 class TestZampenAnalyticsPipeline(unittest.TestCase):
@@ -249,6 +250,84 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertEqual(item["progress_frames"], 125)
         self.assertEqual(item["total_frames"], 500)
         self.assertEqual(item["progress_percent"], 25.0)
+
+    def test_queue_status_snapshot_keeps_more_than_40_history_items(self):
+        now = datetime.datetime.now()
+        for index in range(45):
+            filename = f"camera-{index}.mp4"
+            job = self.db.lease_job(
+                filename,
+                f"/test/{filename}",
+                now,
+                now + datetime.timedelta(hours=1),
+            )
+            self.assertIsNotNone(job)
+            self.db.mark_job_completed(job.id, 100, 100, 1.0)
+
+        with patch("analytics.api.DB", self.db), patch(
+            "analytics.api._queue_video_dirs", return_value=[]
+        ), patch("local_store.write_queue_status_json") as write_snapshot:
+            response = get_detection_queue(limit=500)
+
+        self.assertEqual(len(response["items"]), 45)
+        snapshot = write_snapshot.call_args.args[0]
+        self.assertEqual(len(snapshot["items"]), 45)
+        self.assertIsNotNone(response["items"][0]["completed_at"])
+        self.assertIsNotNone(snapshot["items"][0]["completed_at"])
+
+    def test_worker_queue_updates_preserve_other_queue_items(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            results_dir = Path(temporary) / "results"
+            results_dir.mkdir()
+            status_file = results_dir / "queue_status.json"
+            status_file.write_text(json.dumps({
+                "summary": {
+                    "processing": 0,
+                    "queued": 1,
+                    "waiting": 0,
+                    "completed": 0,
+                    "failed": 0,
+                    "cancelled": 0,
+                },
+                "items": [{
+                    "item_id": "job-2",
+                    "video_filename": "next.mp4",
+                    "status": "QUEUED",
+                }],
+            }), encoding="utf-8")
+
+            with patch.object(local_store, "RESULTS_DIR", results_dir):
+                local_store.update_queue_status_json({
+                    "updated_at": "2026-10-23T12:00:00Z",
+                    "job_id": 1,
+                    "video_filename": "active.mp4",
+                    "status": "PROCESSING",
+                    "progress_percent": 25.0,
+                    "frames": "25 / 100",
+                })
+                processing = json.loads(status_file.read_text(encoding="utf-8"))
+                self.assertEqual(processing["summary"]["processing"], 1)
+                self.assertEqual(processing["summary"]["queued"], 1)
+                self.assertEqual(len(processing["items"]), 2)
+                self.assertTrue(processing["is_queueing"])
+                self.assertEqual(processing["active_video"], "active.mp4")
+
+                local_store.update_queue_status_json({
+                    "updated_at": "2026-10-23T12:01:00Z",
+                    "job_id": 1,
+                    "video_filename": "active.mp4",
+                    "status": "COMPLETED",
+                    "progress_percent": None,
+                    "frames": "—",
+                })
+                completed = json.loads(status_file.read_text(encoding="utf-8"))
+
+        self.assertEqual(completed["summary"]["processing"], 0)
+        self.assertEqual(completed["summary"]["queued"], 1)
+        self.assertEqual(completed["summary"]["completed"], 1)
+        self.assertTrue(completed["is_queueing"])
+        self.assertIsNone(completed["active_video"])
+        self.assertEqual({item["video_filename"] for item in completed["items"]}, {"active.mp4", "next.mp4"})
 
     def test_cancel_active_job_and_reject_repeat_cancellation(self):
         now = datetime.datetime.now()

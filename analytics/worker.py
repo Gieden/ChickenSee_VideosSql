@@ -121,11 +121,14 @@ class ZampenAnalyticsWorker:
                 time.sleep(2)
 
     def _video_input_dirs(self, directories_file: Optional[Path] = None) -> List[Path]:
+        project_root = Path(__file__).resolve().parent.parent
+        cfg = getattr(self, "cfg", CONFIG)
+        default_dir = Path(cfg.video_dir).expanduser().resolve()
         config_file = directories_file or (
-            Path(__file__).resolve().parent.parent / "agent" / "directories.json"
+            project_root / "agent" / "directories.json"
         )
         if not config_file.is_file():
-            return [Path(self.cfg.video_dir).expanduser().resolve()]
+            return [default_dir]
         try:
             config = json.loads(config_file.read_text(encoding="utf-8"))
             if not isinstance(config, dict):
@@ -133,11 +136,21 @@ class ZampenAnalyticsWorker:
             configured = config.get("directories", [])
             if not isinstance(configured, list) or not all(isinstance(path, str) for path in configured):
                 raise ValueError("directories must be a list of paths")
-            directories = {Path(path).expanduser().resolve() for path in configured}
+
+            directories = set()
+            for path in configured:
+                p_norm = path.replace("\\", "/")
+                if p_norm.endswith("/agent/data") and not Path(path).is_dir():
+                    directories.add((project_root / "agent" / "data").resolve())
+                else:
+                    directories.add(Path(path).expanduser().resolve())
+
+            if not directories:
+                directories.add(default_dir)
+            return sorted(directories, key=str)
         except (OSError, json.JSONDecodeError, ValueError) as error:
             print(f"[WORKER WARN] Could not read configured watch directories: {error}")
-            return [Path(self.cfg.video_dir).expanduser().resolve()]
-        return sorted(directories, key=str)
+            return [default_dir]
 
     @staticmethod
     def _chunk_frame_ranges(total_frames: int, fps: float, chunk_minutes: int) -> List[Tuple[int, int]]:
@@ -310,13 +323,32 @@ class ZampenAnalyticsWorker:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 
-                tables = {
-                    row["name"]
-                    for row in cursor.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    )
-                }
-                if "sensor_logs" in tables:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = {r["name"] for r in cursor.fetchall()}
+
+                row = None
+                calculated_thi = None
+                lux_val = None
+
+                if "environmental_logs_raw" in tables:
+                    cursor.execute("""
+                        SELECT
+                            AVG(temperature_c) as t_avg, MIN(temperature_c) as t_min, MAX(temperature_c) as t_max,
+                            AVG(humidity_pct) as h_avg, MIN(humidity_pct) as h_min, MAX(humidity_pct) as h_max,
+                            AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,
+                            AVG(lux) as lux_avg, AVG(thi) as thi_avg
+                        FROM environmental_logs_raw
+                        WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) <= datetime(?)
+                    """, (start_iso, end_iso))
+                    candidate_row = cursor.fetchone()
+                    if candidate_row and any(candidate_row[key] is not None for key in ("t_avg", "h_avg", "nh3_avg", "lux_avg", "thi_avg")):
+                        row = candidate_row
+                        if row["thi_avg"] is not None:
+                            calculated_thi = float(row["thi_avg"])
+                        if row["lux_avg"] is not None:
+                            lux_val = float(row["lux_avg"])
+
+                elif "sensor_logs" in tables:
                     recording_start = None
                     if "recording" in tables:
                         recording = cursor.execute(
@@ -352,65 +384,14 @@ class ZampenAnalyticsWorker:
                             WHERE datetime(captured_at) >= datetime(?) AND datetime(captured_at) <= datetime(?)
                         """, (chunk_start_utc, chunk_end_utc))
                     row = cursor.fetchone()
-                    sensor_data_available = row and any(
-                        row[key] is not None for key in ("t_avg", "h_avg", "nh3_avg")
-                    )
-                    if sensor_data_available:
-                        temp_avg = float(row["t_avg"]) if row["t_avg"] is not None else None
-                        humidity_avg = float(row["h_avg"]) if row["h_avg"] is not None else None
-                        thi = (
-                            0.8 * temp_avg
-                            + (humidity_avg / 100.0) * (temp_avg - 14.4)
-                            + 46.4
-                            if temp_avg is not None and humidity_avg is not None
-                            else None
-                        )
-                        if thi is None:
-                            heat_level = "Unavailable"
-                        elif thi >= 84.0:
-                            heat_level = "Emergency"
-                        elif thi >= 79.0:
-                            heat_level = "Severe"
-                        elif thi >= 74.0:
-                            heat_level = "Moderate"
-                        else:
-                            heat_level = "Normal"
 
-                        return {
-                            "temp_avg_c": round(temp_avg, 2) if temp_avg is not None else None,
-                            "temp_min_c": round(float(row["t_min"]), 2) if row["t_min"] is not None else None,
-                            "temp_max_c": round(float(row["t_max"]), 2) if row["t_max"] is not None else None,
-                            "humidity_avg_pct": round(humidity_avg, 1) if humidity_avg is not None else None,
-                            "humidity_min_pct": round(float(row["h_min"]), 1) if row["h_min"] is not None else None,
-                            "humidity_max_pct": round(float(row["h_max"]), 1) if row["h_max"] is not None else None,
-                            "ammonia_ppm_avg": round(float(row["nh3_avg"]), 6) if row["nh3_avg"] is not None else None,
-                            "ammonia_ppm_max": round(float(row["nh3_max"]), 6) if row["nh3_max"] is not None else None,
-                            "lux_avg": None,
-                            "thi_avg": round(thi, 2) if thi is not None else None,
-                            "heat_stress_level": heat_level,
-                            "sensor_data_available": True,
-                        }
-                    return defaults
+                    if row and row["t_avg"] is not None and row["h_avg"] is not None:
+                        t = float(row["t_avg"])
+                        h = float(row["h_avg"])
+                        calculated_thi = 0.8 * t + (h / 100.0) * (t - 14.4) + 46.4
 
-                if "environmental_logs_raw" not in tables:
-                    print(f"[WORKER SENSOR WARN] No supported sensor table found in {sensor_db}")
-                    return defaults
-
-                cursor.execute("""
-                    SELECT
-                        AVG(temperature_c) as t_avg, MIN(temperature_c) as t_min, MAX(temperature_c) as t_max,
-                        AVG(humidity_pct) as h_avg, MIN(humidity_pct) as h_min, MAX(humidity_pct) as h_max,
-                        AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,
-                        AVG(lux) as lux_avg, AVG(thi) as thi_avg
-                    FROM environmental_logs_raw
-                    WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) <= datetime(?)
-                """, (start_iso, end_iso))
-                row = cursor.fetchone()
-
-                if row and any(row[key] is not None for key in (
-                    "t_avg", "h_avg", "nh3_avg", "lux_avg", "thi_avg"
-                )):
-                    thi = float(row["thi_avg"]) if row["thi_avg"] is not None else None
+                if row and any(row[key] is not None for key in ("t_avg", "h_avg", "nh3_avg")):
+                    thi = calculated_thi
                     if thi is None:
                         heat_level = "Unavailable"
                     elif thi >= 84.0:
@@ -429,9 +410,9 @@ class ZampenAnalyticsWorker:
                         "humidity_avg_pct": round(float(row["h_avg"]), 1) if row["h_avg"] is not None else None,
                         "humidity_min_pct": round(float(row["h_min"]), 1) if row["h_min"] is not None else None,
                         "humidity_max_pct": round(float(row["h_max"]), 1) if row["h_max"] is not None else None,
-                        "ammonia_ppm_avg": round(float(row["nh3_avg"]), 2) if row["nh3_avg"] is not None else None,
-                        "ammonia_ppm_max": round(float(row["nh3_max"]), 2) if row["nh3_max"] is not None else None,
-                        "lux_avg": round(float(row["lux_avg"]), 1) if row["lux_avg"] is not None else None,
+                        "ammonia_ppm_avg": round(float(row["nh3_avg"]), 6) if row["nh3_avg"] is not None else None,
+                        "ammonia_ppm_max": round(float(row["nh3_max"]), 6) if row["nh3_max"] is not None else None,
+                        "lux_avg": round(lux_val, 1) if lux_val is not None else None,
                         "thi_avg": round(thi, 2) if thi is not None else None,
                         "heat_stress_level": heat_level,
                         "sensor_data_available": True,
@@ -522,6 +503,18 @@ class ZampenAnalyticsWorker:
             self._raise_if_cancelled(job.id)
             writer.release()
             writer = None
+            try:
+                import imageio_ffmpeg, subprocess
+                ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+                h264_tmp = staging_path + ".h264.mp4"
+                cmd = [ffmpeg_exe, "-y", "-i", staging_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", h264_tmp]
+                res = subprocess.run(cmd, capture_output=True)
+                if res.returncode == 0 and os.path.exists(h264_tmp) and os.path.getsize(h264_tmp) > 0:
+                    os.replace(h264_tmp, staging_path)
+                elif os.path.exists(h264_tmp):
+                    os.remove(h264_tmp)
+            except Exception:
+                pass
             os.replace(staging_path, detected_path)
             DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
             self._update_persisted_queue_status(job.id, filename, 100.0, total_frames, total_frames, "COMPLETED")
@@ -565,14 +558,15 @@ class ZampenAnalyticsWorker:
         status_str: str,
     ) -> None:
         try:
-            from local_store import write_queue_status_json
+            from local_store import update_queue_status_json
             is_proc = status_str == "PROCESSING"
-            write_queue_status_json({
+            update_queue_status_json({
                 "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
-                "is_queueing": is_proc,
-                "active_video": filename if is_proc else None,
-                "active_progress": round(pct, 1) if (is_proc and pct is not None) else None,
-                "active_frames": f"{frame_idx} / {total_frames}" if is_proc else None,
+                "job_id": job_id,
+                "video_filename": filename,
+                "status": status_str,
+                "progress_percent": round(pct, 1) if (is_proc and pct is not None) else None,
+                "frames": f"{frame_idx} / {total_frames}" if is_proc else "—",
             })
         except Exception:
             pass

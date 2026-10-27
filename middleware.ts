@@ -15,6 +15,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/logo.') ||
     /\.(?:png|jpg|jpeg|gif|webp|ico|svg)$/i.test(pathname) ||
     pathname.startsWith('/login') ||
+    pathname.startsWith('/api/detect-sample') ||
     pathname.startsWith('/api/sync') ||
     pathname === '/api/queue' ||
     pathname.startsWith('/api/cron') ||

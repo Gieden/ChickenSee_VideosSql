@@ -119,14 +119,17 @@ function parseAnalysisChunks(analysis: AnalysisFile, fileName: string, detectedV
   });
 }
 
+function resolveLocalStorageRoot(): string {
+  const configured = process.env.CHICKENSEE_LOCAL_STORAGE?.trim();
+  if (configured) return configured;
+  return path.join(process.cwd(), 'local-storage');
+}
+
 function loadLocalResults(): any[] {
-  const localStorageRoot = process.env.CHICKENSEE_LOCAL_STORAGE
-    || path.join(process.cwd(), 'local-storage');
   const candidateDirs = [
-    path.join(localStorageRoot, 'results'),
+    path.join(resolveLocalStorageRoot(), 'results'),
     '/tmp/results',
     path.join(process.cwd(), 'data', 'results'),
-    path.join('C:/Users/Kairi/Documents/ChickenSee_Local_Storage', 'results'),
   ];
 
   const filesFound = new Map<string, string>(); // filename -> fullPath

@@ -24,6 +24,7 @@ agent/.env
 agent/.sync-state.json
 agent/.stop-request
 agent/.supervisor-state.json
+agent/directories.json
 agent/data/*
 !agent/data/.gitkeep
 /local-storage/

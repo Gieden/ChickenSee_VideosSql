@@ -98,7 +98,7 @@ python startup\chickensee_desktop.py
 
 Use the **Setup** tab to select video folders, choose local output storage, and optionally configure Vercel sync. **Initialize / repair** checks the model and fills in missing Python or Node packages. Use **Start ChickenSee** and **Stop ChickenSee** on the Dashboard to control services, use **Quick video test** to copy a sample MP4 into a watched folder, and select **Enable startup** to create the desktop shortcut and start services at Windows sign-in.
 
-Cloud sync is off by default. Turn it on only after entering the deployed `/api/sync` URL and matching `SYNC_SECRET`. Only analysis results, queue status, and SQLite databases are uploaded; video files stay local. The API runs locally at `http://localhost:8000/docs`.
+The sample agent configuration enables cloud sync (`ENABLE_CLOUD_SYNC=1`). Before starting the agent, replace the placeholder Vercel `/api/sync` URL and `SYNC_SECRET` with your deployed URL and matching secret. Set `ENABLE_CLOUD_SYNC=0` for local-only mode. Only analysis results, queue status, and SQLite databases are uploaded; video files stay local. The API runs locally at `http://localhost:8000/docs`.
 
 See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and troubleshooting instructions.
 
