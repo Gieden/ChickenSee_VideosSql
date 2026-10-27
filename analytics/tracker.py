@@ -66,6 +66,7 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
+    MIN_DETECTION_CONFIDENCE = 0.70
 
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
@@ -110,6 +111,21 @@ class ZampenYOLOTracker:
             self.short_id_map[raw_track_id] = self._next_short_id
             self._next_short_id += 1
         return self.short_id_map[raw_track_id]
+
+    def reset_video_state(self) -> None:
+        self.track_label_cache.clear()
+        self.track_label_votes.clear()
+        self.track_label_last_seen.clear()
+        self.track_class_history.clear()
+        self.track_resolved_classes.clear()
+        self.track_class_last_seen.clear()
+        self.processed_frame_count = 0
+        self.short_id_map.clear()
+        self._next_short_id = 1
+
+        predictor = getattr(self.model, "predictor", None)
+        for tracker in getattr(predictor, "trackers", []):
+            tracker.reset()
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
@@ -244,7 +260,7 @@ class ZampenYOLOTracker:
             frame,
             persist=True,
             tracker=self.tracker_yaml,
-            conf=self.conf,
+            conf=max(self.conf, self.MIN_DETECTION_CONFIDENCE),
             iou=self.iou,
             imgsz=self.imgsz,
             device=self.device,

@@ -98,32 +98,49 @@ class TestLegBandDetection(unittest.TestCase):
             def __len__(self):
                 return len(self.xyxy.values)
 
+        class FakeInternalTracker:
+            def __init__(self):
+                self.reset_count = 0
+
+            def reset(self):
+                self.reset_count += 1
+
         class FakeModel:
             names = {0: "Chicken"}
 
             def __init__(self):
+                self.confidence_thresholds = []
+                self.internal_tracker = FakeInternalTracker()
+                self.predictor = SimpleNamespace(trackers=[self.internal_tracker])
                 self.results = iter([
                     [SimpleNamespace(boxes=FakeBoxes(
                         xyxy=FakeTensor([[10, 10, 30, 30], [50, 50, 70, 70]]),
                         conf=FakeTensor([0.9, 0.9]),
                         cls=FakeTensor([0, 0]),
-                        id=FakeTensor([84, 309]),
+                        id=FakeTensor([1000, 1001]),
                     ))],
                     [SimpleNamespace(boxes=FakeBoxes(
                         xyxy=FakeTensor([[50, 50, 70, 70], [10, 10, 30, 30]]),
                         conf=FakeTensor([0.9, 0.9]),
                         cls=FakeTensor([0, 0]),
-                        id=FakeTensor([309, 84]),
+                        id=FakeTensor([1001, 1000]),
+                    ))],
+                    [SimpleNamespace(boxes=FakeBoxes(
+                        xyxy=FakeTensor([[10, 10, 30, 30], [50, 50, 70, 70]]),
+                        conf=FakeTensor([0.9, 0.9]),
+                        cls=FakeTensor([0, 0]),
+                        id=FakeTensor([1000, 1001]),
                     ))],
                 ])
 
             def track(self, *args, **kwargs):
+                self.confidence_thresholds.append(kwargs["conf"])
                 return next(self.results)
 
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.model = FakeModel()
         tracker.tracker_yaml = "bytetrack.yaml"
-        tracker.conf = 0.15
+        tracker.conf = 0.25
         tracker.iou = 0.45
         tracker.imgsz = 640
         tracker.device = "cpu"
@@ -144,7 +161,14 @@ class TestLegBandDetection(unittest.TestCase):
 
         self.assertEqual([bird.track_id for bird in first.birds], [1, 2])
         self.assertEqual([bird.track_id for bird in second.birds], [2, 1])
+        self.assertEqual(tracker.model.confidence_thresholds, [0.70, 0.70])
         self.assertIsNone(tracker._resolve_short_id(None))
+        self.assertEqual(tracker._next_short_id, 3)
+
+        tracker.reset_video_state()
+        self.assertEqual(tracker.model.internal_tracker.reset_count, 1)
+        next_video = tracker.process_frame(frame, 0)
+        self.assertEqual([bird.track_id for bird in next_video.birds], [1, 2])
         self.assertEqual(tracker._next_short_id, 3)
 
     def test_explicit_model_path_is_used(self):
