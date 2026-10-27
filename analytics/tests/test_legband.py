@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import numpy as np
 
+from chicken_identity import ChickenIdentityAssigner
 from analytics.tracker import LABEL_COLORS_BGR, TrackedDetection, ZampenYOLOTracker
 from edge.detector import COLOR_MAP as EDGE_COLOR_MAP
 from legband import (
@@ -152,9 +153,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.track_resolved_classes = {}
         tracker.track_class_last_seen = {}
         tracker.processed_frame_count = 0
-        tracker.short_id_map = {}
-        tracker._next_short_id = 1
-        tracker.short_track_positions = {}
+        tracker.chicken_id_assigner = ChickenIdentityAssigner()
 
         frame = np.zeros((100, 100, 3), dtype=np.uint8)
         first = tracker.process_frame(frame, 0)
@@ -163,20 +162,17 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual([bird.track_id for bird in first.birds], [1, 2])
         self.assertEqual([bird.track_id for bird in second.birds], [2, 1])
         self.assertEqual(tracker.model.confidence_thresholds, [0.70, 0.70])
-        self.assertIsNone(tracker._resolve_short_id(None))
-        self.assertEqual(tracker._next_short_id, 3)
+        self.assertEqual(len(tracker.chicken_id_assigner.last_positions), 2)
 
         tracker.reset_video_state()
         self.assertEqual(tracker.model.internal_tracker.reset_count, 1)
         next_video = tracker.process_frame(frame, 0)
         self.assertEqual([bird.track_id for bird in next_video.birds], [1, 2])
-        self.assertEqual(tracker._next_short_id, 3)
+        self.assertEqual(len(tracker.chicken_id_assigner.last_positions), 2)
 
     def test_tracker_reuses_id_for_nearby_reappearing_chicken(self):
         tracker = object.__new__(ZampenYOLOTracker)
-        tracker.short_id_map = {}
-        tracker.short_track_positions = {}
-        tracker._next_short_id = 1
+        tracker.chicken_id_assigner = ChickenIdentityAssigner()
         tracker.processed_frame_count = 1
 
         def bird(raw_id, center_x, center_y):
@@ -207,7 +203,64 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.processed_frame_count += 31
         expired = bird(4000, 500, 300)
         tracker._assign_display_ids([expired], (360, 640, 3))
-        self.assertEqual(expired.track_id, 3)
+        self.assertEqual(expired.track_id, 1)
+
+    def test_chicken_identity_assigner_caps_ids_and_reuses_nearest_missing_tracks(self):
+        assigner = ChickenIdentityAssigner()
+        original_tracks = [
+            (raw_id, center)
+            for raw_id, center in enumerate(
+                ((100, 100), (500, 100), (900, 100), (100, 500),
+                 (500, 500), (900, 500), (500, 900)),
+                start=1000,
+            )
+        ]
+        first_frame = assigner.assign(original_tracks, (1000, 1000, 3), 1)
+        self.assertEqual(first_frame, [1, 2, 3, 4, 5, 6, 7])
+
+        eighth_track = assigner.assign(
+            original_tracks + [(2000, (200, 200))],
+            (1000, 1000, 3),
+            2,
+        )
+        self.assertEqual(eighth_track, [1, 2, 3, 4, 5, 6, 7, None])
+
+        returning_tracks = [
+            (1002, (900, 100)),
+            (1003, (100, 500)),
+            (1004, (500, 500)),
+            (1005, (900, 500)),
+            (1006, (500, 900)),
+            (3000, (500, 100)),
+            (3001, (100, 100)),
+        ]
+        returned = assigner.assign(returning_tracks, (1000, 1000, 3), 3)
+        self.assertEqual(returned, [3, 4, 5, 6, 7, 2, 1])
+        self.assertTrue(all(track_id is None or 1 <= track_id <= 7 for track_id in returned))
+
+    def test_chicken_identity_assigner_reserves_recent_missing_ids_until_reidentified_or_expired(self):
+        assigner = ChickenIdentityAssigner()
+        initial = [
+            (raw_id, (raw_id * 100, 100))
+            for raw_id in range(1, 8)
+        ]
+        assigner.assign(initial, (1000, 1000, 3), 1)
+
+        missing_and_unmatched = [
+            (raw_id, (raw_id * 100, 100))
+            for raw_id in range(2, 8)
+        ] + [(100, (900, 900))]
+        self.assertEqual(
+            assigner.assign(missing_and_unmatched, (1000, 1000, 3), 2),
+            [2, 3, 4, 5, 6, 7, None],
+        )
+
+        after_expiration = assigner.assign(
+            [(100, (900, 900))],
+            (1000, 1000, 3),
+            32,
+        )
+        self.assertEqual(after_expiration, [1])
 
     def test_explicit_model_path_is_used(self):
         with tempfile.TemporaryDirectory() as temporary:

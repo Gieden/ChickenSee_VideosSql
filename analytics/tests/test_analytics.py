@@ -877,6 +877,7 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
 
     def test_equipment_feeder_and_drinker_labeled_correctly_and_drawn_gray(self):
         import numpy as np
+        from chicken_identity import ChickenIdentityAssigner
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.class_map = {0: "Chicken", 1: "Drinker", 2: "Feeder", 8: "Rooster"}
         tracker.track_label_cache = {}
@@ -886,6 +887,7 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         tracker.track_resolved_classes = {}
         tracker.track_class_last_seen = {}
         tracker.processed_frame_count = 0
+        tracker.chicken_id_assigner = ChickenIdentityAssigner()
         tracker.conf = 0.15
         tracker.iou = 0.45
         tracker.imgsz = 640

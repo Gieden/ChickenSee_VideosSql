@@ -4,6 +4,7 @@ import numpy as np
 import base64
 from collections import Counter, deque
 from ultralytics import YOLO
+from chicken_identity import ChickenIdentityAssigner
 from legband import (
     BAND_CLASS_TO_HEN,
     detect_leg_band_color,
@@ -77,8 +78,7 @@ class ChickenDetector:
         self.cumulative_count = set()
         self.ghost_tracks     = {}
         self.smoothed_boxes   = {}
-        self.short_id_map     = {}
-        self._next_short_id   = 1
+        self.chicken_id_assigner = ChickenIdentityAssigner()
 
     def set_mode(self, mode: str):
         self.current_mode = mode
@@ -304,15 +304,19 @@ class ChickenDetector:
             self.smoothed_boxes[track_id] = s
             return s
 
-        live_ids = set()
-
-        def short_id(raw_tid):
-            if raw_tid is None:
-                return None
-            if raw_tid not in self.short_id_map:
-                self.short_id_map[raw_tid] = self._next_short_id
-                self._next_short_id += 1
-            return self.short_id_map[raw_tid]
+        bird_entries = chicken_dets + rooster_dets
+        display_ids = self.chicken_id_assigner.assign(
+            [
+                (track_id, ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2))
+                for box, _, _, track_id in bird_entries
+            ],
+            frame.shape[:2],
+            self.frame_count,
+        )
+        display_id_by_track = {
+            (entry[2], entry[3]): display_id
+            for entry, display_id in zip(bird_entries, display_ids)
+        }
 
         # Process Hens / Chickens
         assigned_hen_labels = set()
@@ -320,9 +324,9 @@ class ChickenDetector:
             raw = scale_box(cbox)
             x1, y1, x2, y2 = smooth_box(track_id, raw)
 
-            if track_id is not None:
-                live_ids.add(track_id)
-                self.cumulative_count.add(track_id)
+            sid = display_id_by_track[("Chicken", track_id)]
+            if sid is not None:
+                self.cumulative_count.add(sid)
 
             display_label = "Chicken"
             if track_id is not None and track_id in self.track_states:
@@ -339,7 +343,7 @@ class ChickenDetector:
                 "box":        [int(x1), int(y1), int(x2), int(y2)],
                 "label":      display_label,
                 "confidence": conf_val,
-                "track_id":   short_id(track_id),
+                "track_id":   sid,
                 "type":       "hen",
                 "color":      colors["hex"],
                 "color_rgb":  colors["rgb"],
@@ -352,9 +356,9 @@ class ChickenDetector:
             raw = scale_box(cbox)
             x1, y1, x2, y2 = smooth_box(track_id, raw)
 
-            if track_id is not None:
-                live_ids.add(track_id)
-                self.cumulative_count.add(track_id)
+            sid = display_id_by_track[("Rooster", track_id)]
+            if sid is not None:
+                self.cumulative_count.add(sid)
 
             colors = get_bbox_color("Rooster")
 
@@ -362,7 +366,7 @@ class ChickenDetector:
                 "box":        [int(x1), int(y1), int(x2), int(y2)],
                 "label":      "Rooster",
                 "confidence": conf_val,
-                "track_id":   short_id(track_id),
+                "track_id":   sid,
                 "type":       "rooster",
                 "color":      colors["hex"],
                 "color_rgb":  colors["rgb"],

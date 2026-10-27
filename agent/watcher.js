@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import {
   isRealtimeSyncCandidate,
   isSyncCandidate,
+  createUploadBody,
   isUploadCurrent,
 } from './sync-policy.js';
 
@@ -15,6 +16,8 @@ const SYNC_SECRET = process.env.SYNC_SECRET;
 const STABILITY_THRESHOLD = parseInt(process.env.STABILITY_THRESHOLD_MS || '1000', 10);
 const POLL_INTERVAL = parseInt(process.env.POLL_INTERVAL_MS || '250', 10);
 const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
+const SYNC_REQUEST_TIMEOUT_MS = 10_000;
+const REALTIME_UPLOAD_TIMEOUT_MS = 15_000;
 const CLOUD_SYNC_RETRY_DELAY_MS = 5 * 60 * 1000;
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
 function resolveLocalStorageRoot() {
@@ -164,21 +167,33 @@ function disableCloudSync(reason) {
 
 // ─── Direct Supabase Storage Upload ────────────────────────────────────────────
 async function uploadDirectToSupabase(filePath, filename, ext, stats) {
-  const tokenRes = await fetch(SYNC_URL, {
-    method: 'POST',
-    headers: {
-      'x-sync-secret': SYNC_SECRET,
-      'x-filename': encodeURIComponent(filename),
-      'x-action': 'get-upload-url',
-    },
-  });
+  const tokenController = new AbortController();
+  const tokenTimeout = setTimeout(
+    () => tokenController.abort(),
+    SYNC_REQUEST_TIMEOUT_MS,
+  );
+  let tokenData;
+  try {
+    const tokenRes = await fetch(SYNC_URL, {
+      method: 'POST',
+      headers: {
+        'x-sync-secret': SYNC_SECRET,
+        'x-filename': encodeURIComponent(filename),
+        'x-action': 'get-upload-url',
+      },
+      signal: tokenController.signal,
+    });
 
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    throw new Error(`Supabase upload URL request failed (HTTP ${tokenRes.status}): ${errText}`);
+    if (!tokenRes.ok) {
+      const errText = await tokenRes.text();
+      throw new Error(`Supabase upload URL request failed (HTTP ${tokenRes.status}): ${errText}`);
+    }
+
+    tokenData = await tokenRes.json();
+  } finally {
+    clearTimeout(tokenTimeout);
   }
 
-  const tokenData = await tokenRes.json();
   if (!tokenData.uploadUrl || !tokenData.storagePath) {
     throw new Error('Sync API did not return a Supabase upload URL and storage path');
   }
@@ -190,20 +205,37 @@ async function uploadDirectToSupabase(filePath, filename, ext, stats) {
       : ext === '.jpg'
         ? 'image/jpeg'
         : 'application/x-sqlite3';
-  const response = await fetch(tokenData.uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'content-type': mimeType,
-      'content-length': stats.size.toString(),
-      'x-upsert': 'true',
-    },
-    body: fs.createReadStream(filePath),
-    duplex: 'half',
-  });
+  const realtime = isRealtimeSyncCandidate(filePath, LOCAL_STORAGE_ROOT);
+  const uploadBody = createUploadBody(filePath, LOCAL_STORAGE_ROOT);
+  const contentLength = Buffer.isBuffer(uploadBody) ? uploadBody.length : stats.size;
+  const uploadController = realtime ? new AbortController() : null;
+  const uploadTimeout = uploadController
+    ? setTimeout(
+        () => uploadController.abort(),
+        REALTIME_UPLOAD_TIMEOUT_MS,
+    )
+    : null;
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Supabase Storage upload failed (HTTP ${response.status}): ${errText}`);
+  try {
+    const response = await fetch(tokenData.uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'content-type': mimeType,
+        'content-length': contentLength.toString(),
+        'x-upsert': 'true',
+      },
+      body: uploadBody,
+      duplex: 'half',
+      ...(uploadController ? { signal: uploadController.signal } : {}),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Supabase Storage upload failed (HTTP ${response.status}): ${errText}`);
+    }
+  } finally {
+    if (uploadTimeout) clearTimeout(uploadTimeout);
+    if (!Buffer.isBuffer(uploadBody)) uploadBody.destroy();
   }
 
   return { storagePath: tokenData.storagePath };

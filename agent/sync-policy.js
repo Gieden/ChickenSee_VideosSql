@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 
 function isWithinDirectory(filePath, directory) {
@@ -32,6 +33,12 @@ export function isRealtimeSyncCandidate(filePath, localStorageRoot) {
     path.join(resultsDir, 'queue_status.json'),
     path.join(resultsDir, 'live_detection.jpg'),
   ].some((candidate) => resolvedPath === path.resolve(candidate));
+}
+
+export function createUploadBody(filePath, localStorageRoot) {
+  return isRealtimeSyncCandidate(filePath, localStorageRoot)
+    ? fs.readFileSync(filePath)
+    : fs.createReadStream(filePath);
 }
 
 export function isUploadCurrent(previousUpload, stats) {

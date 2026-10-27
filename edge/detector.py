@@ -11,6 +11,7 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass, field
 from ultralytics import YOLO
+from chicken_identity import ChickenIdentityAssigner
 
 from .config import CONFIG, VisionConfig
 from legband import (
@@ -108,11 +109,11 @@ class PoultryInferenceEngine:
         self.track_states: Dict[int, Dict[str, Any]] = {}   # track_id -> {"label": str, "last_seen": int}
         self.smoothed_boxes: Dict[int, List[float]] = {}    # track_id -> [x1, y1, x2, y2]
         self.cumulative_seen_ids = set()
-        self.short_id_map: Dict[int, int] = {}
-        self._next_short_id = 1
-        
         # Edge memory hygiene: prune inactive tracks after N frames
         self.max_inactive_frames = 300  # ~20 seconds at 15 FPS
+        self.chicken_id_assigner = ChickenIdentityAssigner(
+            max_gap_frames=self.max_inactive_frames,
+        )
 
         # 5. Warm-up inference
         self._warmup()
@@ -126,14 +127,6 @@ class PoultryInferenceEngine:
             print("[ENGINE] Inference engine warmed up successfully.")
         except Exception as e:
             print(f"[ENGINE] Warm-up notice: {e}")
-
-    def _resolve_short_id(self, raw_tid: Optional[int]) -> Optional[int]:
-        if raw_tid is None:
-            return None
-        if raw_tid not in self.short_id_map:
-            self.short_id_map[raw_tid] = self._next_short_id
-            self._next_short_id += 1
-        return self.short_id_map[raw_tid]
 
     def _smooth_box(self, track_id: Optional[int], raw_box: List[float]) -> List[float]:
         if track_id is None:
@@ -305,6 +298,19 @@ class PoultryInferenceEngine:
         detections: List[Detection] = []
         birds: List[Detection] = []
         infra: List[Detection] = []
+        bird_entries = chicken_raw + rooster_raw
+        display_ids = self.chicken_id_assigner.assign(
+            [
+                (track_id, ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2))
+                for box, _, _, track_id, _ in bird_entries
+            ],
+            work_frame.shape[:2],
+            self.frame_count,
+        )
+        display_id_by_track = {
+            (entry[2], entry[3]): display_id
+            for entry, display_id in zip(bird_entries, display_ids)
+        }
 
         # Process Hens / Chickens
         hens_id_count = 0
@@ -314,10 +320,10 @@ class PoultryInferenceEngine:
         for (cbox, conf_val, _, track_id, cls_id) in chicken_raw:
             raw_orig = [cbox[0] * scale_w, cbox[1] * scale_h, cbox[2] * scale_w, cbox[3] * scale_h]
             x1, y1, x2, y2 = self._smooth_box(track_id, raw_orig)
-            sid = self._resolve_short_id(track_id)
+            sid = display_id_by_track[("Chicken", track_id)]
 
-            if track_id is not None:
-                self.cumulative_seen_ids.add(track_id)
+            if sid is not None:
+                self.cumulative_seen_ids.add(sid)
 
             label = "Chicken"
             if track_id is not None and track_id in self.track_states:
@@ -355,10 +361,10 @@ class PoultryInferenceEngine:
         for (rbox, conf_val, _, track_id, cls_id) in rooster_raw:
             raw_orig = [rbox[0] * scale_w, rbox[1] * scale_h, rbox[2] * scale_w, rbox[3] * scale_h]
             x1, y1, x2, y2 = self._smooth_box(track_id, raw_orig)
-            sid = self._resolve_short_id(track_id)
+            sid = display_id_by_track[("Rooster", track_id)]
 
-            if track_id is not None:
-                self.cumulative_seen_ids.add(track_id)
+            if sid is not None:
+                self.cumulative_seen_ids.add(sid)
 
             rooster_count += 1
             cinfo = COLOR_MAP["Rooster"]

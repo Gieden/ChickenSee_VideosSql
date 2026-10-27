@@ -4,7 +4,6 @@ Ultralytics YOLO26 Nano + ByteTrack Multi-Object Tracking Engine for Dell OptiPl
 Executes model.track(..., tracker="bytetrack.yaml", persist=True) for temporal bird tracking.
 """
 
-import math
 import os
 import cv2
 import numpy as np
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
 from ultralytics import YOLO
+from chicken_identity import ChickenIdentityAssigner
 
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 from legband import (
@@ -105,17 +105,11 @@ class ZampenYOLOTracker:
         self.track_resolved_classes: Dict[int, int] = {}
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
-        self.short_id_map: Dict[int, int] = {}
-        self._next_short_id = 1
-        self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
-
-    def _resolve_short_id(self, raw_track_id: Optional[int]) -> Optional[int]:
-        if raw_track_id is None:
-            return None
-        if raw_track_id not in self.short_id_map:
-            self.short_id_map[raw_track_id] = self._next_short_id
-            self._next_short_id += 1
-        return self.short_id_map[raw_track_id]
+        self.chicken_id_assigner = ChickenIdentityAssigner(
+            max_gap_frames=self.REIDENTIFICATION_MAX_GAP_FRAMES,
+            distance_ratio=self.REIDENTIFICATION_DISTANCE_RATIO,
+            min_distance_px=self.REIDENTIFICATION_MIN_DISTANCE_PX,
+        )
 
     def reset_video_state(self) -> None:
         self.track_label_cache.clear()
@@ -125,9 +119,7 @@ class ZampenYOLOTracker:
         self.track_resolved_classes.clear()
         self.track_class_last_seen.clear()
         self.processed_frame_count = 0
-        self.short_id_map.clear()
-        self._next_short_id = 1
-        self.short_track_positions.clear()
+        self.chicken_id_assigner.reset()
 
         predictor = getattr(self.model, "predictor", None)
         for tracker in getattr(predictor, "trackers", []):
@@ -138,83 +130,17 @@ class ZampenYOLOTracker:
         birds: List[TrackedDetection],
         frame_shape: Tuple[int, ...],
     ) -> None:
-        frame_diagonal = math.hypot(frame_shape[0], frame_shape[1])
-        max_distance = max(
-            self.REIDENTIFICATION_MIN_DISTANCE_PX,
-            frame_diagonal * self.REIDENTIFICATION_DISTANCE_RATIO,
+        display_ids = self.chicken_id_assigner.assign(
+            [
+                (bird.track_id, ((bird.box[0] + bird.box[2]) / 2,
+                                 (bird.box[1] + bird.box[3]) / 2))
+                for bird in birds
+            ],
+            frame_shape,
+            self.processed_frame_count,
         )
-        current_frame = self.processed_frame_count
-        pending = []
-        assigned_ids = set()
-
-        for bird in birds:
-            raw_track_id = bird.track_id
-            if raw_track_id is None:
-                continue
-
-            display_id = self.short_id_map.get(raw_track_id)
-            if display_id is not None:
-                position = self.short_track_positions.get(display_id)
-                if (
-                    position is not None
-                    and current_frame - position[1] > self.REIDENTIFICATION_MAX_GAP_FRAMES
-                ):
-                    self.short_id_map.pop(raw_track_id, None)
-                    display_id = None
-
-            if display_id is None:
-                pending.append((bird, raw_track_id))
-            else:
-                bird.track_id = display_id
-                assigned_ids.add(display_id)
-
-        candidate_pairs = []
-        for bird, raw_track_id in pending:
-            x1, y1, x2, y2 = bird.box
-            center = ((x1 + x2) / 2, (y1 + y2) / 2)
-            for display_id, (last_center, last_seen) in self.short_track_positions.items():
-                gap = current_frame - last_seen
-                if display_id in assigned_ids or not 1 <= gap <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
-                    continue
-                distance = math.dist(center, last_center)
-                if distance <= max_distance:
-                    candidate_pairs.append(
-                        (distance, display_id, raw_track_id, bird, center)
-                    )
-
-        matched_raw_ids = set()
-        for _, display_id, raw_track_id, bird, _ in sorted(
-            candidate_pairs, key=lambda pair: pair[:3]
-        ):
-            if display_id in assigned_ids or raw_track_id in matched_raw_ids:
-                continue
-            for previous_raw_id, previous_display_id in list(self.short_id_map.items()):
-                if previous_display_id == display_id:
-                    self.short_id_map.pop(previous_raw_id)
-            self.short_id_map[raw_track_id] = display_id
+        for bird, display_id in zip(birds, display_ids):
             bird.track_id = display_id
-            assigned_ids.add(display_id)
-            matched_raw_ids.add(raw_track_id)
-
-        for bird, raw_track_id in pending:
-            if raw_track_id in matched_raw_ids:
-                continue
-            display_id = self.short_id_map.get(raw_track_id)
-            if display_id is None:
-                display_id = self._next_short_id
-                self._next_short_id += 1
-                self.short_id_map[raw_track_id] = display_id
-            bird.track_id = display_id
-            assigned_ids.add(display_id)
-
-        for bird in birds:
-            if bird.track_id is None:
-                continue
-            x1, y1, x2, y2 = bird.box
-            self.short_track_positions[bird.track_id] = (
-                ((x1 + x2) / 2, (y1 + y2) / 2),
-                current_frame,
-            )
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
