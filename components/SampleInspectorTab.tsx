@@ -32,6 +32,18 @@ import {
 } from 'lucide-react';
 import initSqlJs from 'sql.js';
 
+// ── Canonical leg-band colors matching model.py / edge/detector.py COLOR_MAP ──
+const BIRD_COLOR_MAP: Record<string, string> = {
+  'Rooster':       '#FF0000',
+  'Chicken':       '#FFA500',
+  'Hen1 (Green)':  '#00FF00',
+  'Hen2 (White)':  '#FFFFFF',
+  'Hen3 (Blue)':   '#0000FF',
+  'Hen4 (Yellow)': '#FFFF00',
+  'Hen5 (Pink)':   '#FF69B4',
+};
+const getBirdHex = (name: string) => BIRD_COLOR_MAP[name] ?? '#808080';
+
 interface SensorReading {
   timestamp: string;
   elapsedSeconds: number;
@@ -1271,8 +1283,8 @@ export default function SampleInspectorTab() {
                           <span
                             key={i}
                             title={`${ev.behavior} · ${ev.timestamp}`}
-                            className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 -translate-x-1/2 rounded-full border-2 border-white bg-orange-500 shadow-sm"
-                            style={{ left: `${pct}%` }}
+                            className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 -translate-x-1/2 rounded-full border-2 border-white shadow-sm"
+                            style={{ left: `${pct}%`, backgroundColor: getBirdHex(birdName) }}
                           />
                         );
                       })}
