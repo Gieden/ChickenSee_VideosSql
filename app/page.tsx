@@ -1724,7 +1724,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="portal-shell min-h-screen bg-[#f7f8fa] text-slate-900">
+    <div className="portal-shell page-enter min-h-screen bg-[#f7f8fa] text-slate-900">
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div

@@ -13,6 +13,27 @@ body {
   overflow-x: hidden;
 }
 
+.page-enter {
+  animation: page-enter 420ms ease-out both;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+}
+
 .mobile-nav-scroll {
   overflow-x: auto;
   overscroll-behavior-x: contain;
