@@ -53,6 +53,23 @@ interface QueueItem {
   date?: string | null;
 }
 
+interface SensorReading {
+  temperature_c?: number | null;
+  humidity_pct?: number | null;
+  ammonia_ppm?: number | null;
+  sound_db?: number | null;
+  lux?: number | null;
+  thi?: number | null;
+  heat_stress_level?: string | null;
+  temp_status?: number | null;
+  hum_status?: number | null;
+  ammonia_status?: number | null;
+  sound_status?: number | null;
+  video_time?: string | null;
+  captured_at?: string | null;
+  frame_index?: number | null;
+}
+
 interface LiveDetectionStatus {
   job_id: number;
   status: string;
@@ -62,6 +79,15 @@ interface LiveDetectionStatus {
   identified_count?: number;
   rooster_count?: number;
   paired_sensor_database?: string | null;
+  sensor_data?: SensorReading | null;
+  sensor_summary?: {
+    temp_avg_c?: number | null;
+    humidity_avg_pct?: number | null;
+    ammonia_ppm_avg?: number | null;
+    sound_db_avg?: number | null;
+    thi_avg?: number | null;
+    heat_stress_level?: string | null;
+  } | null;
   captured_at?: string;
 }
 
@@ -265,6 +291,144 @@ interface VideoAnalysis {
   sensors: VideoSensorPoint[];
   behaviorAvailable: boolean;
   birds: VideoBirdTimeline[];
+}
+
+function getHeatStressColor(level: string | null | undefined): { bg: string; text: string; border: string; badge: string } {
+  switch ((level || '').toLowerCase()) {
+    case 'emergency': return { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200', badge: 'bg-red-600' };
+    case 'severe':    return { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', badge: 'bg-orange-500' };
+    case 'moderate':  return { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', badge: 'bg-amber-400' };
+    case 'normal':    return { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', badge: 'bg-emerald-500' };
+    default:          return { bg: 'bg-slate-50', text: 'text-slate-500', border: 'border-slate-200', badge: 'bg-slate-400' };
+  }
+}
+
+function LiveSensorStatusPanel({ sensor, summary, dbName }: {
+  sensor: SensorReading | null | undefined;
+  summary?: LiveDetectionStatus['sensor_summary'];
+  dbName?: string | null;
+}) {
+  const heatColors = getHeatStressColor(sensor?.heat_stress_level);
+  const hasSensor = sensor != null && (
+    sensor.temperature_c != null ||
+    sensor.humidity_pct != null ||
+    sensor.ammonia_ppm != null ||
+    sensor.sound_db != null
+  );
+
+  const metrics: { label: string; icon: React.ReactNode; value: string | null; unit: string; statusFlag?: number | null; warn?: boolean }[] = [
+    {
+      label: 'Temperature',
+      icon: <Thermometer className="h-4 w-4" />,
+      value: sensor?.temperature_c != null ? sensor.temperature_c.toFixed(1) : null,
+      unit: '°C',
+      statusFlag: sensor?.temp_status,
+      warn: (sensor?.temp_status ?? 0) > 0,
+    },
+    {
+      label: 'Humidity',
+      icon: <Droplets className="h-4 w-4" />,
+      value: sensor?.humidity_pct != null ? sensor.humidity_pct.toFixed(1) : null,
+      unit: '%',
+      statusFlag: sensor?.hum_status,
+      warn: (sensor?.hum_status ?? 0) > 0,
+    },
+    {
+      label: 'Ammonia',
+      icon: <Wind className="h-4 w-4" />,
+      value: sensor?.ammonia_ppm != null ? sensor.ammonia_ppm.toFixed(3) : null,
+      unit: 'ppm',
+      statusFlag: sensor?.ammonia_status,
+      warn: (sensor?.ammonia_status ?? 0) > 0,
+    },
+    {
+      label: 'Sound',
+      icon: <Radio className="h-4 w-4" />,
+      value: sensor?.sound_db != null ? sensor.sound_db.toFixed(1) : null,
+      unit: 'dB',
+      statusFlag: sensor?.sound_status,
+      warn: (sensor?.sound_status ?? 0) > 0,
+    },
+  ];
+
+  return (
+    <div className="mt-4 rounded-xl border border-sky-100 bg-gradient-to-br from-sky-50/80 to-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-sky-700">
+            <Database className="h-3.5 w-3.5" />
+            Live Sensor Telemetry
+          </span>
+          {dbName && (
+            <span className="rounded-md bg-sky-100 px-2 py-0.5 font-mono text-[10px] text-sky-800">{dbName}</span>
+          )}
+        </div>
+        {sensor?.heat_stress_level && (
+          <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${heatColors.badge} text-white shadow-sm`}>
+            <AlertTriangle className="h-3 w-3" />
+            THI: {sensor.heat_stress_level}
+          </span>
+        )}
+      </div>
+
+      {!hasSensor ? (
+        <p className="text-xs text-slate-400 italic">
+          {dbName ? 'Awaiting first sensor reading from paired database…' : 'No paired sensor database found for this video.'}
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {metrics.map(({ label, icon, value, unit, warn }) => (
+              <div
+                key={label}
+                className={`rounded-lg border p-2.5 transition-colors ${
+                  warn
+                    ? 'border-amber-200 bg-amber-50'
+                    : 'border-slate-100 bg-white'
+                }`}
+              >
+                <div className={`flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide ${
+                  warn ? 'text-amber-600' : 'text-slate-400'
+                }`}>
+                  {icon}
+                  {label}
+                  {warn && <AlertTriangle className="h-2.5 w-2.5 ml-auto" />}
+                </div>
+                <div className={`mt-1 text-xl font-extrabold ${
+                  value == null ? 'text-slate-300' : warn ? 'text-amber-700' : 'text-slate-900'
+                }`}>
+                  {value ?? '—'}
+                  {value != null && <span className="ml-0.5 text-xs font-normal text-slate-500">{unit}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {(sensor?.thi != null) && (
+            <div className={`mt-2 flex items-center justify-between rounded-lg border px-3 py-2 ${heatColors.bg} ${heatColors.border}`}>
+              <div className="flex items-center gap-2">
+                <Gauge className={`h-4 w-4 ${heatColors.text}`} />
+                <span className={`text-xs font-semibold ${heatColors.text}`}>Temperature-Humidity Index (THI)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-extrabold ${heatColors.text}`}>{sensor.thi.toFixed(1)}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-white ${heatColors.badge}`}>
+                  {sensor.heat_stress_level || 'N/A'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {sensor?.video_time && (
+            <p className="mt-2 text-right text-[10px] text-slate-400">
+              Reading at video time {sensor.video_time}
+              {sensor.frame_index != null ? ` · frame ${sensor.frame_index.toLocaleString()}` : ''}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 const ENVIRONMENTAL_SENSOR_CHARTS = [
@@ -2589,10 +2753,22 @@ export default function DashboardPage() {
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Roosters</p>
                         <p className="mt-1 text-2xl font-bold text-red-700">{queueStatus.active_detection.rooster_count ?? '—'}</p>
                       </div>
-                      <div className="col-span-2 rounded-xl border border-sky-100 bg-white p-3">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Paired sensor database</p>
-                        <p className="mt-1 break-all font-mono text-xs font-medium text-slate-800">
-                          {queueStatus.active_detection.paired_sensor_database || 'No paired SQLite database found'}
+                    </div>
+                    {/* Live Sensor Status Panel */}
+                    <div className="col-span-2">
+                      <LiveSensorStatusPanel
+                        sensor={queueStatus.active_detection.sensor_data}
+                        summary={queueStatus.active_detection.sensor_summary}
+                        dbName={queueStatus.active_detection.paired_sensor_database}
+                      />
+                    </div>
+                    {/* Output folder info */}
+                    <div className="col-span-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 flex items-center gap-2">
+                      <FolderUp className="h-4 w-4 shrink-0 text-slate-400" />
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Output folder (today)</p>
+                        <p className="mt-0.5 font-mono text-[11px] text-slate-700 break-all">
+                          local-storage/videos/{new Date().toISOString().slice(0, 10)}/
                         </p>
                       </div>
                     </div>
@@ -2624,6 +2800,16 @@ export default function DashboardPage() {
                   </div>
                   <div className="text-xs text-slate-400 sm:text-right">
                     {queueStatus?.updated_at ? `Checked ${new Date(queueStatus.updated_at).toLocaleTimeString()}` : 'System ready'}
+                  </div>
+                </div>
+                <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                  <FolderUp className="h-4 w-4 shrink-0 text-slate-400" />
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Output video storage</p>
+                    <p className="mt-0.5 font-mono text-[11px] text-slate-600 break-all">
+                      local-storage/videos/<span className="text-slate-800 font-semibold">{new Date().toISOString().slice(0, 10)}</span>/
+                      &nbsp;·&nbsp;A new folder is created automatically each day.
+                    </p>
                   </div>
                 </div>
               </div>

@@ -214,12 +214,26 @@ def update_queue_status_json(payload: dict) -> Path:
     return path
 
 
-def copy_video_locally(src: str, dest_name: Optional[str] = None) -> Optional[Path]:
-    """Copies a finished video into the local videos folder."""
+def get_dated_videos_dir(target_date: Optional[date] = None) -> Path:
+    """Returns the dated subfolder inside VIDEOS_DIR for the given date (formatted YYYY-MM-DD, defaults to today)."""
+    d = target_date or datetime.now().date()
+    folder_name = d.strftime("%Y-%m-%d")
+    date_dir = VIDEOS_DIR / folder_name
+    date_dir.mkdir(parents=True, exist_ok=True)
+    return date_dir
+
+
+def copy_video_locally(
+    src: str,
+    dest_name: Optional[str] = None,
+    target_date: Optional[date] = None,
+) -> Optional[Path]:
+    """Copies a finished video into the local dated videos folder."""
     if not src or not os.path.isfile(src):
         return None
     ensure_dirs()
-    dest = VIDEOS_DIR / (dest_name or Path(src).name)
+    dest_dir = get_dated_videos_dir(target_date)
+    dest = dest_dir / (dest_name or Path(src).name)
     shutil.copy2(src, dest)
     return dest
 

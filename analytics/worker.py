@@ -28,10 +28,12 @@ from .behavior_engine import BehaviorAnalysisEngine, BehaviorChunkSummary
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from local_store import (
     VIDEOS_DIR,
+    get_dated_videos_dir,
     write_detection_status_json,
     write_live_detection_frame,
     write_results_json,
 )
+from .sensor_utils import read_sensor_db_status
 
 
 class AnalysisCancelled(Exception):
@@ -519,7 +521,7 @@ class ZampenAnalyticsWorker:
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         stride = max(1, self.cfg.frame_stride)
         writer, detected_path, staging_path = self._open_detected_writer(
-            filename, src_w, src_h, fps, stride
+            filename, src_w, src_h, fps, stride, target_date=datetime.date.today()
         )
         if writer is None or detected_path is None or staging_path is None:
             cap.release()
@@ -532,6 +534,7 @@ class ZampenAnalyticsWorker:
             raise RuntimeError(error)
 
         paired_db = self._find_paired_sensor_db(video_path)
+        sensor_status = read_sensor_db_status(paired_db, filename, limit_recent=10)
         write_detection_status_json({
             "job_id": job.id,
             "video_filename": filename,
@@ -542,6 +545,8 @@ class ZampenAnalyticsWorker:
             "identified_count": 0,
             "rooster_count": 0,
             "paired_sensor_database": paired_db.name if paired_db else None,
+            "sensor_data": sensor_status.get("current") if sensor_status.get("available") else None,
+            "sensor_summary": sensor_status.get("summary") if sensor_status.get("available") else None,
             "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
         })
 
@@ -739,6 +744,13 @@ class ZampenAnalyticsWorker:
                     )
                     paired_name = paired_db.name if paired_db else None
                     captured_at = datetime.datetime.utcnow().isoformat() + "Z"
+                    current_sensor = None
+                    try:
+                        sensor_info = read_sensor_db_status(paired_db, filename, limit_recent=1)
+                        if sensor_info.get("available"):
+                            current_sensor = sensor_info.get("current")
+                    except Exception:
+                        pass
                     write_detection_status_json({
                         "job_id": job.id,
                         "video_filename": filename,
@@ -749,6 +761,7 @@ class ZampenAnalyticsWorker:
                         "identified_count": identified_count,
                         "rooster_count": rooster_count,
                         "paired_sensor_database": paired_name,
+                        "sensor_data": current_sensor,
                         "captured_at": captured_at,
                     })
                     self._update_persisted_queue_status(
@@ -861,12 +874,13 @@ class ZampenAnalyticsWorker:
         height: int,
         fps: float,
         stride: int,
+        target_date: Optional[datetime.date] = None,
     ) -> Tuple[Optional[cv2.VideoWriter], Optional[str], Optional[str]]:
-        """Writes to a staging file so sync only sees a completed annotated video."""
-        VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+        """Writes to a staging file inside a date-formatted folder so sync only sees a completed annotated video."""
+        date_dir = get_dated_videos_dir(target_date)
         stem = Path(filename).stem
-        out_path = str(VIDEOS_DIR / f"{stem}_detected.mp4")
-        staging_path = str(VIDEOS_DIR / f"{stem}_detected.processing.mp4")
+        out_path = str(date_dir / f"{stem}_detected.mp4")
+        staging_path = str(date_dir / f"{stem}_detected.processing.mp4")
         if os.path.isfile(staging_path):
             os.remove(staging_path)
         write_fps = max(5.0, (fps or 20.0) / max(1, stride))
@@ -876,7 +890,7 @@ class ZampenAnalyticsWorker:
                 staging_path, cv2.VideoWriter_fourcc(*codec), write_fps, size
             )
             if writer.isOpened():
-                print(f"[RECORDER] Writing annotated video: {staging_path} ({size[0]}x{size[1]} @ {write_fps:.1f}fps, {codec})")
+                print(f"[RECORDER] Writing annotated video to date folder ({date_dir.name}): {staging_path} ({size[0]}x{size[1]} @ {write_fps:.1f}fps, {codec})")
                 return writer, out_path, staging_path
             writer.release()
             if os.path.isfile(staging_path):

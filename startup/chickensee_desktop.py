@@ -80,6 +80,10 @@ COLORS = {
     "amber":          "#f59e0b",         # Amber/gold
     "amber_soft":     "#2b1f07",         # Tinted amber badge background
     "amber_text":     "#fbbf24",         # High-legibility amber text
+    "blue_soft":      "#0c283f",         # Tinted sky blue card background
+    "blue_text":      "#38bdf8",         # High-legibility sky blue text
+    "purple_soft":    "#241442",         # Tinted violet card background
+    "purple_text":    "#c084fc",         # High-legibility violet text
     "border":         "#23293d",         # Clean subtle structural border
     "border_active":  "#6366f1",         # Active border
     "header_bg":      "#090b12",         # Sleek dark header
@@ -630,6 +634,7 @@ class ChickenSeeDesktop:
 
         tab_items = [
             ("dashboard", "Dashboard", "📊"),
+            ("sensors", "Data Sensors", "📡"),
             ("queue", "Queue", "⚡"),
             ("setup", "Setup & Settings", "⚙"),
         ]
@@ -670,10 +675,12 @@ class ChickenSeeDesktop:
         self.page_container.pack(fill="both", expand=True)
 
         self.dashboard = tk.Frame(self.page_container, bg=COLORS["background"])
+        self.sensors_page = tk.Frame(self.page_container, bg=COLORS["background"])
         self.queue_page = tk.Frame(self.page_container, bg=COLORS["background"])
         self.setup = tk.Frame(self.page_container, bg=COLORS["background"])
 
         self.pages["dashboard"] = self.dashboard
+        self.pages["sensors"] = self.sensors_page
         self.pages["queue"] = self.queue_page
         self.pages["setup"] = self.setup
 
@@ -691,6 +698,7 @@ class ChickenSeeDesktop:
         self.tabs = _TabsCompat(self)
 
         self._build_dashboard()
+        self._build_sensors_page()
         self._build_queue()
         self._build_setup()
 
@@ -747,6 +755,9 @@ class ChickenSeeDesktop:
         ttk.Button(actions, text="Open logs", command=self.open_logs).pack(
             side="right", padx=(0, 8)
         )
+        ttk.Button(actions, text="Open videos", command=self.open_videos_folder).pack(
+            side="right", padx=(0, 8)
+        )
 
         cards = ttk.Frame(self.dashboard)
         cards.pack(fill="x")
@@ -795,7 +806,7 @@ class ChickenSeeDesktop:
             padx=20,
             pady=16,
         )
-        active_card.pack(fill="x", pady=(14, 18))
+        active_card.pack(fill="x", pady=(14, 14))
         tk.Label(
             active_card,
             text="CURRENT ANALYSIS",
@@ -821,6 +832,85 @@ class ChickenSeeDesktop:
             justify="left",
         )
         self.storage_label.pack(anchor="w", pady=(4, 0))
+
+        # Dashboard: Paired Sensors Overview Card
+        sensor_card = tk.Frame(
+            self.dashboard,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        sensor_card.pack(fill="x", pady=(0, 14))
+
+        s_head = tk.Frame(sensor_card, bg=COLORS["surface"])
+        s_head.pack(fill="x")
+        tk.Label(
+            s_head,
+            text="PAIRED DATA SENSORS (SQLITE)",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+        self.dash_sensor_badge = tk.Label(
+            s_head,
+            text="●  STANDBY",
+            bg=COLORS["primary_soft"],
+            fg=COLORS["primary_hover"],
+            font=("Segoe UI Semibold", 8),
+            padx=8,
+            pady=3,
+        )
+        self.dash_sensor_badge.pack(side="right")
+
+        s_grid = tk.Frame(sensor_card, bg=COLORS["surface"])
+        s_grid.pack(fill="x", pady=(10, 8))
+        for col in range(4):
+            s_grid.columnconfigure(col, weight=1)
+
+        metric_items = [
+            ("TEMP", "dash_temp_label", "-- °C"),
+            ("HUMIDITY", "dash_humidity_label", "-- %"),
+            ("AMMONIA", "dash_ammonia_label", "-- ppm"),
+            ("HEAT STRESS", "dash_thi_label", "--"),
+        ]
+        for col_idx, (m_title, attr_name, default_val) in enumerate(metric_items):
+            m_box = tk.Frame(s_grid, bg=COLORS["surface_raised"], padx=12, pady=10)
+            m_box.grid(row=0, column=col_idx, sticky="nsew", padx=(0 if col_idx == 0 else 8, 0))
+            tk.Label(
+                m_box,
+                text=m_title,
+                bg=COLORS["surface_raised"],
+                fg=COLORS["ink_dim"],
+                font=("Segoe UI Semibold", 8),
+            ).pack(anchor="w")
+            lbl = tk.Label(
+                m_box,
+                text=default_val,
+                bg=COLORS["surface_raised"],
+                fg=COLORS["ink"],
+                font=("Segoe UI Semibold", 13),
+            )
+            lbl.pack(anchor="w", pady=(3, 0))
+            setattr(self, attr_name, lbl)
+
+        s_bottom = tk.Frame(sensor_card, bg=COLORS["surface"])
+        s_bottom.pack(fill="x")
+        self.dash_sensor_detail = tk.Label(
+            s_bottom,
+            text="Detecting paired SQLite telemetry databases alongside video files…",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        )
+        self.dash_sensor_detail.pack(side="left", anchor="w")
+        ttk.Button(
+            s_bottom,
+            text="📡  Open sensor visualizer →",
+            style="Secondary.TButton",
+            command=lambda: self._switch_tab("sensors"),
+        ).pack(side="right")
 
         test_card = tk.Frame(
             self.dashboard,
@@ -909,6 +999,232 @@ class ChickenSeeDesktop:
             state="disabled",
         )
         self.activity.pack(fill="both", expand=True)
+
+    def _build_sensors_page(self) -> None:
+        heading = tk.Frame(self.sensors_page, bg=COLORS["background"])
+        heading.pack(fill="x", pady=(0, 14))
+
+        title_box = tk.Frame(heading, bg=COLORS["background"])
+        title_box.pack(side="left", fill="x", expand=True)
+
+        tk.Label(
+            title_box,
+            text="Paired Data Sensors (SQLite)",
+            bg=COLORS["background"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 18),
+        ).pack(anchor="w")
+        tk.Label(
+            title_box,
+            text="Real-time SQLite sensor telemetry & environmental intelligence synchronized with video recordings.",
+            bg=COLORS["background"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(3, 0))
+
+        h_actions = tk.Frame(heading, bg=COLORS["background"])
+        h_actions.pack(side="right", anchor="n")
+
+        ttk.Button(
+            h_actions,
+            text="📂  Open DB Folder",
+            style="Secondary.TButton",
+            command=self.open_sensor_db_folder,
+        ).pack(side="right")
+
+        ttk.Button(
+            h_actions,
+            text="🔄  Refresh Sensors",
+            style="Secondary.TButton",
+            command=self._refresh_status,
+        ).pack(side="right", padx=(0, 8))
+
+        # Pairing Status Banner Card
+        banner = tk.Frame(
+            self.sensors_page,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=20,
+            pady=14,
+        )
+        banner.pack(fill="x", pady=(0, 14))
+
+        b_left = tk.Frame(banner, bg=COLORS["surface"])
+        b_left.pack(side="left", fill="x", expand=True)
+
+        self.sensors_video_title = tk.Label(
+            b_left,
+            text="🎬  No video actively paired",
+            bg=COLORS["surface"],
+            fg=COLORS["ink"],
+            font=("Segoe UI Semibold", 12),
+        )
+        self.sensors_video_title.pack(anchor="w")
+
+        self.sensors_db_title = tk.Label(
+            b_left,
+            text="💾  Database: Searching for paired SQLite database…",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        )
+        self.sensors_db_title.pack(anchor="w", pady=(3, 0))
+
+        self.sensors_db_path_label = tk.Label(
+            b_left,
+            text="",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 8),
+        )
+        self.sensors_db_path_label.pack(anchor="w", pady=(2, 0))
+
+        b_right = tk.Frame(banner, bg=COLORS["surface"])
+        b_right.pack(side="right", anchor="center")
+
+        self.sensors_sync_badge = tk.Label(
+            b_right,
+            text="●  SCANNING",
+            bg=COLORS["amber_soft"],
+            fg=COLORS["amber_text"],
+            font=("Segoe UI Semibold", 9),
+            padx=12,
+            pady=6,
+        )
+        self.sensors_sync_badge.pack(side="right")
+
+        # 4 Environmental Metric Gauge Cards Grid
+        metrics_grid = tk.Frame(self.sensors_page, bg=COLORS["background"])
+        metrics_grid.pack(fill="x", pady=(0, 14))
+
+        for i in range(4):
+            metrics_grid.columnconfigure(i, weight=1)
+
+        self.sensor_cards = {}
+        cards_def = [
+            ("temp", "🌡 TEMPERATURE", COLORS["blue_text"], COLORS["blue_soft"]),
+            ("humidity", "💧 HUMIDITY", COLORS["blue_text"], COLORS["blue_soft"]),
+            ("ammonia", "🧪 AMMONIA (NH3)", COLORS["amber_text"], COLORS["amber_soft"]),
+            ("thi", "☀️ HEAT STRESS (THI)", COLORS["purple_text"], COLORS["purple_soft"]),
+        ]
+
+        for idx, (cid, title, accent_color, accent_bg) in enumerate(cards_def):
+            card = tk.Frame(
+                metrics_grid,
+                bg=COLORS["surface"],
+                highlightbackground=COLORS["border"],
+                highlightthickness=1,
+                padx=16,
+                pady=14,
+            )
+            card.grid(row=0, column=idx, sticky="nsew", padx=(0 if idx == 0 else 8, 0))
+
+            c_top = tk.Frame(card, bg=COLORS["surface"])
+            c_top.pack(fill="x")
+            tk.Label(
+                c_top,
+                text=title,
+                bg=COLORS["surface"],
+                fg=COLORS["ink_dim"],
+                font=("Segoe UI Semibold", 9),
+            ).pack(side="left")
+
+            badge = tk.Label(
+                c_top,
+                text="—",
+                bg=accent_bg,
+                fg=accent_color,
+                font=("Segoe UI Semibold", 8),
+                padx=6,
+                pady=2,
+            )
+            badge.pack(side="right")
+
+            val_label = tk.Label(
+                card,
+                text="--",
+                bg=COLORS["surface"],
+                fg=COLORS["ink"],
+                font=("Segoe UI Semibold", 20),
+            )
+            val_label.pack(anchor="w", pady=(8, 4))
+
+            sub_label = tk.Label(
+                card,
+                text="Awaiting SQLite readings",
+                bg=COLORS["surface"],
+                fg=COLORS["muted"],
+                font=("Segoe UI", 8),
+            )
+            sub_label.pack(anchor="w")
+
+            self.sensor_cards[cid] = {
+                "val": val_label,
+                "badge": badge,
+                "sub": sub_label,
+            }
+
+        # Telemetry Log Records Table
+        t_card = tk.Frame(
+            self.sensors_page,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+            padx=16,
+            pady=12,
+        )
+        t_card.pack(fill="both", expand=True)
+
+        t_head = tk.Frame(t_card, bg=COLORS["surface"])
+        t_head.pack(fill="x", pady=(0, 8))
+
+        tk.Label(
+            t_head,
+            text="LATEST PAIRED SENSOR LOG RECORDS (SQLITE)",
+            bg=COLORS["surface"],
+            fg=COLORS["primary"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left")
+
+        self.sensor_records_summary = tk.Label(
+            t_head,
+            text="0 records loaded",
+            bg=COLORS["surface"],
+            fg=COLORS["ink_dim"],
+            font=("Segoe UI", 9),
+        )
+        self.sensor_records_summary.pack(side="right")
+
+        table_frame = tk.Frame(t_card, bg=COLORS["surface"])
+        table_frame.pack(fill="both", expand=True)
+
+        columns = ("time", "timestamp", "temp", "humidity", "ammonia", "sound", "thi", "stress")
+        self.sensor_tree = ttk.Treeview(
+            table_frame, columns=columns, show="headings", height=8
+        )
+        for key, label, width in (
+            ("time", "Video Time / Elapsed", 130),
+            ("timestamp", "Timestamp", 190),
+            ("temp", "Temp (°C)", 90),
+            ("humidity", "Humidity (%)", 90),
+            ("ammonia", "Ammonia (ppm)", 110),
+            ("sound", "Sound (dB) / Lux", 110),
+            ("thi", "THI Index", 85),
+            ("stress", "Heat Stress Level", 120),
+        ):
+            self.sensor_tree.heading(key, text=label)
+            self.sensor_tree.column(key, width=width, anchor="w")
+
+        self.sensor_tree.tag_configure("normal", foreground=COLORS["ink"])
+        self.sensor_tree.tag_configure("moderate", foreground=COLORS["amber_text"])
+        self.sensor_tree.tag_configure("severe", foreground=COLORS["red_text"])
+        self.sensor_tree.tag_configure("emergency", foreground="#f43f5e", font=("Segoe UI Semibold", 9))
+
+        s_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.sensor_tree.yview)
+        self.sensor_tree.configure(yscrollcommand=s_scroll.set)
+        self.sensor_tree.pack(side="left", fill="both", expand=True)
+        s_scroll.pack(side="right", fill="y")
 
     def _build_queue(self) -> None:
         heading = ttk.Frame(self.queue_page)
@@ -1832,6 +2148,27 @@ class ChickenSeeDesktop:
         except OSError as error:
             messagebox.showerror("Could not open logs", str(error))
 
+    def open_videos_folder(self) -> None:
+        try:
+            from local_store import get_dated_videos_dir
+            date_dir = get_dated_videos_dir()
+            date_dir.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(date_dir))
+        except Exception as error:
+            messagebox.showerror("Could not open videos folder", str(error))
+
+    def open_sensor_db_folder(self) -> None:
+        p = getattr(self, "_current_sensor_db_path", None)
+        if p and Path(p).is_file():
+            target_folder = Path(p).parent
+        else:
+            target_folder = PROJECT_ROOT / "agent" / "data"
+        try:
+            target_folder.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(target_folder))
+        except Exception as error:
+            messagebox.showerror("Could not open folder", str(error))
+
     def open_api_docs(self) -> None:
         webbrowser.open("http://127.0.0.1:8000/docs")
 
@@ -1881,85 +2218,143 @@ class ChickenSeeDesktop:
             self.events.put(("cancel_done", False, f"Could not request cancellation: {error}"))
 
     def _status_worker(self) -> None:
-        statuses = find_service_processes()
-        health = None
-        health_error = None
-        queue_data = None
-        queue_error = None
         try:
-            with urllib.request.urlopen(HEALTH_URL, timeout=2) as response:
-                health = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
-            health_error = str(error)
-        if health:
+            statuses = find_service_processes()
+            health = None
+            health_error = None
+            queue_data = None
+            queue_error = None
+            sensor_data = None
             try:
-                with urllib.request.urlopen(QUEUE_URL, timeout=4) as response:
-                    queue_data = json.loads(response.read().decode("utf-8"))
+                with urllib.request.urlopen(HEALTH_URL, timeout=4) as response:
+                    health = json.loads(response.read().decode("utf-8"))
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
-                queue_error = str(error)
-        else:
-            queue_error = health_error or "Analytics API is unavailable."
-        self.events.put(("status", statuses, health, health_error, queue_data, queue_error))
+                health_error = str(error)
+            if health:
+                try:
+                    with urllib.request.urlopen(QUEUE_URL, timeout=8) as response:
+                        queue_data = json.loads(response.read().decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+                    queue_error = str(error)
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=4) as response:
+                        sensor_data = json.loads(response.read().decode("utf-8"))
+                except Exception:
+                    pass
+            else:
+                queue_error = health_error or "Analytics API is unavailable."
+
+            # Fallback local SQLite sensor discovery if API did not return sensor telemetry
+            if not sensor_data or not sensor_data.get("available"):
+                try:
+                    from analytics.sensor_utils import read_sensor_db_status
+                    from local_store import read_detection_status_json
+                    d_stat = read_detection_status_json() or {}
+                    active_vid = d_stat.get("video_filename")
+                    p_db = None
+                    for d in self.settings.get("directories", []):
+                        dp = Path(d)
+                        if dp.is_dir():
+                            for p in dp.glob("*.sqlite"):
+                                p_db = p
+                                break
+                            if p_db:
+                                break
+                            for p in dp.glob("*.db"):
+                                if "zampen" not in p.name:
+                                    p_db = p
+                                    break
+                            if p_db:
+                                break
+                    if not p_db:
+                        cand = PROJECT_ROOT / "agent" / "data" / "sensors.sqlite"
+                        if cand.is_file():
+                            p_db = cand
+                    if not p_db:
+                        cand = PROJECT_ROOT / "agent" / "data" / "chicken_telemetry.db"
+                        if cand.is_file():
+                            p_db = cand
+                    if p_db:
+                        fallback_data = read_sensor_db_status(p_db, active_vid, limit_recent=30)
+                        if fallback_data.get("available"):
+                            sensor_data = fallback_data
+                except Exception:
+                    pass
+
+            self.events.put(("status", statuses, health, health_error, queue_data, queue_error, sensor_data))
+        except Exception as error:
+            self.events.put(("status_error", str(error)))
 
     def _schedule_refresh(self) -> None:
         self._refresh_status()
         self.root.after(REFRESH_INTERVAL_MS, self._schedule_refresh)
 
     def _drain_events(self) -> None:
-        while True:
-            try:
-                event = self.events.get_nowait()
-            except queue.Empty:
-                break
-            if event[0] == "log":
-                self._log(event[1])
-            elif event[0] == "status":
-                self.refresh_in_progress = False
-                self._display_status(event[1], event[2], event[3])
-                self._display_queue(event[4], event[5])
-                if self.refresh_pending:
-                    self.refresh_pending = False
-                    self.root.after(0, self._refresh_status)
-            elif event[0] == "cancel_done":
-                self.cancel_in_progress = False
-                self.cancel_analysis_button.configure(text="Cancel analysis")
-                if event[1]:
-                    self._log(event[2])
-                else:
-                    messagebox.showerror("Could not cancel analysis", event[2])
-                self._refresh_status()
-            elif event[0] == "initialize_done":
-                self._set_busy(False)
-                if event[1]:
-                    messagebox.showinfo("Initialization complete", event[2])
-                else:
-                    messagebox.showerror("Initialization failed", event[2])
-            elif event[0] == "stop_done":
-                self.stopping_services = False
-                if event[1]:
-                    self._log(event[2])
-                else:
-                    self._log(f"Stop failed: {event[2]}")
-                    messagebox.showerror("Could not stop ChickenSee", event[2])
-                self._refresh_status()
-            elif event[0] == "start_done":
-                self.starting_services = False
-                if event[1]:
-                    self._log(event[2])
-                else:
-                    self._log(f"Start failed: {event[2]}")
-                    messagebox.showerror("Could not start ChickenSee", event[2])
-                self._refresh_status()
-            elif event[0] == "startup_done":
-                self._set_busy(False)
-                if event[1]:
-                    messagebox.showinfo("Startup settings updated", event[2])
-                else:
-                    messagebox.showerror(
-                        "Startup setup failed",
-                        "The startup installer failed. See the activity log for details.",
-                    )
-        self.root.after(250, self._drain_events)
+        try:
+            while True:
+                try:
+                    event = self.events.get_nowait()
+                except queue.Empty:
+                    break
+                if event[0] == "log":
+                    self._log(event[1])
+                elif event[0] == "status":
+                    self.refresh_in_progress = False
+                    self._display_status(event[1], event[2], event[3])
+                    self._display_queue(event[4], event[5])
+                    if len(event) > 6:
+                        self._display_sensors(event[6])
+                    if self.refresh_pending:
+                        self.refresh_pending = False
+                        self.root.after(0, self._refresh_status)
+                elif event[0] == "status_error":
+                    self.refresh_in_progress = False
+                    if self.refresh_pending:
+                        self.refresh_pending = False
+                        self.root.after(1000, self._refresh_status)
+                elif event[0] == "cancel_done":
+                    self.cancel_in_progress = False
+                    self.cancel_analysis_button.configure(text="Cancel analysis")
+                    if event[1]:
+                        self._log(event[2])
+                    else:
+                        messagebox.showerror("Could not cancel analysis", event[2])
+                    self._refresh_status()
+                elif event[0] == "initialize_done":
+                    self._set_busy(False)
+                    if event[1]:
+                        messagebox.showinfo("Initialization complete", event[2])
+                    else:
+                        messagebox.showerror("Initialization failed", event[2])
+                elif event[0] == "stop_done":
+                    self.stopping_services = False
+                    if event[1]:
+                        self._log(event[2])
+                    else:
+                        self._log(f"Stop failed: {event[2]}")
+                        messagebox.showerror("Could not stop ChickenSee", event[2])
+                    self._refresh_status()
+                elif event[0] == "start_done":
+                    self.starting_services = False
+                    if event[1]:
+                        self._log(event[2])
+                    else:
+                        self._log(f"Start failed: {event[2]}")
+                        messagebox.showerror("Could not start ChickenSee", event[2])
+                    self._refresh_status()
+                elif event[0] == "startup_done":
+                    self._set_busy(False)
+                    if event[1]:
+                        messagebox.showinfo("Startup settings updated", event[2])
+                    else:
+                        messagebox.showerror(
+                            "Startup setup failed",
+                            "The startup installer failed. See the activity log for details.",
+                        )
+        except Exception as drain_err:
+            self._log(f"UI drain event error: {drain_err}")
+        finally:
+            self.root.after(250, self._drain_events)
 
     def _display_status(self, statuses: Dict[str, List[int]], health, health_error) -> None:
         active = []
@@ -1999,10 +2394,13 @@ class ChickenSeeDesktop:
             self.job_label.configure(
                 text=job or "Startup services are running; no video is being analyzed right now"
             )
+            from local_store import get_dated_videos_dir
+            today_dir = get_dated_videos_dir().name
             self.storage_label.configure(
                 text=(
                     f"Completed: {health.get('storage', {}).get('completed_jobs', 0)}"
                     f"    Failed: {health.get('storage', {}).get('failed_jobs', 0)}"
+                    f"    Dated Videos: videos/{today_dir}"
                     f"    Results: {self.settings['storage_root']}"
                     f"    Cloud sync: {'On' if self.settings['cloud_sync'] else 'Off'}"
                 )
@@ -2298,6 +2696,160 @@ class ChickenSeeDesktop:
             pass
         for child in widget.winfo_children():
             self._set_widget_state(child, state)
+
+    def _display_sensors(self, sensor_data: Optional[Dict[str, Any]]) -> None:
+        if not hasattr(self, "sensor_cards"):
+            return
+
+        if not sensor_data or not sensor_data.get("available"):
+            if hasattr(self, "dash_sensor_badge"):
+                self.dash_sensor_badge.configure(
+                    text="●  STANDBY (NO DB)", bg=COLORS["surface_raised"], fg=COLORS["muted"]
+                )
+                self.dash_temp_label.configure(text="-- °C")
+                self.dash_humidity_label.configure(text="-- %")
+                self.dash_ammonia_label.configure(text="-- ppm")
+                self.dash_thi_label.configure(text="--")
+                self.dash_sensor_detail.configure(
+                    text="No sensor database currently paired. Save .sqlite/.db sensor files in your video folders."
+                )
+
+            self.sensors_video_title.configure(text="🎬  No video actively paired")
+            self.sensors_db_title.configure(text="💾  Database: No paired SQLite database detected")
+            self.sensors_db_path_label.configure(text="Place sensors.sqlite alongside video files in your watch folders")
+            self.sensors_sync_badge.configure(
+                text="●  STANDBY", bg=COLORS["surface_raised"], fg=COLORS["muted"]
+            )
+            for cid in self.sensor_cards:
+                self.sensor_cards[cid]["val"].configure(text="--")
+                self.sensor_cards[cid]["badge"].configure(text="No data")
+                self.sensor_cards[cid]["sub"].configure(text="Waiting for sensor SQLite file")
+            self.sensor_records_summary.configure(text="0 records loaded")
+            for item_id in self.sensor_tree.get_children():
+                self.sensor_tree.delete(item_id)
+            return
+
+        self._current_sensor_db_path = sensor_data.get("database_path")
+        db_name = sensor_data.get("database_name", "sensors.sqlite")
+        video_name = sensor_data.get("paired_video") or "Session Telemetry"
+        total_records = sensor_data.get("total_records", 0)
+        current = sensor_data.get("current") or {}
+        summary = sensor_data.get("summary") or {}
+        is_active = sensor_data.get("is_actively_processing", False)
+
+        # Update Dashboard overview card
+        if hasattr(self, "dash_sensor_badge"):
+            badge_text = f"●  PAIRED: {db_name}" if not is_active else f"●  LIVE: {db_name}"
+            badge_bg = COLORS["green_soft"] if is_active else COLORS["primary_soft"]
+            badge_fg = COLORS["green_text"] if is_active else COLORS["primary_hover"]
+            self.dash_sensor_badge.configure(text=badge_text, bg=badge_bg, fg=badge_fg)
+
+            t_val = f"{current.get('temperature_c', '--')} °C" if current.get('temperature_c') is not None else "-- °C"
+            h_val = f"{current.get('humidity_pct', '--')} %" if current.get('humidity_pct') is not None else "-- %"
+            nh3 = current.get('ammonia_ppm')
+            nh3_val = f"{nh3:.4f} ppm" if nh3 is not None else "-- ppm"
+            thi_val = f"{current.get('heat_stress_level', 'Normal')} ({current.get('thi', '--')})"
+
+            self.dash_temp_label.configure(text=t_val)
+            self.dash_humidity_label.configure(text=h_val)
+            self.dash_ammonia_label.configure(text=nh3_val)
+            self.dash_thi_label.configure(text=thi_val)
+            self.dash_sensor_detail.configure(
+                text=f"Paired video: {video_name}  ·  Database: {db_name} ({total_records:,} sensor readings recorded)"
+            )
+
+        # Update Sensors page
+        self.sensors_video_title.configure(text=f"🎬  Paired Video: {video_name}")
+        self.sensors_db_title.configure(text=f"💾  Database: {db_name} ({total_records:,} sensor readings)")
+        self.sensors_db_path_label.configure(text=sensor_data.get("database_path", ""))
+        sync_text = "●  SYNCHRONIZED (ACTIVE)" if is_active else "●  PAIRED & READY"
+        sync_bg = COLORS["green_soft"] if is_active else COLORS["primary_soft"]
+        sync_fg = COLORS["green_text"] if is_active else COLORS["primary_hover"]
+        self.sensors_sync_badge.configure(text=sync_text, bg=sync_bg, fg=sync_fg)
+
+        # Temp card
+        t = current.get("temperature_c")
+        if t is not None:
+            self.sensor_cards["temp"]["val"].configure(text=f"{t:.1f} °C")
+            t_status = "Optimal (18–24°C)" if 18 <= t <= 24 else ("Warm" if t <= 30 else "Hot (>30°C)")
+            t_color = COLORS["green_text"] if 18 <= t <= 24 else (COLORS["amber_text"] if t <= 30 else COLORS["red_text"])
+            t_bg = COLORS["green_soft"] if 18 <= t <= 24 else (COLORS["amber_soft"] if t <= 30 else COLORS["red_soft"])
+            self.sensor_cards["temp"]["badge"].configure(text=t_status, fg=t_color, bg=t_bg)
+            t_sub = f"Min: {summary.get('temp_min_c', '--')}° | Max: {summary.get('temp_max_c', '--')}° | Avg: {summary.get('temp_avg_c', '--')}°"
+            self.sensor_cards["temp"]["sub"].configure(text=t_sub)
+
+        # Humidity card
+        h = current.get("humidity_pct")
+        if h is not None:
+            self.sensor_cards["humidity"]["val"].configure(text=f"{h:.1f} %")
+            h_status = "Comfort (50–70%)" if 50 <= h <= 70 else ("Dry (<50%)" if h < 50 else "Humid (>70%)")
+            h_color = COLORS["green_text"] if 50 <= h <= 70 else COLORS["amber_text"]
+            h_bg = COLORS["green_soft"] if 50 <= h <= 70 else COLORS["amber_soft"]
+            self.sensor_cards["humidity"]["badge"].configure(text=h_status, fg=h_color, bg=h_bg)
+            h_sub = f"Min: {summary.get('humidity_min_pct', '--')}% | Max: {summary.get('humidity_max_pct', '--')}% | Avg: {summary.get('humidity_avg_pct', '--')}%"
+            self.sensor_cards["humidity"]["sub"].configure(text=h_sub)
+
+        # Ammonia card
+        nh3 = current.get("ammonia_ppm")
+        if nh3 is not None:
+            self.sensor_cards["ammonia"]["val"].configure(text=f"{nh3:.4f} ppm")
+            a_status = "Safe (<20 ppm)" if nh3 < 20 else ("Warning (20–25)" if nh3 <= 25 else "Hazard (>25 ppm)")
+            a_color = COLORS["green_text"] if nh3 < 20 else (COLORS["amber_text"] if nh3 <= 25 else COLORS["red_text"])
+            a_bg = COLORS["green_soft"] if nh3 < 20 else (COLORS["amber_soft"] if nh3 <= 25 else COLORS["red_soft"])
+            self.sensor_cards["ammonia"]["badge"].configure(text=a_status, fg=a_color, bg=a_bg)
+            a_sub = f"Avg: {summary.get('ammonia_ppm_avg', '--')} ppm | Max: {summary.get('ammonia_ppm_max', '--')} ppm"
+            self.sensor_cards["ammonia"]["sub"].configure(text=a_sub)
+
+        # THI card
+        thi = current.get("thi")
+        stress = current.get("heat_stress_level", "Normal")
+        if thi is not None:
+            self.sensor_cards["thi"]["val"].configure(text=f"{thi:.1f}")
+            s_color = COLORS["green_text"] if stress == "Normal" else (COLORS["amber_text"] if stress == "Moderate" else COLORS["red_text"])
+            s_bg = COLORS["green_soft"] if stress == "Normal" else (COLORS["amber_soft"] if stress == "Moderate" else COLORS["red_soft"])
+            self.sensor_cards["thi"]["badge"].configure(text=stress, fg=s_color, bg=s_bg)
+            self.sensor_cards["thi"]["sub"].configure(text="THI Index (74 Mod, 79 Sev, 84 Emg)")
+
+        # Populate table
+        recent = sensor_data.get("recent_readings", [])
+        self.sensor_records_summary.configure(text=f"Showing latest {len(recent)} of {total_records:,} sensor readings")
+        for item_id in self.sensor_tree.get_children():
+            self.sensor_tree.delete(item_id)
+
+        for row in recent:
+            st = (row.get("heat_stress_level") or "normal").lower()
+            tag = "normal"
+            if "emergency" in st or "severe" in st:
+                tag = "severe"
+            elif "mod" in st or "mild" in st:
+                tag = "moderate"
+
+            sound_lux_val = "—"
+            if row.get("sound_db") is not None:
+                sound_lux_val = f"{row['sound_db']:.1f} dB"
+            elif row.get("lux") is not None:
+                sound_lux_val = f"{row['lux']:.1f} lux"
+
+            t_str = f"{row['temperature_c']:.1f}°" if row.get('temperature_c') is not None else "—"
+            h_str = f"{row['humidity_pct']:.1f}%" if row.get('humidity_pct') is not None else "—"
+            a_str = f"{row['ammonia_ppm']:.5f}" if row.get('ammonia_ppm') is not None else "—"
+            thi_str = f"{row['thi']:.1f}" if row.get('thi') is not None else "—"
+
+            self.sensor_tree.insert(
+                "",
+                "end",
+                values=(
+                    row.get("video_time", "—"),
+                    str(row.get("captured_at", "—"))[:19].replace("T", " "),
+                    t_str,
+                    h_str,
+                    a_str,
+                    sound_lux_val,
+                    thi_str,
+                    row.get("heat_stress_level", "Normal"),
+                ),
+                tags=(tag,),
+            )
 
     def _log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")

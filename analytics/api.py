@@ -416,6 +416,54 @@ def get_live_detection_frame():
     return FileResponse(preview_path, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/sensors/status", tags=["Sensor Telemetry"])
+def get_sensor_status():
+    """
+    Visualize the current status of the data sensors (SQLite) paired with the video.
+    Returns latest telemetry, environment averages (temp, humidity, ammonia, THI),
+    pairing status, and recent historical logs.
+    """
+    from .sensor_utils import read_sensor_db_status, find_paired_sensor_db
+    from local_store import read_detection_status_json
+
+    detection_status = read_detection_status_json() or {}
+    active_video = detection_status.get("video_filename")
+
+    db_path = None
+    paired_video = active_video
+
+    with DB.get_session() as session:
+        active_job = session.query(ProcessingJob).filter_by(status=JobStatus.PROCESSING).first()
+        if active_job:
+            paired_video = active_job.video_filename
+            db_path = find_paired_sensor_db(active_job.video_path)
+
+        if not db_path:
+            latest_job = session.query(ProcessingJob).filter_by(status=JobStatus.COMPLETED).order_by(ProcessingJob.id.desc()).first()
+            if latest_job:
+                if not paired_video:
+                    paired_video = latest_job.video_filename
+                db_path = find_paired_sensor_db(latest_job.video_path)
+
+    if not db_path:
+        from .config import SENSOR_DB_PATH, PROJECT_ROOT
+        candidates = [
+            SENSOR_DB_PATH,
+            PROJECT_ROOT / "agent" / "data" / "sensors.sqlite",
+            PROJECT_ROOT / "agent" / "data" / "chicken_telemetry.db",
+            PROJECT_ROOT / "sensors.sqlite",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                db_path = candidate
+                break
+
+    status_data = read_sensor_db_status(db_path, paired_video, limit_recent=30)
+    status_data["is_actively_processing"] = bool(active_video and detection_status.get("status") == "PROCESSING")
+    status_data["detection_status"] = detection_status
+    return status_data
+
+
 @app.post("/jobs/trigger", tags=["Job State Manager"])
 def trigger_process_file(
     video_filename: str,
