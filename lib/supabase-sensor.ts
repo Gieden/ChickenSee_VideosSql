@@ -1,10 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-export const SUPABASE_SENSOR_URL =
+export const SUPABASE_SENSOR_URL: string =
   process.env.NEXT_PUBLIC_SUPABASE_SENSOR_URL || 'https://aoskfztsusjucgwdhtmc.supabase.co';
 
-export const SUPABASE_SENSOR_ANON_KEY =
+export const SUPABASE_SENSOR_ANON_KEY: string =
   process.env.NEXT_PUBLIC_SUPABASE_SENSOR_ANON_KEY || 'sb_publishable_D56jgW8116Z6v9n19vbmlQ_tkjzllDN';
+
 
 export interface SensorLogRow {
   id: number;
