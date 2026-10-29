@@ -810,16 +810,24 @@ class ZampenAnalyticsWorker:
                 "unique_birds_tracked": summary.unique_birds,
                 "avg_birds_in_frame": summary.avg_birds_present,
                 "flock_mobility_px_s": summary.flock_mobility_px_s,
+                # 1. Reduced Feeding Behavior
                 "feeding_time_total_s": summary.feeding_time_total_s,
                 "feeding_bouts": summary.feeding_bouts,
+                "reduced_feeding_events": summary.reduced_feeding_events,
                 "reduced_eating_events": summary.reduced_eating_events,
                 "reduced_eating_index": summary.reduced_eating_index,
+                # 2. Reduced Drinking Behavior
                 "drinking_time_total_s": summary.drinking_time_total_s,
                 "drinking_bouts": summary.drinking_bouts,
                 "drinking_frequency_per_bird": summary.drinking_frequency_per_bird,
+                "reduced_drinking_events": summary.reduced_drinking_events,
+                # 3. Prolonged Low Activity
                 "inactivity_time_total_s": summary.inactivity_time_total_s,
                 "inactivity_pct": summary.inactivity_pct,
+                "prolonged_low_activity_events": summary.prolonged_low_activity_events,
                 "lethargic_birds_flagged": summary.lethargic_birds_flagged,
+                # 4. Social Isolation
+                "social_isolation_events": summary.social_isolation_events,
                 "feather_pecking_events": summary.feather_pecking_events,
                 "agitation_score": summary.agitation_score,
             }

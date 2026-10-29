@@ -47,26 +47,34 @@ class AnalyticsConfig(BaseModel):
     sensor_db_url: str = f"sqlite:///{SENSOR_DB_PATH.as_posix()}"
     analytics_db_url: str = f"sqlite:///{ANALYTICS_DB_PATH.as_posix()}"
 
-    # Behavior Detection Thresholds (pixels & seconds for 640x360 or 1280x720 video)
+    # Precise 4-Behavior Detection Thresholds (pixels & seconds for 640x360 or 1280x720 video)
+    # 1. Reduced Feeding Behavior Thresholds
     feeder_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to feeder bounding box")
-    waterer_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to waterer bounding box")
+    reduced_feeding_idle_seconds: float = Field(default=10.0, description="Sustained idle time near feeder indicating reduced feeding")
+    reduced_feeding_motion_threshold_px_s: float = Field(default=3.5, description="Maximum motion displacement for idle lingering at feeder")
+    reduced_eating_motion_threshold_px_s: float = Field(default=3.5, description="Legacy alias for reduced_feeding_motion_threshold_px_s")
+
+    # 2. Reduced Drinking Behavior Thresholds
+    waterer_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to waterer/drinker bounding box")
+    reduced_drinking_idle_seconds: float = Field(default=8.0, description="Sustained idle time near drinker indicating reduced drinking")
+    reduced_drinking_motion_threshold_px_s: float = Field(default=3.0, description="Maximum motion displacement for idle lingering at drinker")
+    drinker_visit_deficit_seconds: float = Field(default=600.0, description="Sustained interval without drinking indicating drinking deficit")
+
+    # 3. Prolonged Low Activity Thresholds
+    low_activity_velocity_threshold_px_s: float = Field(default=3.0, description="Centroid displacement below which bird is stationary")
+    prolonged_low_activity_duration_s: float = Field(default=60.0, description="Sustained stationary seconds to flag prolonged low activity")
+    inactivity_velocity_threshold_px_s: float = Field(default=3.0, description="Legacy alias for low_activity_velocity_threshold_px_s")
+    inactivity_sustained_duration_s: float = Field(default=60.0, description="Legacy alias for prolonged_low_activity_duration_s")
+
+    # 4. Social Isolation Thresholds
+    social_isolation_distance_px: float = Field(default=180.0, description="Nearest-neighbor distance threshold for spatial isolation")
+    social_isolation_duration_s: float = Field(default=10.0, description="Continuous seconds away from flock to flag social isolation")
+    social_isolation_relative_ratio: float = Field(default=2.2, description="Ratio of nearest-neighbor distance to flock median distance")
     
-    # Inactivity Thresholds
-    inactivity_velocity_threshold_px_s: float = Field(default=3.5, description="Centroid displacement below which bird is stationary")
-    inactivity_sustained_duration_s: float = Field(default=180.0, description="Sustained stationary seconds to flag lethargy")
-    
-    # Reduced Eating Thresholds
-    reduced_eating_motion_threshold_px_s: float = Field(
-        default=4.0, 
-        description="Minimum localized jitter/pecking motion required while in feeder zone"
-    )
-    
-    # Feather Pecking Detection Thresholds
-    # Tuned for 640-wide video at 15 fps with ByteTrack smoothed centroids.
-    # At 640px width a bird body is ~40-60px; 22 px/s ≈ brisk directional charge.
+    # Legacy interaction thresholds (preserved for backward compatibility)
     feather_pecking_proximity_px: float = Field(default=60.0, description="Inter-bird centroid distance threshold for close interaction")
-    feather_pecking_approach_speed_px_s: float = Field(default=22.0, description="Minimum aggressor approach speed (px/s) indicating aggression")
-    feather_pecking_escape_speed_px_s: float = Field(default=18.0, description="Minimum victim escape acceleration burst (px/s)")
+    feather_pecking_approach_speed_px_s: float = Field(default=22.0, description="Minimum approach speed (px/s)")
+    feather_pecking_escape_speed_px_s: float = Field(default=18.0, description="Minimum escape speed (px/s)")
 
     # Server API
     api_host: str = Field(default="0.0.0.0", description="FastAPI host")

@@ -1028,6 +1028,85 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         summary = self.engine.compute_chunk_summary()
         self.assertGreaterEqual(summary.feather_pecking_events, 1)
 
+    def test_behavior_reduced_feeding(self):
+        """Test Reduced Feeding Behavior: bird sits idle near feeder without active feeding intake."""
+        feeder_det = TrackedDetection(
+            box=[300, 300, 400, 400], centroid=(350, 350), confidence=0.9,
+            class_id=2, class_name="Feeder", track_id=None, bird_label="Feeder"
+        )
+        stationary_bird = TrackedDetection(
+            box=[320, 320, 360, 360], centroid=(340, 340), confidence=0.85,
+            class_id=0, class_name="Chicken", track_id=202, bird_label="Hen1 (Green)"
+        )
+        dt = 1.0
+        for step in range(25):
+            frame_out = TrackerFrameOutput(
+                frame_idx=step, timestamp_s=step * dt,
+                birds=[stationary_bird], feeders=[feeder_det], drinkers=[]
+            )
+            self.engine.process_frame(frame_out, dt=dt)
+
+        summary = self.engine.compute_chunk_summary()
+        self.assertGreaterEqual(summary.reduced_feeding_events, 1)
+
+    def test_behavior_reduced_drinking(self):
+        """Test Reduced Drinking Behavior: bird lingers idle near drinker without drinking interaction."""
+        drinker_det = TrackedDetection(
+            box=[100, 100, 150, 150], centroid=(125, 125), confidence=0.9,
+            class_id=1, class_name="Drinker", track_id=None, bird_label="Drinker"
+        )
+        idle_drinker_bird = TrackedDetection(
+            box=[110, 110, 140, 140], centroid=(125, 125), confidence=0.9,
+            class_id=0, class_name="Chicken", track_id=303, bird_label="Hen2 (White)"
+        )
+        dt = 1.0
+        for step in range(20):
+            frame_out = TrackerFrameOutput(
+                frame_idx=step, timestamp_s=step * dt,
+                birds=[idle_drinker_bird], feeders=[], drinkers=[drinker_det]
+            )
+            self.engine.process_frame(frame_out, dt=dt)
+
+        summary = self.engine.compute_chunk_summary()
+        self.assertGreaterEqual(summary.reduced_drinking_events, 1)
+
+    def test_behavior_prolonged_low_activity(self):
+        """Test Prolonged Low Activity: bird remains stationary for sustained duration."""
+        stationary_bird = TrackedDetection(
+            box=[500, 500, 550, 550], centroid=(525, 525), confidence=0.9,
+            class_id=0, class_name="Rooster", track_id=404, bird_label="Rooster"
+        )
+        dt = 1.0
+        for step in range(70):  # Exceeds prolonged_low_activity_duration_s (60s)
+            frame_out = TrackerFrameOutput(
+                frame_idx=step, timestamp_s=step * dt,
+                birds=[stationary_bird], feeders=[], drinkers=[]
+            )
+            self.engine.process_frame(frame_out, dt=dt)
+
+        summary = self.engine.compute_chunk_summary()
+        self.assertGreaterEqual(summary.prolonged_low_activity_events, 1)
+        self.assertGreaterEqual(summary.lethargic_birds_flagged, 1)
+
+    def test_behavior_social_isolation(self):
+        """Test Social Isolation: bird is spatially segregated far from flock mates."""
+        # Flock cluster in bottom-right corner (around 800, 800)
+        flock_1 = TrackedDetection(box=[790, 790, 830, 830], centroid=(810, 810), confidence=0.9, class_id=0, class_name="Chicken", track_id=501, bird_label="Hen1 (Green)")
+        flock_2 = TrackedDetection(box=[810, 810, 850, 850], centroid=(830, 830), confidence=0.9, class_id=0, class_name="Chicken", track_id=502, bird_label="Hen2 (White)")
+        # Isolated bird alone at top-left corner (around 50, 50 - >700px away)
+        isolated_bird = TrackedDetection(box=[40, 40, 80, 80], centroid=(60, 60), confidence=0.9, class_id=0, class_name="Chicken", track_id=503, bird_label="Hen3 (Blue)")
+
+        dt = 1.0
+        for step in range(15):  # Exceeds social_isolation_duration_s (10s)
+            frame_out = TrackerFrameOutput(
+                frame_idx=step, timestamp_s=step * dt,
+                birds=[flock_1, flock_2, isolated_bird], feeders=[], drinkers=[]
+            )
+            self.engine.process_frame(frame_out, dt=dt)
+
+        summary = self.engine.compute_chunk_summary()
+        self.assertGreaterEqual(summary.social_isolation_events, 1)
+
     def test_fastapi_health_endpoint(self):
         """Verify FastAPI /health endpoint."""
         client = TestClient(app)

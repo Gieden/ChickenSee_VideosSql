@@ -393,12 +393,16 @@ class DatabaseManager:
                         database_metrics[field] = 0.0
                 if database_metrics.get("heat_stress_level") is None:
                     database_metrics["heat_stress_level"] = "Unavailable"
-                metric = HalfHourMetrics(job_id=job_id, **database_metrics)
+                metric_cols = {c.name for c in inspect(HalfHourMetrics).columns}
+                valid_metrics = {k: v for k, v in database_metrics.items() if k in metric_cols}
+                metric = HalfHourMetrics(job_id=job_id, **valid_metrics)
                 session.add(metric)
                 session.flush()
 
+                bird_cols = {c.name for c in inspect(BirdTrackMetrics).columns}
                 for b_dict in birds:
-                    b_rec = BirdTrackMetrics(chunk_metric_id=metric.id, **b_dict)
+                    valid_birds = {k: v for k, v in b_dict.items() if k in bird_cols}
+                    b_rec = BirdTrackMetrics(chunk_metric_id=metric.id, **valid_birds)
                     session.add(b_rec)
             session.commit()
 
