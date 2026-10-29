@@ -4,6 +4,9 @@ import os
 import json
 import shutil
 import threading
+import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, date
 from typing import Any, Optional
@@ -128,89 +131,166 @@ def write_live_detection_frame(image_bytes: bytes) -> Path:
     path = RESULTS_DIR / "live_detection.jpg"
     temp_path = path.with_suffix(".jpg.tmp")
     temp_path.write_bytes(image_bytes)
-    os.replace(temp_path, path)
+    last_error = None
+    for attempt in range(8):
+        try:
+            os.replace(temp_path, path)
+            last_error = None
+            break
+        except PermissionError as error:
+            last_error = error
+            if attempt == 7:
+                raise
+            time.sleep(0.025 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
     return path
 
 
 def _write_json_atomically(path: Path, payload: dict) -> None:
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    with open(temp_path, "w", encoding="utf-8") as fh:
-        json.dump(payload, fh, indent=2, default=json_default)
-    os.replace(temp_path, path)
+    with _json_file_lock(path):
+        _write_json_atomically_unlocked(path, payload)
+
+
+@contextmanager
+def _json_file_lock(path: Path):
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    lock_fd = None
+    try:
+        for _ in range(100):
+            try:
+                lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                break
+            except (FileExistsError, PermissionError):
+                try:
+                    if time.time() - lock_path.stat().st_mtime > 10:
+                        lock_path.unlink()
+                        continue
+                except FileNotFoundError:
+                    continue
+                time.sleep(0.02)
+        if lock_fd is None:
+            raise TimeoutError(f"Could not acquire JSON write lock: {lock_path}")
+        yield
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
+
+
+def _write_json_atomically_unlocked(path: Path, payload: dict) -> None:
+    # Use a unique temporary file so the final replace is atomic.
+    fd, temp_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temp_path = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=2, default=json_default)
+            fh.flush()
+            os.fsync(fh.fileno())
+        replace_error = None
+        for attempt in range(60):
+            try:
+                os.replace(temp_path, path)
+                replace_error = None
+                break
+            except PermissionError as error:
+                replace_error = error
+                if attempt == 59:
+                    break
+                time.sleep(min(0.2, 0.025 * (attempt + 1)))
+        if replace_error is not None:
+            # Some Windows sync clients keep the destination open without
+            # delete sharing. Keep the worker alive and refresh the snapshot.
+            print(f"[LOCAL STORE WARN] Atomic replace blocked for {path}; using direct write.")
+            with path.open("w", encoding="utf-8") as fh:
+                json.dump(payload, fh, indent=2, default=json_default)
+                fh.flush()
+                os.fsync(fh.fileno())
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 def update_queue_status_json(payload: dict) -> Path:
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     path = RESULTS_DIR / "queue_status.json"
     with _QUEUE_STATUS_LOCK:
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-            if not isinstance(existing, dict):
+        with _json_file_lock(path):
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(existing, dict):
+                    existing = {}
+            except (OSError, json.JSONDecodeError):
                 existing = {}
-        except (OSError, json.JSONDecodeError):
-            existing = {}
 
-        summary = existing.get("summary")
-        if not isinstance(summary, dict):
-            summary = {status.lower(): 0 for status in (
-                "PROCESSING", "QUEUED", "WAITING", "COMPLETED", "FAILED", "CANCELLED"
-            )}
-        else:
-            summary = dict(summary)
+            summary = existing.get("summary")
+            if not isinstance(summary, dict):
+                summary = {status.lower(): 0 for status in (
+                    "PROCESSING", "QUEUED", "WAITING", "COMPLETED", "FAILED", "CANCELLED"
+                )}
+            else:
+                summary = dict(summary)
 
-        items = existing.get("items")
-        items = [dict(item) for item in items if isinstance(item, dict)] if isinstance(items, list) else []
-        job_id = payload.get("job_id")
-        video_filename = payload.get("video_filename")
-        source_item_id = payload.get("source_item_id")
-        status = payload.get("status")
-        if job_id is not None and status:
-            item_id = f"job-{job_id}"
-            item_index = next(
-                (
-                    index for index, item in enumerate(items)
-                    if item.get("item_id") in (item_id, source_item_id)
+            items = existing.get("items")
+            items = [dict(item) for item in items if isinstance(item, dict)] if isinstance(items, list) else []
+            job_id = payload.get("job_id")
+            video_filename = payload.get("video_filename")
+            source_item_id = payload.get("source_item_id")
+            status = payload.get("status")
+            if job_id is not None and status:
+                item_id = f"job-{job_id}"
+                item_index = next(
+                    (
+                        index for index, item in enumerate(items)
+                        if item.get("item_id") in (item_id, source_item_id)
+                    ),
+                    None,
+                )
+                previous_status = items[item_index].get("status") if item_index is not None else None
+                item = items[item_index] if item_index is not None else {"item_id": item_id}
+                item.update({
+                    "item_id": item_id,
+                    "video_filename": video_filename,
+                    "status": status,
+                    "progress_percent": payload.get("progress_percent"),
+                    "frames": payload.get("frames", "—"),
+                })
+                if item_index is None:
+                    items.insert(0, item)
+                if previous_status != status:
+                    if previous_status:
+                        previous_key = previous_status.lower()
+                        summary[previous_key] = max(0, summary.get(previous_key, 0) - 1)
+                    current_key = status.lower()
+                    summary[current_key] = summary.get(current_key, 0) + 1
+
+            summary = {
+                state: sum(str(item.get("status", "")).lower() == state for item in items)
+                for state in ("processing", "queued", "waiting", "completed", "failed", "cancelled")
+            }
+            active_item = next((item for item in items if item.get("status") == "PROCESSING"), None)
+            result = {
+                **existing,
+                "updated_at": payload.get("updated_at"),
+                "is_queueing": sum(summary.get(status, 0) for status in ("processing", "queued", "waiting")) > 0,
+                "active_video": active_item.get("video_filename") if active_item else None,
+                "active_progress": active_item.get("progress_percent") if active_item else None,
+                "active_frames": active_item.get("frames") if active_item else None,
+                "active_detection": (
+                    payload.get("active_detection", existing.get("active_detection"))
+                    if active_item else None
                 ),
-                None,
-            )
-            previous_status = items[item_index].get("status") if item_index is not None else None
-            item = items[item_index] if item_index is not None else {"item_id": item_id}
-            item.update({
-                "item_id": item_id,
-                "video_filename": video_filename,
-                "status": status,
-                "progress_percent": payload.get("progress_percent"),
-                "frames": payload.get("frames", "—"),
-            })
-            if item_index is None:
-                items.insert(0, item)
-            if previous_status != status:
-                if previous_status:
-                    previous_key = previous_status.lower()
-                    summary[previous_key] = max(0, summary.get(previous_key, 0) - 1)
-                current_key = status.lower()
-                summary[current_key] = summary.get(current_key, 0) + 1
-
-        summary = {
-            state: sum(str(item.get("status", "")).lower() == state for item in items)
-            for state in ("processing", "queued", "waiting", "completed", "failed", "cancelled")
-        }
-        active_item = next((item for item in items if item.get("status") == "PROCESSING"), None)
-        result = {
-            **existing,
-            "updated_at": payload.get("updated_at"),
-            "is_queueing": sum(summary.get(status, 0) for status in ("processing", "queued", "waiting")) > 0,
-            "active_video": active_item.get("video_filename") if active_item else None,
-            "active_progress": active_item.get("progress_percent") if active_item else None,
-            "active_frames": active_item.get("frames") if active_item else None,
-            "active_detection": (
-                payload.get("active_detection", existing.get("active_detection"))
-                if active_item else None
-            ),
-            "summary": summary,
-            "items": items,
-        }
-        _write_json_atomically(path, result)
+                "summary": summary,
+                "items": items,
+            }
+            _write_json_atomically_unlocked(path, result)
     return path
 
 

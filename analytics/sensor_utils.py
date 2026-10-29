@@ -38,24 +38,30 @@ def calculate_heat_stress(thi: Optional[float]) -> str:
 
 def find_paired_sensor_db(video_path: str) -> Optional[Path]:
     """
-    Finds a paired SQLite database next to the given video file.
-    Prefers same-stem file (e.g. video1.sqlite for video1.mp4), or single SQLite file in the folder.
+    Finds a paired SQLite database next to the given video file or in its
+    containing session folder. Prefers a same-stem file, then a single
+    database in the nearest searched directory.
     """
     if not video_path:
         return None
-    session_dir = Path(video_path).parent
-    video_stem = Path(video_path).stem.casefold()
-    try:
-        candidates = sorted(
-            p for p in session_dir.iterdir()
-            if p.is_file() and p.suffix.casefold() in (".db", ".sqlite", ".sqlite3")
-        )
-    except OSError:
-        return None
-    paired = next((p for p in candidates if p.stem.casefold() == video_stem), None)
-    if paired is None and len(candidates) == 1:
-        paired = candidates[0]
-    return paired
+    video_file = Path(video_path)
+    video_stem = video_file.stem.casefold()
+    session_dir = video_file.parent
+
+    for directory in (session_dir, session_dir.parent):
+        try:
+            candidates = sorted(
+                p for p in directory.iterdir()
+                if p.is_file() and p.suffix.casefold() in (".db", ".sqlite", ".sqlite3")
+            )
+        except OSError:
+            continue
+        paired = next((p for p in candidates if p.stem.casefold() == video_stem), None)
+        if paired is not None:
+            return paired
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
 
 
 def read_sensor_db_status(

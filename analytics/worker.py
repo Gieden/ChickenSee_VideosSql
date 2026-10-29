@@ -303,7 +303,8 @@ class ZampenAnalyticsWorker:
     @staticmethod
     def _find_paired_sensor_db(video_path: str) -> Optional[Path]:
         """
-        Looks for a paired sensor SQLite file inside the same session folder as the video.
+        Looks for a paired sensor SQLite file inside the video session folder
+        or its immediate containing folder.
 
         Structure: watched_dir / cam_folder / rec_<timestamp> / video.mp4
                                                               \\ sensors.db   ← paired here
@@ -311,22 +312,24 @@ class ZampenAnalyticsWorker:
         Prefers a same-basename .db/.sqlite file, or the only SQLite file in the folder.
         Returns the first match found, or None if the session folder contains no DB file.
         """
-        session_dir = Path(video_path).parent
-        video_stem = Path(video_path).stem.casefold()
-        try:
-            candidates = sorted(
-                path for path in session_dir.iterdir()
-                if path.is_file() and path.suffix.casefold() in (".db", ".sqlite", ".sqlite3")
-            )
-        except OSError as error:
-            print(f"[WORKER WARN] Could not inspect paired sensor databases in {session_dir}: {error}")
-            return None
-        paired = next((path for path in candidates if path.stem.casefold() == video_stem), None)
-        if paired is None and len(candidates) == 1:
-            paired = candidates[0]
-        if paired is not None:
-            print(f"[WORKER] Paired sensor DB found: {paired}")
-        return paired
+        video_file = Path(video_path)
+        video_stem = video_file.stem.casefold()
+        for session_dir in (video_file.parent, video_file.parent.parent):
+            try:
+                candidates = sorted(
+                    path for path in session_dir.iterdir()
+                    if path.is_file() and path.suffix.casefold() in (".db", ".sqlite", ".sqlite3")
+                )
+            except OSError as error:
+                print(f"[WORKER WARN] Could not inspect paired sensor databases in {session_dir}: {error}")
+                continue
+            paired = next((path for path in candidates if path.stem.casefold() == video_stem), None)
+            if paired is None and len(candidates) == 1:
+                paired = candidates[0]
+            if paired is not None:
+                print(f"[WORKER] Paired sensor DB found: {paired}")
+                return paired
+        return None
 
     def _pull_sensor_averages_for_range(
         self,

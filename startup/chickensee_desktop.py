@@ -2230,19 +2230,39 @@ class ChickenSeeDesktop:
                     health = json.loads(response.read().decode("utf-8"))
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
                 health_error = str(error)
-            if health:
+            # Queue state is an independent API surface. Do not hide it behind
+            # the health request: the health endpoint can fail briefly while
+            # the queue endpoint is already available during service startup.
+            try:
+                with urllib.request.urlopen(QUEUE_URL, timeout=8) as response:
+                    queue_data = json.loads(response.read().decode("utf-8"))
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+                queue_error = str(error)
+
+            # Keep the queue visible if the API is briefly restarting. The
+            # analytics worker and sync agent maintain this snapshot locally,
+            # so it is a reliable recovery source while the HTTP endpoint
+            # comes back.
+            if queue_data is None:
                 try:
-                    with urllib.request.urlopen(QUEUE_URL, timeout=8) as response:
-                        queue_data = json.loads(response.read().decode("utf-8"))
-                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
-                    queue_error = str(error)
-                try:
-                    with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=4) as response:
-                        sensor_data = json.loads(response.read().decode("utf-8"))
-                except Exception:
+                    from local_store import RESULTS_DIR
+                    snapshot_path = RESULTS_DIR / "queue_status.json"
+                    if snapshot_path.is_file():
+                        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                        if isinstance(snapshot, dict):
+                            queue_data = snapshot
+                            queue_error = None
+                except (OSError, json.JSONDecodeError):
                     pass
-            else:
-                queue_error = health_error or "Analytics API is unavailable."
+
+            try:
+                with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=4) as response:
+                    sensor_data = json.loads(response.read().decode("utf-8"))
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+                sensor_data = None
+            if queue_data is None:
+                queue_error = queue_error or health_error or "Analytics API is unavailable."
+            self.events.put(("queue", queue_data, queue_error))
 
             # Fallback local SQLite sensor discovery if API did not return sensor telemetry
             if not sensor_data or not sensor_data.get("available"):
@@ -2252,15 +2272,33 @@ class ChickenSeeDesktop:
                     d_stat = read_detection_status_json() or {}
                     active_vid = d_stat.get("video_filename")
                     p_db = None
+                    active_path = None
+                    if queue_data:
+                        active_item = next(
+                            (
+                                item for item in queue_data.get("items", [])
+                                if item.get("video_filename") == active_vid
+                                and item.get("status") == "PROCESSING"
+                            ),
+                            None,
+                        )
+                        if active_item:
+                            active_path = Path(active_item.get("video_path", ""))
+                    if active_path and active_path.is_file():
+                        from analytics.sensor_utils import find_paired_sensor_db
+
+                        p_db = find_paired_sensor_db(str(active_path))
                     for d in self.settings.get("directories", []):
+                        if p_db:
+                            break
                         dp = Path(d)
                         if dp.is_dir():
-                            for p in dp.glob("*.sqlite"):
+                            for p in dp.rglob("*.sqlite"):
                                 p_db = p
                                 break
                             if p_db:
                                 break
-                            for p in dp.glob("*.db"):
+                            for p in dp.rglob("*.db"):
                                 if "zampen" not in p.name:
                                     p_db = p
                                     break
@@ -2303,12 +2341,29 @@ class ChickenSeeDesktop:
                     self._display_status(event[1], event[2], event[3])
                     self._display_queue(event[4], event[5])
                     if len(event) > 6:
-                        self._display_sensors(event[6])
+                        sensor_data = event[6] or getattr(self, "_cached_sensor_data", None)
+                        self._display_sensors(sensor_data)
                     if self.refresh_pending:
                         self.refresh_pending = False
                         self.root.after(0, self._refresh_status)
+                elif event[0] == "queue":
+                    self._display_queue(event[1], event[2])
                 elif event[0] == "status_error":
                     self.refresh_in_progress = False
+                    error_message = str(event[1])
+                    self._log(f"Status refresh failed: {error_message}")
+                    queue_snapshot = None
+                    try:
+                        from local_store import RESULTS_DIR
+
+                        snapshot_path = RESULTS_DIR / "queue_status.json"
+                        if snapshot_path.is_file():
+                            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+                            if isinstance(snapshot, dict):
+                                queue_snapshot = snapshot
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                    self._display_queue(queue_snapshot, error_message)
                     if self.refresh_pending:
                         self.refresh_pending = False
                         self.root.after(1000, self._refresh_status)
@@ -2437,6 +2492,9 @@ class ChickenSeeDesktop:
             )
 
     def _display_queue(self, queue_data, queue_error) -> None:
+        if queue_data is None:
+            queue_data = getattr(self, "_cached_queue_data", None)
+
         for item_id in self.queue_tree.get_children():
             self.queue_tree.delete(item_id)
         if "queue" in getattr(self, "tab_buttons", {}):
@@ -2452,7 +2510,10 @@ class ChickenSeeDesktop:
                 )
             self.queue_progress.configure(value=0)
             self.queue_summary.configure(
-                text="Start ChickenSee services on the Dashboard tab to begin automatic video detection and queue processing."
+                text=(
+                    "Queue data is temporarily unavailable. "
+                    f"{queue_error or 'The next automatic refresh will retry.'}"
+                )
             )
             return
 
@@ -2700,6 +2761,11 @@ class ChickenSeeDesktop:
     def _display_sensors(self, sensor_data: Optional[Dict[str, Any]]) -> None:
         if not hasattr(self, "sensor_cards"):
             return
+
+        if sensor_data and sensor_data.get("available"):
+            self._cached_sensor_data = sensor_data
+        else:
+            sensor_data = getattr(self, "_cached_sensor_data", None)
 
         if not sensor_data or not sensor_data.get("available"):
             if hasattr(self, "dash_sensor_badge"):

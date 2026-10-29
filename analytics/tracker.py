@@ -17,7 +17,6 @@ from ultralytics import YOLO
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 from legband import (
     BAND_CLASS_TO_HEN,
-    detect_leg_band_color,
     suppress_overlapping_equipment,
 )
 
@@ -101,6 +100,7 @@ class ZampenYOLOTracker:
         self.track_label_cache: Dict[int, str] = {}
         self.track_label_votes: Dict[int, deque] = {}
         self.track_label_last_seen: Dict[int, int] = {}
+        self.track_tag_confirmed: set[int] = set()
         self.track_class_history: Dict[int, Dict[int, Tuple[int, float]]] = {}
         self.track_resolved_classes: Dict[int, int] = {}
         self.track_class_last_seen: Dict[int, int] = {}
@@ -121,6 +121,7 @@ class ZampenYOLOTracker:
         self.track_label_cache.clear()
         self.track_label_votes.clear()
         self.track_label_last_seen.clear()
+        getattr(self, "track_tag_confirmed", set()).clear()
         self.track_class_history.clear()
         self.track_resolved_classes.clear()
         self.track_class_last_seen.clear()
@@ -335,6 +336,7 @@ class ZampenYOLOTracker:
             self.track_label_cache.pop(track_id, None)
             self.track_label_votes.pop(track_id, None)
             self.track_label_last_seen.pop(track_id, None)
+            getattr(self, "track_tag_confirmed", set()).discard(track_id)
 
     def process_frame(self, frame: np.ndarray, frame_idx: int, fps: float = 30.0) -> TrackerFrameOutput:
         """
@@ -381,8 +383,8 @@ class ZampenYOLOTracker:
 
         # First pass: parse raw detections
         for box, conf, cls_id, track_id in zip(boxes, confs, classes, track_ids):
-            cls_id, class_name, conf = self._resolve_track_class(
-                cls_id, float(conf), track_id
+            class_name = self.class_map.get(
+                cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
             )
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -411,6 +413,21 @@ class ZampenYOLOTracker:
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name))
 
+        # Convert raw ByteTrack IDs before recording any class or band history.
+        # This keeps identity memory attached to the stable displayed ID when
+        # ByteTrack recreates a raw track after a brief occlusion.
+        self._assign_display_ids(birds, frame.shape)
+        for bird in birds:
+            if bird.track_id is None:
+                continue
+            resolved_cls_id, resolved_name, resolved_confidence = self._resolve_track_class(
+                bird.class_id, bird.confidence, bird.track_id
+            )
+            bird.class_id = resolved_cls_id
+            bird.class_name = resolved_name
+            bird.confidence = resolved_confidence
+            bird.bird_label = resolved_name
+
         # Re-ID lock for leg bands if present.
         # Band detection is authoritative — record it even on a single frame
         # so it counts toward the 8-vote threshold without waiting.
@@ -424,18 +441,12 @@ class ZampenYOLOTracker:
                 if (x1 - 15 <= bcx <= x2 + 15) and (y1 - 15 <= bcy <= y2 + 15):
                     hen_label = BAND_CLASS_TO_HEN.get(band_name)
                     if hen_label:
+                        self.track_tag_confirmed.add(bird.track_id)
                         # Cast 3 votes at once for an explicit YOLO band detection
                         # (it's far more reliable than the HSV crop fallback).
                         for _ in range(3):
                             self._record_track_label(bird.track_id, hen_label)
                     break
-
-        for bird in birds:
-            if bird.track_id is None or bird.class_name == "Rooster":
-                continue
-            hen_label = detect_leg_band_color(frame, bird.box)
-            if hen_label:
-                self._record_track_label(bird.track_id, hen_label)
 
         # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame
         used_labels = set()
@@ -450,7 +461,11 @@ class ZampenYOLOTracker:
 
         sorted_birds = sorted(birds, key=_label_priority, reverse=True)
         for bird in sorted_birds:
-            if bird.track_id is not None and bird.track_id in self.track_label_cache:
+            if (
+                bird.track_id is not None
+                and bird.track_id in getattr(self, "track_tag_confirmed", set())
+                and bird.track_id in self.track_label_cache
+            ):
                 assigned = self.track_label_cache[bird.track_id]
                 if assigned not in used_labels:
                     bird.bird_label = assigned
@@ -473,8 +488,6 @@ class ZampenYOLOTracker:
         drinkers = [
             detection for _, _, label, detection in equipment if label == "Drinker"
         ]
-
-        self._assign_display_ids(birds, frame.shape)
 
         return TrackerFrameOutput(
             frame_idx=frame_idx,

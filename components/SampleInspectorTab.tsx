@@ -163,10 +163,26 @@ export default function SampleInspectorTab() {
     );
     const primaryVideo = detectedFile || rawFile;
 
-    // Find SQLite file
-    const sFile = fileArray.find((f) =>
+    // Prefer the database from the same selected folder as the video, then
+    // prefer a matching basename or the conventional sensor database name.
+    const databaseFiles = fileArray.filter((f) =>
       /\.(sqlite|sqlite3|db)$/i.test(f.name),
     );
+    const videoDirectory = primaryVideo?.webkitRelativePath
+      ? primaryVideo.webkitRelativePath.split('/').slice(0, -1).join('/')
+      : '';
+    const sameDirectory = databaseFiles.filter((f) => {
+      const directory = f.webkitRelativePath
+        ? f.webkitRelativePath.split('/').slice(0, -1).join('/')
+        : '';
+      return directory === videoDirectory;
+    });
+    const videoStem = primaryVideo?.name.replace(/\.[^.]+$/, '').toLowerCase();
+    const sFile =
+      sameDirectory.find((f) => f.name.replace(/\.[^.]+$/, '').toLowerCase() === videoStem) ||
+      sameDirectory.find((f) => /^(sensors?|chicken_telemetry)\.(sqlite|sqlite3|db)$/i.test(f.name)) ||
+      sameDirectory[0] ||
+      databaseFiles[0];
 
     if (!primaryVideo) {
       setErrorMsg('No video file (.mp4, .avi, .mov, etc.) found in the selected folder/files.');
