@@ -19,6 +19,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith('/api/sync') ||
     pathname === '/api/queue' ||
     pathname.startsWith('/api/cron') ||
+    pathname.startsWith('/api/sensors') ||
     pathname.startsWith('/api/auth')
   ) {
     return NextResponse.next();

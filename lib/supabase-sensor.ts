@@ -12,7 +12,9 @@ export interface SensorLogRow {
   temperature: number | null;
   humidity: number | null;
   ammonia_ppm: number | null;
+  ammonia_raw?: number | null;
   sound_db: number | null;
+  sound_raw?: number | null;
   temp_status?: number | null;
   hum_status?: number | null;
   ammonia_status?: number | null;
