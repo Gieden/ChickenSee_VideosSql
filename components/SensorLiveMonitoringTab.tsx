@@ -27,6 +27,7 @@ import {
   EnrichedSensorReading,
   enrichSensorReading,
   computeTelemetrySummary,
+  formatRelativeTime,
 } from '@/lib/supabase-sensor';
 
 export default function SensorLiveMonitoringTab() {
@@ -51,8 +52,14 @@ export default function SensorLiveMonitoringTab() {
   // Chart tooltip hover state
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  // Fetch readings — tries the server-side API first (which can use service role key),
-  // then falls back to direct Supabase client query.
+  // Periodic ticker to keep elapsed time indicators ("10s ago", "Just now") dynamically updated
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch readings — queries server API route first, then direct Supabase client
   const fetchSensorLogs = useCallback(
     async (isManualRefresh = false) => {
       if (isManualRefresh) setIsRefreshing(true);
@@ -61,7 +68,7 @@ export default function SensorLiveMonitoringTab() {
         let rows: SensorLogRow[] = [];
         let fetchedOk = false;
 
-        // Attempt 1: server-side route (has SUPABASE_SERVICE_ROLE_KEY on Vercel)
+        // Attempt 1: server-side route
         try {
           const apiRes = await fetch(`/api/sensors/live?limit=${fetchLimit}`, { cache: 'no-store' });
           if (apiRes.ok) {
@@ -72,10 +79,10 @@ export default function SensorLiveMonitoringTab() {
             }
           }
         } catch {
-          // ignore, fallback below
+          // ignore, fallback to direct query below
         }
 
-        // Attempt 2: direct Supabase SDK (anon key — works once RLS SELECT policy is set)
+        // Attempt 2: direct Supabase SDK (anon key)
         if (!fetchedOk) {
           const supabase = getSupabaseSensorClient();
           const { data, error: sbError } = await supabase
@@ -83,7 +90,7 @@ export default function SensorLiveMonitoringTab() {
             .select(
               'id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status'
             )
-            .order('recorded_at', { ascending: false })
+            .order('id', { ascending: false })
             .limit(fetchLimit);
 
           if (sbError) throw new Error(sbError.message);
@@ -111,37 +118,54 @@ export default function SensorLiveMonitoringTab() {
     fetchSensorLogs(); // initial load
 
     const supabase = getSupabaseSensorClient();
+    // Unique channel topic prevents channel collision upon React remounts
+    const channelTopic = `sensor_logs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const channel = supabase.channel(channelTopic);
 
-    const channel = supabase
-      .channel('sensor_logs_realtime_stream')
+    const handleIncomingRow = (row: SensorLogRow) => {
+      if (row && (row.id !== undefined || row.recorded_at)) {
+        const enriched = enrichSensorReading(row);
+        setReadings((prev) => {
+          const filtered = prev.filter((r) => r.id !== enriched.id);
+          return [enriched, ...filtered.slice(0, fetchLimit - 1)];
+        });
+        setLastSyncTime(new Date());
+        setRealtimePacketsReceived((c) => c + 1);
+        setError(null);
+      }
+    };
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'sensor_logs' },
+        (payload) => handleIncomingRow(payload.new as SensorLogRow)
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'sensor_logs' },
+        (payload) => handleIncomingRow(payload.new as SensorLogRow)
+      )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'sensor_logs' },
         (payload) => {
-          const newRow = payload.new as SensorLogRow;
-          if (newRow?.recorded_at) {
-            const enriched = enrichSensorReading(newRow);
-            setReadings((prev) => {
-              const filtered = prev.filter((r) => r.id !== enriched.id);
-              return [enriched, ...filtered.slice(0, fetchLimit - 1)];
-            });
-            setLastSyncTime(new Date());
-            setRealtimePacketsReceived((c) => c + 1);
+          if (payload.new && Object.keys(payload.new).length > 0) {
+            handleIncomingRow(payload.new as SensorLogRow);
           }
         }
       )
       .on('broadcast', { event: 'telemetry' }, (payload) => {
-        const newRow = payload.payload as SensorLogRow;
-        if (newRow?.recorded_at) {
-          const enriched = enrichSensorReading(newRow);
-          setReadings((prev) => [enriched, ...prev.slice(0, fetchLimit - 1)]);
-          setLastSyncTime(new Date());
-          setRealtimePacketsReceived((c) => c + 1);
-        }
+        handleIncomingRow(payload.payload as SensorLogRow);
       })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') setRealtimeStatus('connected');
-        else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') setRealtimeStatus('disconnected');
+      .subscribe((status, err) => {
+        if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('connected');
+          setError(null);
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          setRealtimeStatus('disconnected');
+          if (err) console.warn('Supabase Realtime status warning:', status, err);
+        }
       });
 
     return () => {
@@ -311,6 +335,24 @@ export default function SensorLiveMonitoringTab() {
                     {realtimePacketsReceived} live events
                   </span>
                 )}
+
+                {readings.length > 0 && (
+                  (() => {
+                    const latestMs = new Date(readings[0].recorded_at).getTime();
+                    const isStale = !isNaN(latestMs) && now - latestMs > 5 * 60 * 1000;
+                    return isStale ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800" title="Physical sensor hardware has not uploaded a new record recently. The dashboard will automatically update the second a new packet is sent.">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        Hardware Idle ({formatRelativeTime(readings[0].recorded_at)})
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                        Transmitting Live
+                      </span>
+                    );
+                  })()
+                )}
               </div>
               <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                 Real-time poultry house environmental telemetry — automatically streams the moment data arrives.
@@ -376,9 +418,14 @@ export default function SensorLiveMonitoringTab() {
             </span>
           </div>
           <div className="mt-1 flex items-center gap-1.5 sm:mt-0 text-slate-400">
-            <span>Last reading:</span>
+            <span>Sync:</span>
             <span className="font-semibold text-slate-700">
               {lastSyncTime ? lastSyncTime.toLocaleTimeString() : 'Waiting…'}
+            </span>
+            <span className="text-slate-300">·</span>
+            <span>Latest packet:</span>
+            <span className="font-semibold text-slate-700">
+              {readings.length > 0 ? formatRelativeTime(readings[0].recorded_at) : 'None'}
             </span>
             <span className="text-slate-300">·</span>
             <span>{readings.length} records</span>
@@ -780,8 +827,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
           </div>
         </div>
 
-        {/* Table body */}
-        <div className="overflow-x-auto">
+        {/* Table body with fixed scrollable container and sticky header */}
+        <div className="max-h-[480px] overflow-x-auto overflow-y-auto overscroll-contain">
           {loading && readings.length === 0 ? (
             <div className="flex h-48 flex-col items-center justify-center">
               <RefreshCw className="h-6 w-6 animate-spin text-orange-500" />
@@ -797,23 +844,23 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
             </div>
           ) : (
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-200 bg-slate-50/80 text-xs font-semibold text-slate-600">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 shadow-[0_1px_2px_rgba(0,0,0,0.06)] text-xs font-semibold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 sm:px-6">Recorded At</th>
-                  <th className="px-4 py-3">Temperature</th>
-                  <th className="px-4 py-3">Humidity</th>
-                  <th className="px-4 py-3">Ammonia (NH₃)</th>
-                  <th className="px-4 py-3">Sound</th>
-                  <th className="px-4 py-3">THI / Heat Stress</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="bg-slate-50 px-4 py-3 sm:px-6">Recorded At</th>
+                  <th className="bg-slate-50 px-4 py-3">Temperature</th>
+                  <th className="bg-slate-50 px-4 py-3">Humidity</th>
+                  <th className="bg-slate-50 px-4 py-3">Ammonia (NH₃)</th>
+                  <th className="bg-slate-50 px-4 py-3">Sound</th>
+                  <th className="bg-slate-50 px-4 py-3">THI / Heat Stress</th>
+                  <th className="bg-slate-50 px-4 py-3">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredReadings.map((r, i) => (
                   <tr key={r.id || i} className="transition hover:bg-slate-50/80">
                     <td className="whitespace-nowrap px-4 py-3 sm:px-6">
                       <div className="font-semibold text-slate-800">{r.formattedTime}</div>
-                      <div className="text-[11px] text-slate-400">{r.relativeTime}</div>
+                      <div className="text-[11px] text-slate-400">{formatRelativeTime(r.recorded_at)}</div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       {r.temperature !== null
@@ -873,6 +920,16 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
             </table>
           )}
         </div>
+
+        {/* Scrollable table footer indicator */}
+        {filteredReadings.length > 0 && (
+          <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/80 px-5 py-2.5 text-[11px] text-slate-500 sm:px-6">
+            <span>
+              Showing <strong className="text-slate-700">{filteredReadings.length}</strong> records (buffer limit: {fetchLimit})
+            </span>
+            <span className="text-slate-400">Scroll container to browse previous readings</span>
+          </div>
+        )}
       </div>
     </div>
   );

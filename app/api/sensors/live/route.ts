@@ -10,9 +10,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(250, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
 
-    // Prefer service role key if available in server environment to bypass RLS restrictions,
-    // otherwise fallback to the public/anon key.
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    // Prefer dedicated sensor service role key if explicitly provided,
+    // otherwise use the publishable/anon key. Do NOT use the default
+    // SUPABASE_SERVICE_ROLE_KEY as that belongs to the video storage project.
+    const serviceRoleKey = process.env.SUPABASE_SENSOR_SERVICE_ROLE_KEY?.trim();
     const activeKey = serviceRoleKey || SUPABASE_SENSOR_ANON_KEY;
     const isServiceRole = Boolean(serviceRoleKey);
 
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
     const { data, error, count } = await client
       .from('sensor_logs')
       .select('id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status', { count: 'exact' })
-      .order('recorded_at', { ascending: false })
+      .order('id', { ascending: false })
       .limit(limit);
 
     if (error) {
