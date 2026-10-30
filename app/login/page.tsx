@@ -2,9 +2,10 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Lock, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { User, Lock, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
 
 function LoginForm() {
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,7 +15,7 @@ function LoginForm() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (!password) return;
+    if (!username.trim() || !password) return;
 
     setError('');
     setLoading(true);
@@ -23,7 +24,7 @@ function LoginForm() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
       const data = await res.json();
@@ -31,10 +32,14 @@ function LoginForm() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      router.push(redirect);
+      if (data.user?.role === 'staff' && redirect.startsWith('/admin')) {
+        router.push('/');
+      } else {
+        router.push(redirect);
+      }
       router.refresh();
     } catch (err: any) {
-      setError(err.message || 'Incorrect password');
+      setError(err.message || 'Incorrect username or password');
     } finally {
       setLoading(false);
     }
@@ -61,17 +66,41 @@ function LoginForm() {
 
       <form onSubmit={handleLogin} className="space-y-5">
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
-            Access Password
+          <label htmlFor="login-username" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Username
           </label>
           <div className="relative mt-2">
+            <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
+              id="login-username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Enter username..."
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              required
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-slate-900 placeholder-slate-400 outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="login-password" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Password
+          </label>
+          <div className="relative mt-2">
+            <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              id="login-password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter password..."
               required
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-slate-900 placeholder-slate-400 outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
             />
           </div>
         </div>

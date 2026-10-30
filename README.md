@@ -40,19 +40,22 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
 │   └── uninstall-startup.ps1      # Removes automatic startup
 ├── app/                            # Next.js 14 App Router
 │   ├── api/
-│   │   ├── auth/route.ts          # 1-User login and session management
+│   │   ├── auth/route.ts          # Username/password login and session management
+│   │   ├── admin/accounts/route.ts # Admin-only staff account management (CRUD)
 │   │   ├── sync/route.ts          # Authenticated Supabase signed-upload URL
 │   │   ├── videos/route.ts        # Videos remain local; no cloud upload
 │   │   └── database/route.ts      # SQLite WebAssembly query executor (sql.js)
-│   ├── login/page.tsx             # Protected password login screen
+│   ├── login/page.tsx             # Protected username/password login screen
 │   ├── page.tsx                   # Light orange-accent portal with behavior/environment reports
 │   ├── layout.tsx                 # Root layout & styling
 │   └── globals.css                # Tailwind CSS & portal theme
 ├── lib/
-│   ├── auth.ts                    # Password verification & session tokens
+│   ├── auth.ts                    # Role-aware password verification & session tokens
+│   ├── auth-shared.ts             # Edge-safe constants shared with middleware
+│   ├── staff-accounts.ts          # Staff account store (Supabase Storage-backed)
 │   ├── supabase-storage.ts        # Private Supabase Storage access
 │   └── db-viewer.ts               # sql.js WebAssembly reader (serverless-safe)
-├── middleware.ts                  # Route protection guard
+├── middleware.ts                  # Route protection guard (Edge-safe)
 ├── tailwind.config.ts             # Tailwind CSS tokens
 ├── next.config.mjs                # Next.js & WebAssembly build config
 └── package.json                   # Web portal dependencies
@@ -74,12 +77,27 @@ A bridge connecting an on-premise local server (Dell Optiplex) with a Vercel-hos
    - `SUPABASE_STORAGE_BUCKET`: `chickensee-sync`.
    - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role key. Keep it server-side; never place it in the desktop agent or client-side variables.
    - `SYNC_SECRET`: A high-entropy random string (e.g. `openssl rand -hex 32`)
-   - `DASHBOARD_PASSWORD`: The single-user access password for viewing your dashboard.
+   - `DASHBOARD_USERNAME`: Username of the master administrator account (defaults to `admin`).
+   - `DASHBOARD_PASSWORD`: Password for that administrator account.
    - `JWT_SECRET`: A 32-byte string for session cookies.
    Redeploy after adding these values.
 
 ---
 
+## 👥 User Roles
+
+The portal has two roles:
+
+| Role | How it is created | Access |
+| --- | --- | --- |
+| **Admin** | Single master account from `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` | Everything, including the **Staff Accounts** tab where staff logins are created, reset and deleted. |
+| **Staff** | Created by an admin in **Staff Accounts** | Dashboard, SQLite viewer, behavior results, detection queue, sample inspector and live sensors. No account management. |
+
+Staff accounts live in `auth/staff-accounts.json` inside the private `chickensee-sync` Supabase Storage bucket (Vercel's filesystem is ephemeral, so Storage is the durable store). Passwords are stored as salted SHA-256 digests and are never returned by the API. Only `lib/staff-accounts.ts` and `/api/admin/accounts` touch that file, and every endpoint re-verifies the JWT and the `admin` role on the server — hiding the tab in the UI is cosmetic.
+
+To create a staff account: sign in as the admin → **Staff Accounts** tab → fill in username, optional display name and password → **Create Staff Account**. Use **Reset** / **Delete** on any row to manage it.
+
+---
 
 ### 2. Install the ChickenSee Control Center on Windows
 
@@ -112,10 +130,13 @@ See [SETUP_GUIDE.md](./SETUP_GUIDE.md) for full Windows setup, test, and trouble
 2. **Serverless SQLite Inspection via WebAssembly:**
    Traditional native bindings like `better-sqlite3` fail or require custom build steps on AWS Lambda/Vercel serverless environments. This application utilizes **`sql.js` (WebAssembly)**, downloading the private database buffer from Supabase Storage on demand and executing read queries in pure WebAssembly.
 
-3. **Protection Against Partial Writes:**
+3. **Role Separation:**
+   Sessions are JWTs carrying `username`, `name` and `role`. The Edge middleware only decodes the payload (Edge cannot load Node's `jsonwebtoken`), while every API route performs the full signature verification; admin-only routes additionally return `403` for staff callers.
+
+4. **Protection Against Partial Writes:**
    `chokidar`'s `awaitWriteFinish` option ensures that video or database files actively being written by cameras or capture scripts are not uploaded prematurely until write locks have released.
 
-4. **Multi-Directory Watcher:**
+5. **Multi-Directory Watcher:**
    The agent reads watched folder paths from `agent/directories.json` (configured in the Control Center Setup tab), allowing it to monitor multiple separate folders simultaneously — useful when your recorder saves videos and databases in different locations.
 
 ---

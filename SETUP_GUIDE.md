@@ -135,8 +135,16 @@ In your [Vercel Dashboard](https://vercel.com/dashboard) under **Settings → En
 | `SUPABASE_STORAGE_BUCKET` | Private bucket created for sync | `chickensee-sync` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase server-only service-role key; never expose to browser or desktop agent | Set directly in Vercel; do not commit |
 | `SYNC_SECRET` | Secret key matching the OptiPlex desktop app | Generate a high-entropy value |
-| `DASHBOARD_PASSWORD` | Password you use to log in to the web portal | `farm-admin-2026` |
+| `DASHBOARD_USERNAME` | Username of the master administrator account (optional, defaults to `admin`) | `admin` |
+| `DASHBOARD_PASSWORD` | Password for the master administrator account | `farm-admin-2026` |
 | `JWT_SECRET` | 32-character random string for session tokens | `a-secure-random-32-char-string` |
+
+The portal has two user roles:
+
+- **Admin** — the single master account defined by `DASHBOARD_USERNAME` + `DASHBOARD_PASSWORD`. Sees every tab plus **Staff Accounts**, where staff logins are created.
+- **Staff** — accounts created by the admin. They can view results, the SQLite viewer, the detection queue, the sample inspector and live sensors, but cannot manage accounts.
+
+Staff accounts are saved to `auth/staff-accounts.json` in the private `chickensee-sync` Supabase Storage bucket, so the same `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / bucket must be configured before an admin can create one. Passwords are salted SHA-256 digests; the admin can reset or delete any staff account from the **Staff Accounts** tab.
 
 The desktop agent only needs the deployed Vercel `/api/sync` URL and matching `SYNC_SECRET`; it never receives Supabase credentials. Supabase project creation and storage are separate from existing Vercel Blob data—old Blob objects are not copied automatically.
 

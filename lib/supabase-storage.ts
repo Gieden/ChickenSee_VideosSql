@@ -114,6 +114,21 @@ export async function downloadStorageFile(storagePath: string) {
   return data;
 }
 
+export async function uploadStorageFile(
+  storagePath: string,
+  body: string | Uint8Array | ArrayBuffer,
+  contentType = 'application/octet-stream',
+) {
+  const { error } = await getStorageClient()
+    .storage
+    .from(getBucketName())
+    .upload(storagePath, body, { contentType, upsert: true });
+
+  if (error) {
+    throw new Error(`Failed to upload Supabase Storage object "${storagePath}": ${error.message}`);
+  }
+}
+
 export async function deleteStorageFiles(storagePaths: string[]) {
   if (storagePaths.length === 0) return;
 

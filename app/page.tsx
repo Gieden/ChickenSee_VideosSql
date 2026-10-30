@@ -37,10 +37,17 @@ import {
   Layers,
   Sparkles,
   FolderUp,
+  Users,
+  ShieldCheck,
 } from 'lucide-react';
 import SampleInspectorTab from '@/components/SampleInspectorTab';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
+import StaffAccountsTab from '@/components/StaffAccountsTab';
+
+type DashboardTab = 'database' | 'results' | 'queue' | 'sample' | 'sensors' | 'staff';
+
+const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sample', 'sensors', 'staff'];
 
 interface QueueItem {
   item_id: string;
@@ -658,9 +665,12 @@ function HenStressTimelinePanel({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'database' | 'results' | 'queue' | 'sample' | 'sensors'>('database');
+  const [activeTab, setActiveTab] = useState<DashboardTab>('database');
 
-  const handleTabChange = useCallback((tab: 'database' | 'results' | 'queue' | 'sample' | 'sensors') => {
+  // ── Signed-in user (role drives which tabs are available) ──
+  const [sessionUser, setSessionUser] = useState<{ username: string; name: string; role: 'admin' | 'staff' } | null>(null);
+
+  const handleTabChange = useCallback((tab: DashboardTab) => {
     setActiveTab(tab);
     try {
       localStorage.setItem('chickensee_active_tab', tab);
@@ -678,14 +688,40 @@ export default function DashboardPage() {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
       const savedTab = localStorage.getItem('chickensee_active_tab');
-      const targetTab = (tabParam || savedTab) as 'database' | 'results' | 'queue' | 'sample' | 'sensors';
-      if (targetTab && ['database', 'results', 'queue', 'sample', 'sensors'].includes(targetTab)) {
+      const targetTab = (tabParam || savedTab) as DashboardTab;
+      if (targetTab && DASHBOARD_TABS.includes(targetTab)) {
         setActiveTab(targetTab);
       }
     } catch {
       // ignore
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/auth', { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.user) {
+          setSessionUser(data.user);
+        }
+      })
+      .catch(() => {
+        // ignore; middleware already guards the page
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isAdminUser = sessionUser?.role === 'admin';
+
+  // Staff users have no access to the Staff Accounts tab.
+  useEffect(() => {
+    if (sessionUser && sessionUser.role !== 'admin' && activeTab === 'staff') {
+      handleTabChange('results');
+    }
+  }, [sessionUser, activeTab, handleTabChange]);
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loadingQueue, setLoadingQueue] = useState(false);
@@ -1805,6 +1841,22 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+            {sessionUser && (
+              <div
+                title={`Signed in as ${sessionUser.username}`}
+                className={`hidden items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold sm:flex ${
+                  isAdminUser
+                    ? 'border-orange-200 bg-orange-50 text-orange-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700'
+                }`}
+              >
+                {isAdminUser ? <ShieldCheck className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
+                <span className="max-w-[120px] truncate">{sessionUser.name}</span>
+                <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+                  {isAdminUser ? 'Admin' : 'Staff'}
+                </span>
+              </div>
+            )}
             <button aria-label="Refresh current page" onClick={refreshAll} disabled={isRefreshing} className="flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 px-2 sm:px-3 sm:py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white">
               <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
@@ -1862,6 +1914,13 @@ export default function DashboardPage() {
                 Live
               </span>
             </button>
+            {isAdminUser && (
+              <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+                <Users className="h-4 w-4" />
+                <span>Staff Accounts</span>
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
+              </button>
+            )}
           </nav>
         </div>
       </header>
@@ -2654,6 +2713,11 @@ export default function DashboardPage() {
         <div className={activeTab === 'sensors' ? 'block' : 'hidden'}>
           <SensorLiveMonitoringTab />
         </div>
+
+        {/* STAFF ACCOUNTS TAB (administrators only) */}
+        {isAdminUser && activeTab === 'staff' && (
+          <StaffAccountsTab currentUsername={sessionUser?.username} />
+        )}
 
       </main>
     </div>
