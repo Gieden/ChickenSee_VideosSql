@@ -17,6 +17,7 @@ from ultralytics import YOLO
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 from legband import (
     BAND_CLASS_TO_HEN,
+    detect_leg_band_color,
     suppress_overlapping_equipment,
 )
 
@@ -67,6 +68,7 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.70
+    MIN_LEG_BAND_CONFIDENCE = 0.20
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
     REIDENTIFICATION_DISTANCE_RATIO = 0.08
     REIDENTIFICATION_MIN_DISTANCE_PX = 50.0
@@ -351,7 +353,9 @@ class ZampenYOLOTracker:
             frame,
             persist=True,
             tracker=self.tracker_yaml,
-            conf=max(self.conf, self.MIN_DETECTION_CONFIDENCE),
+            # Keep small leg-band candidates visible to the association pass.
+            # Bird detections are filtered below with their stricter threshold.
+            conf=min(self.conf, self.MIN_LEG_BAND_CONFIDENCE),
             iou=self.iou,
             imgsz=self.imgsz,
             device=self.device,
@@ -386,13 +390,24 @@ class ZampenYOLOTracker:
             class_name = self.class_map.get(
                 cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
             )
+            confidence = float(conf)
+            if (
+                not class_name.startswith("Leg_Band_")
+                and confidence < self.MIN_DETECTION_CONFIDENCE
+            ):
+                continue
+            if (
+                class_name.startswith("Leg_Band_")
+                and confidence < self.MIN_LEG_BAND_CONFIDENCE
+            ):
+                continue
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
 
             det = TrackedDetection(
                 box=[x1, y1, x2, y2],
                 centroid=(cx, cy),
-                confidence=float(conf),
+                confidence=confidence,
                 class_id=cls_id,
                 class_name=class_name,
                 track_id=track_id,
@@ -438,7 +453,7 @@ class ZampenYOLOTracker:
                 if bird.track_id is None or bird.class_name == "Rooster":
                     continue
                 x1, y1, x2, y2 = bird.box
-                if (x1 - 15 <= bcx <= x2 + 15) and (y1 - 15 <= bcy <= y2 + 15):
+                if (x1 - 35 <= bcx <= x2 + 35) and (y1 - 35 <= bcy <= y2 + 35):
                     hen_label = BAND_CLASS_TO_HEN.get(band_name)
                     if hen_label:
                         self.track_tag_confirmed.add(bird.track_id)
@@ -447,6 +462,20 @@ class ZampenYOLOTracker:
                         for _ in range(3):
                             self._record_track_label(bird.track_id, hen_label)
                     break
+
+        # A compact, color-qualified tag is a valid tag observation even when
+        # the YOLO tag box is missed. This never classifies from the bird's
+        # overall appearance; it only inspects a small leg-band candidate area.
+        for bird in birds:
+            if bird.track_id is None or bird.class_name == "Rooster":
+                continue
+            if bird.track_id in self.track_tag_confirmed:
+                continue
+            hen_label = detect_leg_band_color(frame, bird.box)
+            if hen_label:
+                self.track_tag_confirmed.add(bird.track_id)
+                for _ in range(3):
+                    self._record_track_label(bird.track_id, hen_label)
 
         # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame
         used_labels = set()
