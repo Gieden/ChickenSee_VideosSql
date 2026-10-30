@@ -17,7 +17,7 @@ interface StaffAccount {
   id: string;
   username: string;
   display_name: string;
-  role: 'staff';
+  role: 'staff' | 'admin';
   created_at: string;
   created_by: string;
 }
@@ -31,6 +31,7 @@ export default function StaffAccountsTab({ currentUsername }: { currentUsername?
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [role, setRole] = useState<'staff' | 'admin'>('staff');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createdNotice, setCreatedNotice] = useState<string | null>(null);
@@ -85,16 +86,17 @@ export default function StaffAccountsTab({ currentUsername }: { currentUsername?
       const res = await fetch('/api/admin/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), password, displayName: displayName.trim() }),
+        body: JSON.stringify({ username: username.trim(), password, displayName: displayName.trim(), role }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-      setCreatedNotice(`Staff account "${data.account?.username ?? username}" created.`);
+      setCreatedNotice(`${role === 'admin' ? 'Admin' : 'Staff'} account "${data.account?.username ?? username}" created.`);
       setUsername('');
       setDisplayName('');
       setPassword('');
       setConfirmPassword('');
+      setRole('staff');
       await fetchAccounts();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Could not create the account.');
@@ -237,6 +239,21 @@ export default function StaffAccountsTab({ currentUsername }: { currentUsername?
             />
           </div>
 
+          <div>
+            <label htmlFor="staff-role" className="block text-xs font-semibold uppercase tracking-wider text-slate-400">
+              User Role
+            </label>
+            <select
+              id="staff-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'staff' | 'admin')}
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
           <div className="sm:col-span-2">
             {createError && (
               <div className="mb-3 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -308,8 +325,12 @@ export default function StaffAccountsTab({ currentUsername }: { currentUsername?
                       <td className="px-4 py-3 font-semibold text-slate-800">{account.username}</td>
                       <td className="px-4 py-3 text-slate-600">{account.display_name}</td>
                       <td className="px-4 py-3">
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
-                          staff
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold border ${
+                          account.role === 'admin'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                        }`}>
+                          {account.role}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">

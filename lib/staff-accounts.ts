@@ -12,7 +12,7 @@ export interface StaffAccount {
   id: string;
   username: string;
   display_name: string;
-  role: 'staff';
+  role: 'staff' | 'admin';
   password_hash: string;
   created_at: string;
   created_by: string;
@@ -85,6 +85,7 @@ export interface CreateStaffInput {
   username: string;
   password: string;
   displayName?: string;
+  role?: 'staff' | 'admin';
   createdBy: string;
 }
 
@@ -94,6 +95,7 @@ export async function createStaffAccount(input: CreateStaffInput): Promise<Publi
   const username = (input.username || '').trim();
   const password = input.password || '';
   const displayName = (input.displayName || '').trim() || username;
+  const role = input.role === 'admin' ? 'admin' : 'staff';
 
   if (!USERNAME_PATTERN.test(username)) {
     throw new StaffAccountError(
@@ -119,7 +121,7 @@ export async function createStaffAccount(input: CreateStaffInput): Promise<Publi
     id: `staff_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     username,
     display_name: displayName,
-    role: 'staff',
+    role,
     password_hash: hashPassword(password),
     created_at: new Date().toISOString(),
     created_by: input.createdBy,

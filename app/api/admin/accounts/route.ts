@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
       username: String(body?.username ?? ''),
       password: String(body?.password ?? ''),
       displayName: body?.displayName ? String(body.displayName) : undefined,
+      role: ['staff', 'admin'].includes(String(body?.role ?? '')) ? String(body.role) as 'staff' | 'admin' : undefined,
       createdBy: session!.username,
     });
     return NextResponse.json({ success: true, account }, { status: 201 });
