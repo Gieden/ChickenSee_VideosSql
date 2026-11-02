@@ -243,21 +243,21 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
     box_width, box_height = x2 - x1, y2 - y1
     if box_width <= 0 or box_height <= 0:
         return None
-    if (box_width / max(1, box_height) > 1.35) or box_height < 40:
+    if (box_width / max(1, box_height) > 1.35) or box_height < 25:
         return None
 
-    crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.12)))
-    crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.12)))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.70)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.08)))
+    crop_x1 = max(0, min(frame_width, x1))
+    crop_x2 = max(0, min(frame_width, x2))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.45)))
+    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.10)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     roi_h = roi.shape[0]
-    max_cw = max(4, int(box_width * 0.28))
-    max_ch = max(4, int(box_height * 0.32))
+    max_cw = max(5, int(box_width * 0.85))
+    max_ch = max(5, int(box_height * 0.70))
 
     best_label: Optional[str] = None
     best_area = 0.0
@@ -276,9 +276,11 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
             cy = centroids[j][1]
-            if 10 <= area <= 350 and 3 <= cw <= max_cw and 3 <= ch <= max_ch and cy >= roi_h * 0.20:
+            area_upper = max(50, int(box_width * box_height * 0.40))
+            if 8 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+                compactness = area / max(1, cw * ch)
                 aspect = cw / max(1, ch)
-                if 0.20 <= aspect <= 3.8 and area > valid_area:
+                if 0.20 <= aspect <= 4.0 and compactness >= 0.25 and area > valid_area:
                     valid_area = float(area)
                     worker = (j, stats[j])
 

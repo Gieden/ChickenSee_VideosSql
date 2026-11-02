@@ -92,7 +92,7 @@ function Start-ChickenSeeService {
 }
 
 function Get-CandidateProcesses {
-    return @(Get-CimInstance Win32_Process -Filter "Name = 'node.exe' or Name = 'python.exe'" -ErrorAction SilentlyContinue)
+    return @(Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine -Filter "Name = 'node.exe' or Name = 'python.exe'" -ErrorAction SilentlyContinue)
 }
 
 function Find-ExistingServiceProcess {
@@ -158,8 +158,8 @@ try {
     }
 
     while ($true) {
-        for ($second = 0; $second -lt 10; $second++) {
-            Start-Sleep -Seconds 1
+        for ($step = 0; $step -lt 20; $step++) {
+            Start-Sleep -Milliseconds 500
             if ((Test-Path $StopRequest) -or (Test-Path $LegacyStopRequest)) {
                 break
             }

@@ -80,5 +80,14 @@ class AnalyticsConfig(BaseModel):
     api_host: str = Field(default="0.0.0.0", description="FastAPI host")
     api_port: int = Field(default=8000, description="FastAPI port")
 
+    # Fixed-population ID pool
+    # When > 0, display IDs are drawn from the pool {1..flock_size} and reserved
+    # (not retired) when a bird leaves the frame, so IDs never exceed flock_size
+    # and a returning bird always gets its original ID back.
+    flock_size: int = Field(
+        default_factory=lambda: int(os.getenv("FLOCK_SIZE", "0")),
+        description="Fixed flock size for stable ID pool (0 = unlimited / legacy behaviour)"
+    )
+
 
 CONFIG = AnalyticsConfig()

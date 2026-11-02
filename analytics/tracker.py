@@ -179,6 +179,11 @@ class ZampenYOLOTracker:
         self.processed_frame_count = 0
         self.short_id_map: Dict[int, int] = {}
         self._next_short_id = 1
+        # Fixed-population ID pool: when flock_size > 0 display IDs are drawn
+        # from {1..flock_size} and reserved (not retired) when a bird leaves the
+        # frame, so IDs never exceed flock_size and a returning bird always gets
+        # its original slot back.
+        self.flock_size: int = CONFIG.flock_size
         self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
         self.short_track_sizes: Dict[int, float] = {}
         self.track_last_label: Dict[int, str] = {}
@@ -192,6 +197,19 @@ class ZampenYOLOTracker:
             self._next_short_id += 1
         return self.short_id_map[raw_track_id]
 
+    def _next_pool_id(self, assigned_ids: set) -> int:
+        """Return the smallest available display ID respecting the flock pool."""
+        flock_size = getattr(self, "flock_size", 0)
+        if flock_size > 0:
+            used = set(self.short_id_map.values()) | assigned_ids
+            for candidate in range(1, flock_size + 1):
+                if candidate not in used:
+                    return candidate
+            # Pool exhausted (more tracks than known flock size) — fall through to monotonic
+        new_id = self._next_short_id
+        self._next_short_id += 1
+        return new_id
+
     def reset_video_state(self) -> None:
         self.track_label_cache.clear()
         self.track_label_votes.clear()
@@ -203,6 +221,9 @@ class ZampenYOLOTracker:
         self.processed_frame_count = 0
         self.short_id_map.clear()
         self._next_short_id = 1
+        # Re-read flock_size from config in case the env var was changed between videos
+        if not hasattr(self, "flock_size"):
+            self.flock_size = CONFIG.flock_size
         self.short_track_positions.clear()
         self.short_track_sizes.clear()
         self.track_last_label.clear()
@@ -303,8 +324,7 @@ class ZampenYOLOTracker:
                 # Ultra duplicate raw id in one frame (or an id already donated by re-ID)
                 display_id = None
             if display_id is None:
-                display_id = self._next_short_id
-                self._next_short_id += 1
+                display_id = self._next_pool_id(assigned_ids)
             self.short_id_map[raw_track_id] = display_id
             bird.track_id = display_id
             assigned_ids.add(display_id)

@@ -72,23 +72,28 @@ def detect_leg_band_color(
     if box_width <= 0 or box_height <= 0:
         return None
 
-    # If the bird is crouching/sitting (wide aspect ratio), legs are tucked under body
-    if (box_width / max(1, box_height) > 1.35) or box_height < 40:
+    # If the bird is crouching/sitting (wide aspect ratio), legs are tucked under body.
+    # Lowered height threshold from 40 to 25 to handle smaller/distant birds.
+    if (box_width / max(1, box_height) > 1.35) or box_height < 25:
         return None
 
-    # Sample only the actual leg zone (bottom ~30% of standing bird)
-    crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.12)))
-    crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.12)))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.70)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.08)))
+    # Sample the lower 55% of the bird box (bottom of body + full leg zone).
+    # The old crop (y1 + 70% to y2 + 8%) was only 30% of the box height, leaving
+    # leg bands in the lower-middle region undetected on typical 640px inference boxes.
+    crop_x1 = max(0, min(frame_width, x1))
+    crop_x2 = max(0, min(frame_width, x2))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.45)))
+    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.10)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     roi_h = roi.shape[0]
-    max_cw = max(4, int(box_width * 0.28))
-    max_ch = max(4, int(box_height * 0.32))
+    # Relaxed width gate: band can span the full leg width at low resolution.
+    max_cw = max(5, int(box_width * 0.85))
+    # Relaxed height gate: proportion of box height (was 0.32).
+    max_ch = max(5, int(box_height * 0.70))
 
     best_match = None
     best_area = 0
@@ -107,10 +112,14 @@ def detect_leg_band_color(
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
             cy = centroids[j][1]
-            # Compact leg-band cluster check: must not span the entire bird width (feather sheen)
-            if 10 <= area <= 350 and 3 <= cw <= max_cw and 3 <= ch <= max_ch and cy >= roi_h * 0.20:
+            # Compact leg-band cluster: must be a solid blob, not feather sheen.
+            # compactness = filled_pixels / bounding_box_area — real bands are dense (>= 0.25),
+            # diffuse feather-sheen components are scattered (< 0.25).
+            area_upper = max(50, int(box_width * box_height * 0.40))
+            if 8 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+                compactness = area / max(1, cw * ch)
                 aspect = cw / max(1, ch)
-                if 0.20 <= aspect <= 3.8:
+                if 0.20 <= aspect <= 4.0 and compactness >= 0.25:
                     valid_area = max(valid_area, area)
 
         if valid_area > 0:

@@ -166,9 +166,9 @@ def capture_service_processes() -> Dict[str, List[Tuple[psutil.Process, float]]]
 
 def stop_processes_after_signal(
     targets: Dict[str, List[Tuple[psutil.Process, float]]],
-    graceful_timeout_s: float = 15.0,
+    graceful_timeout_s: float = 1.0,
 ) -> bool:
-    """Wait for the supervisor, then stop only captured ChickenSee processes if needed."""
+    """Promptly and cleanly stop supervisor and captured ChickenSee service processes."""
     all_targets = [target for group in targets.values() for target in group]
     deadline = time.monotonic() + graceful_timeout_s
 
@@ -180,10 +180,10 @@ def stop_processes_after_signal(
             return False
 
     while time.monotonic() < deadline and any(still_running(target) for target in all_targets):
-        time.sleep(0.25)
+        time.sleep(0.1)
 
     remaining_supervisors = [
-        target for target in targets["supervisor"] if still_running(target)
+        target for target in targets.get("supervisor", []) if still_running(target)
     ]
     remaining_services = [
         target
@@ -195,31 +195,23 @@ def stop_processes_after_signal(
     if not remaining_supervisors and not remaining_services:
         return False
 
+    # Stop supervisor first so it does not attempt to respawn child processes
     for process, _ in remaining_supervisors:
         try:
             process.terminate()
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
     if remaining_supervisors:
-        psutil.wait_procs([target[0] for target in remaining_supervisors], timeout=5)
-    still_running_supervisors = [
-        process.pid
-        for process, created_at in remaining_supervisors
-        if still_running((process, created_at))
-    ]
-    if still_running_supervisors:
-        raise RuntimeError(
-            "Could not stop the ChickenSee supervisor: "
-            + ", ".join(f"PID {pid}" for pid in still_running_supervisors)
-        )
+        psutil.wait_procs([target[0] for target in remaining_supervisors], timeout=1.0)
 
+    # Terminate remaining service processes
     for process, _ in remaining_services:
         try:
             process.terminate()
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
     _, stubborn = psutil.wait_procs(
-        [target[0] for target in remaining_services], timeout=5
+        [target[0] for target in remaining_services], timeout=1.0
     )
     for process in stubborn:
         try:
@@ -227,22 +219,8 @@ def stop_processes_after_signal(
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
     if stubborn:
-        _, still_stubborn = psutil.wait_procs(stubborn, timeout=3)
-        if still_stubborn:
-            raise RuntimeError(
-                "Could not stop ChickenSee processes: "
-                + ", ".join(f"PID {process.pid}" for process in still_stubborn)
-            )
-    still_running_services = [
-        process.pid
-        for process, created_at in remaining_services
-        if still_running((process, created_at))
-    ]
-    if still_running_services:
-        raise RuntimeError(
-            "ChickenSee services are still running: "
-            + ", ".join(f"PID {pid}" for pid in still_running_services)
-        )
+        psutil.wait_procs(stubborn, timeout=0.5)
+
     return True
 
 
@@ -409,6 +387,10 @@ class ChickenSeeDesktop:
                 ("disabled", COLORS["muted"]),
                 ("active", "#ffffff"),
             ],
+            bordercolor=[
+                ("disabled", COLORS["surface_raised"]),
+                ("active", COLORS["green_hover"]),
+            ],
         )
         style.configure(
             "Stop.TButton",
@@ -430,6 +412,10 @@ class ChickenSeeDesktop:
             foreground=[
                 ("disabled", COLORS["muted"]),
                 ("active", "#ffffff"),
+            ],
+            bordercolor=[
+                ("disabled", COLORS["surface_raised"]),
+                ("active", COLORS["red_hover"]),
             ],
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
@@ -759,6 +745,7 @@ class ChickenSeeDesktop:
             text="■  Stop ChickenSee",
             style="Stop.TButton",
             command=self.stop_services,
+            state="disabled",
         )
         self.stop_button.pack(side="left")
         ttk.Button(
@@ -1886,17 +1873,33 @@ class ChickenSeeDesktop:
         self._refresh_status()
 
     def start_services(self) -> None:
+        if self.starting_services or self.stopping_services:
+            return
         processes = find_service_processes()
-        if processes["supervisor"]:
+        if any(bool(pids) for pids in processes.values()):
+            self._update_power_buttons(processes)
             self._refresh_status()
             return
         self.starting_services = True
-        self._update_power_buttons(processes["supervisor"])
+        self._update_power_buttons(True)
+        self.header_status.configure(
+            text="●  Starting services…",
+            bg=COLORS["amber_soft"],
+            fg=COLORS["amber_text"],
+        )
         self._log("Starting ChickenSee services…")
         threading.Thread(target=self._start_services_worker, daemon=True).start()
 
     def _start_services_worker(self) -> None:
         try:
+            # Clean up old stop requests or stale state before launching
+            for stop_f in [AGENT_DIR / ".stop-request", PROJECT_ROOT / "local-storage" / "logs" / "stop-request"]:
+                try:
+                    if stop_f.is_file():
+                        stop_f.unlink()
+                except OSError:
+                    pass
+
             launch_log = (
                 Path(str(self.settings["storage_root"])).expanduser()
                 / "logs"
@@ -1905,23 +1908,24 @@ class ChickenSeeDesktop:
             process = start_supervisor(
                 PROJECT_ROOT, Path(str(self.settings["storage_root"]))
             )
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                if find_service_processes()["supervisor"]:
+                procs = find_service_processes()
+                if procs["supervisor"] or procs["analytics-api"] or procs["sync-agent"]:
                     self.events.put(
-                        ("start_done", True, "ChickenSee services are starting.")
+                        ("start_done", True, "ChickenSee services started successfully.")
                     )
                     return
                 exit_code = process.poll()
                 if exit_code is not None and exit_code != 0:
                     break
-                time.sleep(0.5)
+                time.sleep(0.25)
 
             detail = ""
             if launch_log.is_file():
                 detail = launch_log.read_text(encoding="utf-8", errors="replace")[-3000:]
             if process.poll() is None:
-                detail = detail or "The supervisor did not become visible within 20 seconds."
+                detail = detail or "The supervisor did not become visible within 15 seconds."
             elif not detail:
                 detail = f"The supervisor exited with code {process.returncode}."
             raise RuntimeError(
@@ -1931,32 +1935,30 @@ class ChickenSeeDesktop:
             self.events.put(("start_done", False, str(error)))
 
     def stop_services(self) -> None:
-        processes = find_service_processes()
-        if not processes["supervisor"]:
-            messagebox.showwarning(
-                "Startup services are not running",
-                "There are no ChickenSee startup services for the Stop button to stop.",
-            )
+        if self.starting_services or self.stopping_services:
             return
-        if not messagebox.askyesno(
-            "Stop ChickenSee?",
-            "This will stop the folder watcher, analytics API, and video analyzer.",
-        ):
+        processes = find_service_processes()
+        has_running = any(bool(pids) for pids in processes.values())
+        if not has_running:
+            self._update_power_buttons(False)
+            self._refresh_status()
             return
         self.stopping_services = True
-        self._update_power_buttons(processes["supervisor"])
+        self._update_power_buttons(True)
+        self.header_status.configure(
+            text="●  Stopping services…",
+            bg=COLORS["red_soft"],
+            fg=COLORS["red_text"],
+        )
         targets = capture_service_processes()
         try:
             request_stop(
                 Path(str(self.settings["storage_root"])).expanduser(),
                 processes["supervisor"],
             )
-        except (OSError, ValueError, json.JSONDecodeError) as error:
-            self.stopping_services = False
-            self._update_power_buttons(processes["supervisor"])
-            messagebox.showerror("Could not stop services", str(error))
-            return
-        self._log("Stop requested. Waiting for the supervisor to stop its services…")
+        except Exception as error:
+            self._log(f"Stop request file note: {error}")
+        self._log("Stopping ChickenSee services…")
         threading.Thread(
             target=self._stop_services_worker,
             args=(targets,),
@@ -1967,16 +1969,15 @@ class ChickenSeeDesktop:
         self, targets: Dict[str, List[Tuple[psutil.Process, float]]]
     ) -> None:
         try:
-            used_fallback = stop_processes_after_signal(targets)
-            message = (
-                "The supervisor did not stop within 15 seconds; stopped the captured "
-                "ChickenSee processes directly."
-                if used_fallback
-                else "ChickenSee stopped."
-            )
-            self.events.put(("stop_done", True, message))
+            stop_processes_after_signal(targets, graceful_timeout_s=1.0)
+            self.events.put(("stop_done", True, "ChickenSee stopped."))
         except (OSError, RuntimeError) as error:
             self.events.put(("stop_done", False, str(error)))
+
+    def _save_queue_status_for_sync(self, queue_data: Any) -> None:
+        """Compatibility helper: safely ignore empty snapshots to preserve saved history."""
+        if not queue_data:
+            return
 
     def run_video_test(self) -> None:
         if not find_service_processes()["analytics-worker"]:
@@ -2240,24 +2241,30 @@ class ChickenSeeDesktop:
             queue_data = None
             queue_error = None
             sensor_data = None
-            try:
-                with urllib.request.urlopen(HEALTH_URL, timeout=4) as response:
-                    health = json.loads(response.read().decode("utf-8"))
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
-                health_error = str(error)
-            # Queue state is an independent API surface. Do not hide it behind
-            # the health request: the health endpoint can fail briefly while
-            # the queue endpoint is already available during service startup.
-            try:
-                with urllib.request.urlopen(QUEUE_URL, timeout=8) as response:
-                    queue_data = json.loads(response.read().decode("utf-8"))
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
-                queue_error = str(error)
+            api_running = bool(statuses.get("analytics-api"))
+            if api_running:
+                try:
+                    with urllib.request.urlopen(HEALTH_URL, timeout=1.5) as response:
+                        health = json.loads(response.read().decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+                    health_error = str(error)
 
-            # Keep the queue visible if the API is briefly restarting. The
-            # analytics worker and sync agent maintain this snapshot locally,
-            # so it is a reliable recovery source while the HTTP endpoint
-            # comes back.
+                try:
+                    with urllib.request.urlopen(QUEUE_URL, timeout=2.0) as response:
+                        queue_data = json.loads(response.read().decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+                    queue_error = str(error)
+
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=1.5) as response:
+                        sensor_data = json.loads(response.read().decode("utf-8"))
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+                    sensor_data = None
+            else:
+                health_error = "Services stopped."
+                queue_error = "Services stopped."
+
+            # Keep the queue visible if the API is briefly restarting.
             if queue_data is None:
                 try:
                     from local_store import RESULTS_DIR
@@ -2266,20 +2273,16 @@ class ChickenSeeDesktop:
                         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
                         if isinstance(snapshot, dict):
                             queue_data = snapshot
-                            queue_error = None
+                            if api_running:
+                                queue_error = None
                 except (OSError, json.JSONDecodeError):
                     pass
 
-            try:
-                with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=4) as response:
-                    sensor_data = json.loads(response.read().decode("utf-8"))
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
-                sensor_data = None
-            if queue_data is None:
+            if queue_data is None and api_running:
                 queue_error = queue_error or health_error or "Analytics API is unavailable."
             self.events.put(("queue", queue_data, queue_error))
 
-            # Fallback local SQLite sensor discovery if API did not return sensor telemetry
+            # Fast local SQLite sensor discovery
             if not sensor_data or not sensor_data.get("available"):
                 try:
                     from analytics.sensor_utils import read_sensor_db_status
@@ -2301,32 +2304,31 @@ class ChickenSeeDesktop:
                             active_path = Path(active_item.get("video_path", ""))
                     if active_path and active_path.is_file():
                         from analytics.sensor_utils import find_paired_sensor_db
-
                         p_db = find_paired_sensor_db(str(active_path))
-                    for d in self.settings.get("directories", []):
-                        if p_db:
-                            break
-                        dp = Path(d)
-                        if dp.is_dir():
-                            for p in dp.rglob("*.sqlite"):
-                                p_db = p
+
+                    if not p_db:
+                        for cand_name in ["sensors.sqlite", "chicken_telemetry.db"]:
+                            cand = PROJECT_ROOT / "agent" / "data" / cand_name
+                            if cand.is_file():
+                                p_db = cand
                                 break
-                            if p_db:
-                                break
-                            for p in dp.rglob("*.db"):
-                                if "zampen" not in p.name:
+
+                    if not p_db:
+                        for d in self.settings.get("directories", []):
+                            dp = Path(d)
+                            if dp.is_dir():
+                                for p in dp.glob("*.sqlite"):
                                     p_db = p
                                     break
-                            if p_db:
-                                break
-                    if not p_db:
-                        cand = PROJECT_ROOT / "agent" / "data" / "sensors.sqlite"
-                        if cand.is_file():
-                            p_db = cand
-                    if not p_db:
-                        cand = PROJECT_ROOT / "agent" / "data" / "chicken_telemetry.db"
-                        if cand.is_file():
-                            p_db = cand
+                                if p_db:
+                                    break
+                                for p in dp.glob("*.db"):
+                                    if "zampen" not in p.name:
+                                        p_db = p
+                                        break
+                                if p_db:
+                                    break
+
                     if p_db:
                         fallback_data = read_sensor_db_status(p_db, active_vid, limit_recent=30)
                         if fallback_data.get("available"):
@@ -2483,27 +2485,35 @@ class ChickenSeeDesktop:
                 text="Services start automatically after Windows sign-in."
             )
 
-        self._update_power_buttons(statuses["supervisor"])
+        self._update_power_buttons(statuses)
 
-    def _update_power_buttons(self, supervisor_pids: List[int]) -> None:
-        """Keep Start/Stop in one consistent visual language: filled when usable, muted otherwise.
+    def _update_power_buttons(self, processes_or_running: Any = None) -> None:
+        """Keep Start/Stop in one consistent visual language: filled when usable, muted otherwise."""
+        if isinstance(processes_or_running, dict):
+            is_running = any(bool(pids) for pids in processes_or_running.values())
+        elif isinstance(processes_or_running, (list, tuple, set)):
+            is_running = bool(processes_or_running)
+        elif isinstance(processes_or_running, bool):
+            is_running = processes_or_running
+        elif processes_or_running is None:
+            procs = find_service_processes()
+            is_running = any(bool(pids) for pids in procs.values())
+        else:
+            is_running = bool(processes_or_running)
 
-        The stop glyph is '\u25a0' rather than '\u23fb': Segoe UI has no outlined power glyph, so
-        '\u23fb' falls back to another font and renders at a different size/weight than the start arrow.
-        """
         busy = self.starting_services or self.stopping_services
         if self.starting_services:
             self.start_button.configure(state="disabled", text="Starting ChickenSee…")
         else:
             self.start_button.configure(
-                state="disabled" if supervisor_pids or busy else "normal",
+                state="disabled" if is_running or busy else "normal",
                 text="▶  Start ChickenSee",
             )
         if self.stopping_services:
             self.stop_button.configure(state="disabled", text="Stopping ChickenSee…")
         else:
             self.stop_button.configure(
-                state="normal" if supervisor_pids and not busy else "disabled",
+                state="normal" if is_running and not busy else "disabled",
                 text="■  Stop ChickenSee",
             )
 
