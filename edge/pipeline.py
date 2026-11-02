@@ -99,10 +99,14 @@ class EdgePipelineManager:
             pass
 
         print(f"[STREAM] Video source connected successfully.")
+        # Feed the real stream FPS to the Re-ID engine so its frame budgets are in real seconds.
+        fps_src = float(self.cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        if fps_src > 0:
+            self.detector.set_source_fps(fps_src)
         # Attempt to read total frame count (works for file sources)
         self._total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
         if self._total_frames > 0:
-            fps_src = self.cap.get(cv2.CAP_PROP_FPS) or 20.0
+            fps_src = fps_src or 20.0
             print(f"[STREAM] Total frames: {self._total_frames} (~{self._total_frames / fps_src / 60:.1f} min at {fps_src:.0f} FPS)")
         return True
 

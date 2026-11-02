@@ -1,0 +1,12 @@
+[TRACKER] Initializing YOLO26 Nano from: C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\custom_poultry.pt
+[TRACKER] Using ByteTrack config: C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\bytetrack_poultry.yaml
+═══════════════════════════════════════════════════════════════
+  ZAMPEN Layer Chicken Analytics Pipeline - OptiPlex Daemon
+  Model: YOLO26 Nano (yolo26n.pt) + ByteTrack
+  Input Video Dirs: C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\agent\data, C:\Users\Kairi\Documents\chicks\test, C:\Users\Kairi\Documents\chicks\test\cam01
+  Local Results   : C:\Users\Kairi\Documents\ChickenSee_Local_Storage
+  Detected Videos : C:\Users\Kairi\Documents\ChickenSee_Local_Storage\videos
+  Sensor DB       : sqlite:///C:/Users/Kairi/Documents/ChickenSee_Videos(sql)/agent/data/chicken_telemetry.db
+  Analytics DB    : sqlite:///C:/Users/Kairi/Documents/ChickenSee_Videos(sql)/analytics/zampen_analytics.db
+  File stability  : 2.0s (Real-Time) | Analysis chunks: 30m
+═══════════════════════════════════════════════════════════════

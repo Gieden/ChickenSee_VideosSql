@@ -389,36 +389,48 @@ class ChickenSeeDesktop:
             foreground=[("active", "#ffffff"), ("disabled", COLORS["muted"])],
         )
         style.configure(
-            "Stop.TButton",
-            background=COLORS["red"],
-            foreground="#ffffff",
-            padding=(16, 10),
-            font=("Segoe UI Semibold", 10),
+            "Start.TButton",
+            background=COLORS["green_soft"],
+            foreground=COLORS["green_text"],
+            bordercolor=COLORS["green"],
+            borderwidth=1,
+            relief="solid",
+            padding=(14, 7),
+            font=("Segoe UI Semibold", 9),
             focuscolor="none",
         )
         style.map(
-            "Stop.TButton",
+            "Start.TButton",
             background=[
-                ("disabled", COLORS["border"]),
-                ("active", COLORS["red_hover"]),
+                ("disabled", COLORS["surface"]),
+                ("active", COLORS["green"]),
             ],
-            foreground=[("disabled", COLORS["muted"]), ("active", "#ffffff")],
+            foreground=[
+                ("disabled", COLORS["muted"]),
+                ("active", "#ffffff"),
+            ],
         )
         style.configure(
-            "Start.TButton",
-            background=COLORS["green"],
-            foreground="#ffffff",
-            padding=(16, 10),
-            font=("Segoe UI Semibold", 10),
+            "Stop.TButton",
+            background=COLORS["red_soft"],
+            foreground=COLORS["red_text"],
+            bordercolor=COLORS["red"],
+            borderwidth=1,
+            relief="solid",
+            padding=(14, 7),
+            font=("Segoe UI Semibold", 9),
             focuscolor="none",
         )
         style.map(
-            "Start.TButton",
+            "Stop.TButton",
             background=[
-                ("disabled", COLORS["border"]),
-                ("active", COLORS["green_hover"]),
+                ("disabled", COLORS["surface"]),
+                ("active", COLORS["red"]),
             ],
-            foreground=[("disabled", COLORS["muted"]), ("active", "#ffffff")],
+            foreground=[
+                ("disabled", COLORS["muted"]),
+                ("active", "#ffffff"),
+            ],
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
         style.configure(
@@ -744,20 +756,23 @@ class ChickenSeeDesktop:
         self.start_button.pack(side="left", padx=(0, 8))
         self.stop_button = ttk.Button(
             actions,
-            text="⏻  Stop ChickenSee",
+            text="■  Stop ChickenSee",
             style="Stop.TButton",
             command=self.stop_services,
         )
         self.stop_button.pack(side="left")
-        ttk.Button(actions, text="Open API docs", command=self.open_api_docs).pack(
-            side="right"
-        )
-        ttk.Button(actions, text="Open logs", command=self.open_logs).pack(
-            side="right", padx=(0, 8)
-        )
-        ttk.Button(actions, text="Open videos", command=self.open_videos_folder).pack(
-            side="right", padx=(0, 8)
-        )
+        ttk.Button(
+            actions, text="Open API docs", style="Secondary.TButton", command=self.open_api_docs
+        ).pack(side="right")
+        ttk.Button(
+            actions, text="Open logs", style="Secondary.TButton", command=self.open_logs
+        ).pack(side="right", padx=(0, 8))
+        ttk.Button(
+            actions,
+            text="Open videos",
+            style="Secondary.TButton",
+            command=self.open_videos_folder,
+        ).pack(side="right", padx=(0, 8))
 
         cards = ttk.Frame(self.dashboard)
         cards.pack(fill="x")
@@ -2471,24 +2486,25 @@ class ChickenSeeDesktop:
         self._update_power_buttons(statuses["supervisor"])
 
     def _update_power_buttons(self, supervisor_pids: List[int]) -> None:
+        """Keep Start/Stop in one consistent visual language: filled when usable, muted otherwise.
+
+        The stop glyph is '\u25a0' rather than '\u23fb': Segoe UI has no outlined power glyph, so
+        '\u23fb' falls back to another font and renders at a different size/weight than the start arrow.
+        """
         busy = self.starting_services or self.stopping_services
         if self.starting_services:
-            self.start_button.configure(
-                state="disabled", text="Starting ChickenSee…"
-            )
+            self.start_button.configure(state="disabled", text="Starting ChickenSee…")
         else:
             self.start_button.configure(
                 state="disabled" if supervisor_pids or busy else "normal",
                 text="▶  Start ChickenSee",
             )
         if self.stopping_services:
-            self.stop_button.configure(
-                state="disabled", text="Stopping ChickenSee…"
-            )
+            self.stop_button.configure(state="disabled", text="Stopping ChickenSee…")
         else:
             self.stop_button.configure(
                 state="normal" if supervisor_pids and not busy else "disabled",
-                text="⏻  Stop ChickenSee",
+                text="■  Stop ChickenSee",
             )
 
     def _display_queue(self, queue_data, queue_error) -> None:

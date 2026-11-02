@@ -140,6 +140,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.model = FakeModel()
         tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.track_conf = min(0.25, ZampenYOLOTracker.MIN_LEG_BAND_CONFIDENCE)
         tracker.conf = 0.25
         tracker.iou = 0.45
         tracker.imgsz = 640
@@ -162,7 +163,12 @@ class TestLegBandDetection(unittest.TestCase):
 
         self.assertEqual([bird.track_id for bird in first.birds], [1, 2])
         self.assertEqual([bird.track_id for bird in second.birds], [2, 1])
-        self.assertEqual(tracker.model.confidence_thresholds, [0.70, 0.70])
+        # The association stage must see leg-band candidates; birds are re-gated at 70%
+        # per class right after tracking (see MIN_DETECTION_CONFIDENCE).
+        self.assertEqual(
+            tracker.model.confidence_thresholds,
+            [ZampenYOLOTracker.MIN_LEG_BAND_CONFIDENCE] * 2,
+        )
         self.assertIsNone(tracker._resolve_short_id(None))
         self.assertEqual(tracker._next_short_id, 3)
 
@@ -176,6 +182,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.short_id_map = {}
         tracker.short_track_positions = {}
+        tracker.short_track_sizes = {}
         tracker._next_short_id = 1
         tracker.processed_frame_count = 1
 

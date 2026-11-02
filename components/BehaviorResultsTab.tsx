@@ -21,7 +21,25 @@ import {
   Zap,
   Flame,
   Volume2,
+  CalendarCheck,
+  CalendarX2,
+  Sparkles,
 } from 'lucide-react';
+
+import RangeAwareDatePicker from '@/components/RangeAwareDatePicker';
+import {
+  IsoDate,
+  addDays,
+  enumerateDates,
+  formatLongDay,
+  formatRange,
+  formatShortDay,
+  formatWeekdayDay,
+  isAfterDate,
+  rangeLength,
+  relativeDayLabel,
+  todayIso,
+} from '@/lib/date-range';
 
 export interface ChickenProfile {
   id: string;
@@ -464,10 +482,15 @@ export default function BehaviorResultsTab() {
   // Date Filtering Mode:
   // 'preset' | 'single' | 'range'
   const [dateFilterMode, setDateFilterMode] = useState<'preset' | 'single' | 'range'>('preset');
-  const [selectedPreset, setSelectedPreset] = useState<'all' | 'yesterday' | '27oct' | '24oct'>('all');
-  const [singleDate, setSingleDate] = useState<string>('2026-10-28'); // Yesterday by default for single day
-  const [rangeStart, setRangeStart] = useState<string>('2026-10-24');
-  const [rangeEnd, setRangeEnd] = useState<string>('2026-10-28');
+  // 'all' | 'yesterday' | an ISO date coming from the generated preset chips
+  const [selectedPreset, setSelectedPreset] = useState<string>('all');
+  // `null` until the recorded dates are known (they come from the API), then the filter is
+  // anchored on the newest recorded day — never on a hard-coded calendar date.
+  const [singleDate, setSingleDate] = useState<IsoDate | null>(null);
+  const [rangeStart, setRangeStart] = useState<IsoDate | null>(null);
+  const [rangeEnd, setRangeEnd] = useState<IsoDate | null>(null);
+  // Bumped by "Today" so relative labels (Today / Yesterday / N days ago) refresh across midnight.
+  const [clockAnchor, setClockAnchor] = useState<IsoDate>(() => todayIso());
 
   // Detailed Log Search & Filter states
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
@@ -524,39 +547,117 @@ export default function BehaviorResultsTab() {
     [dynamicProfiles, selectedBirdId]
   );
 
+  // ── Recorded-date index ───────────────────────────────────────────────────
+  // Every date that actually has telemetry. Presets and the calendar's disabled cells are
+  // derived from this, so a day without records can never be selected or shown as "Yesterday".
+  const recordedDates = useMemo(() => {
+    const fromData = new Set(intervals.map((item) => item.date));
+    const fromApi = availableDates.filter((date) => fromData.has(date));
+    return (fromApi.length ? fromApi : Array.from(fromData)).sort();
+  }, [intervals, availableDates]);
+
+  const recordedLookup = useMemo(() => new Set(recordedDates), [recordedDates]);
+  const latestRecorded = recordedDates.length ? recordedDates[recordedDates.length - 1] : null;
+  const earliestRecorded = recordedDates.length ? recordedDates[0] : null;
+
+  const today = todayIso();
+  // The wall clock can move (tab left open overnight); recompute relative labels then.
+  const anchor = clockAnchor || today;
+  const yesterday = addDays(today, -1);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockAnchor(todayIso()), 60 * 60 * 1000);
+    const onFocus = () => setClockAnchor(todayIso());
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+
+  // Default the single day / range once the recorded dates are known.
+  useEffect(() => {
+    if (!latestRecorded) return;
+    setSingleDate((current) => current ?? latestRecorded);
+    setRangeStart((current) => current ?? earliestRecorded ?? latestRecorded);
+    setRangeEnd((current) => current ?? latestRecorded);
+  }, [latestRecorded, earliestRecorded]);
+
+  // Presets are data-driven: "Yesterday" only exists when yesterday has records.
+  const presetDays = useMemo(() => {
+    const days: { key: string; date: IsoDate | null; label: string }[] = [];
+    const yesterdayHasRecords = recordedLookup.has(yesterday);
+    days.push({
+      key: 'yesterday',
+      date: yesterdayHasRecords ? yesterday : null,
+      label: yesterdayHasRecords
+        ? `Yesterday (${formatShortDay(yesterday)})`
+        : `Yesterday (${formatShortDay(yesterday)}) · no data`,
+    });
+    const recent = recordedDates
+      .filter((date) => date !== yesterday && date !== today)
+      .slice(-3)
+      .reverse();
+    recent.forEach((date) => {
+      days.push({ key: date, date, label: formatShortDay(date) });
+    });
+    return days;
+  }, [recordedLookup, recordedDates, yesterday, today]);
+
+  const isCustomRangeReady = Boolean(rangeStart && rangeEnd && !isAfterDate(rangeStart, rangeEnd));
+
+  /** Recorded days inside the current From → To window (for quick-duration chips). */
+  const spanRecordedCount = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return 0;
+    return enumerateDates(rangeStart, rangeEnd).filter((date) => recordedLookup.has(date)).length;
+  }, [rangeStart, rangeEnd, recordedLookup]);
+
   // Filtered intervals based on date selection
   const filteredIntervals = useMemo(() => {
     if (dateFilterMode === 'preset') {
+      if (selectedPreset === 'all') return intervals;
       if (selectedPreset === 'yesterday') {
-        return intervals.filter((i) => i.date === '2026-10-28');
-      } else if (selectedPreset === '27oct') {
-        return intervals.filter((i) => i.date === '2026-10-27');
-      } else if (selectedPreset === '24oct') {
-        return intervals.filter((i) => i.date === '2026-10-24');
+        return recordedLookup.has(yesterday)
+          ? intervals.filter((i) => i.date === yesterday)
+          : [];
       }
-      return intervals;
-    } else if (dateFilterMode === 'single') {
-      return intervals.filter((i) => i.date === singleDate);
-    } else {
-      // range mode
-      return intervals.filter((i) => i.date >= rangeStart && i.date <= rangeEnd);
+      return intervals.filter((i) => i.date === selectedPreset);
     }
-  }, [intervals, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd]);
+    if (dateFilterMode === 'single') {
+      return singleDate ? intervals.filter((i) => i.date === singleDate) : [];
+    }
+    if (!rangeStart || !rangeEnd) return [];
+    return intervals.filter((i) => i.date >= rangeStart && i.date <= rangeEnd);
+  }, [intervals, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, recordedLookup, yesterday]);
 
   // Selected date range text description
   const dateRangeLabel = useMemo(() => {
     if (dateFilterMode === 'preset') {
-      if (selectedPreset === 'all') return 'All Recorded Dates';
-      if (selectedPreset === 'yesterday') return 'Yesterday (28 Oct 2026)';
-      if (selectedPreset === '27oct') return '27 Oct 2026';
-      if (selectedPreset === '24oct') return '24 Oct 2026';
-    } else if (dateFilterMode === 'single') {
-      return singleDate === '2026-10-28' ? 'Yesterday (28 Oct 2026)' : `${singleDate}`;
-    } else {
-      return `${rangeStart} to ${rangeEnd}`;
+      if (selectedPreset === 'all') {
+        return recordedDates.length
+          ? `All recorded dates (${formatRange(recordedDates[0], recordedDates[recordedDates.length - 1])})`
+          : 'All recorded dates';
+      }
+      const preset = presetDays.find((item) => item.key === selectedPreset);
+      if (!preset?.date) return 'No records for that day';
+      return `${formatLongDay(preset.date)} · ${relativeDayLabel(preset.date, anchor)}`;
     }
-    return 'All Recorded Dates';
-  }, [dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd]);
+    if (dateFilterMode === 'single') {
+      if (!singleDate) return 'No day selected';
+      return `${formatLongDay(singleDate)} · ${relativeDayLabel(singleDate, anchor)}`;
+    }
+    if (!rangeStart || !rangeEnd) return 'No range selected';
+    return formatRange(rangeStart, rangeEnd);
+  }, [dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, recordedDates, presetDays, anchor]);
+
+  /** Human note shown under the controls: warns when the range includes empty days. */
+  const rangeNotice = useMemo(() => {
+    if (dateFilterMode !== 'range' || !isCustomRangeReady) return null;
+    const totalDays = rangeLength(rangeStart!, rangeEnd!);
+    const missing = totalDays - spanRecordedCount;
+    if (missing <= 0) return null;
+    return `${missing} of ${totalDays} ${totalDays === 1 ? 'day has' : 'days have'} no telemetry records and are excluded.`;
+  }, [dateFilterMode, isCustomRangeReady, rangeStart, rangeEnd, spanRecordedCount]);
 
   // Aggregate behavior counts for the selected bird across the filtered intervals
   const birdAggregates = useMemo(() => {
@@ -768,71 +869,65 @@ export default function BehaviorResultsTab() {
               <h2 className="text-base sm:text-lg font-bold text-slate-900">Telemetry &amp; Behavior Range Filter</h2>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Filter by individual days (e.g. Yesterday) or custom multi-day durations (e.g. 5 days).
+              Only days with recorded telemetry can be selected · {recordedDates.length}{' '}
+              {recordedDates.length === 1 ? 'day' : 'days'} available
+              {latestRecorded ? ` (latest ${formatLongDay(latestRecorded)})` : ''}.
             </p>
           </div>
 
-          {/* Preset Buttons */}
+          {/* Mode + preset buttons (presets are generated from recorded dates) */}
           <div className="flex flex-wrap items-center gap-2">
             <button
+              type="button"
               onClick={() => {
                 setDateFilterMode('preset');
                 setSelectedPreset('all');
               }}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 dateFilterMode === 'preset' && selectedPreset === 'all'
                   ? 'bg-orange-600 text-white shadow-sm'
                   : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
               }`}
             >
-              All Recorded Dates
+              <Sparkles className="h-3.5 w-3.5" /> All Recorded Dates
             </button>
 
+            {presetDays.map((preset) => {
+              const active = dateFilterMode === 'preset' && selectedPreset === preset.key;
+              const unavailable = preset.date === null;
+              return (
+                <button
+                  key={preset.key}
+                  type="button"
+                  disabled={unavailable}
+                  title={unavailable ? 'No telemetry recorded on this day' : formatWeekdayDay(preset.date!)}
+                  onClick={() => {
+                    if (!preset.date) return;
+                    setDateFilterMode('preset');
+                    setSelectedPreset(preset.key);
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? 'bg-orange-600 text-white shadow-sm'
+                      : unavailable
+                      ? 'cursor-not-allowed border border-dashed border-slate-200 bg-slate-50 text-slate-400 line-through decoration-slate-300'
+                      : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {!unavailable && preset.key === 'yesterday' && <CalendarCheck className="h-3.5 w-3.5" />}
+                  {unavailable && <CalendarX2 className="h-3.5 w-3.5" />}
+                  {preset.key === 'yesterday' ? preset.label : formatShortDay(preset.date!)}
+                </button>
+              );
+            })}
+
             <button
+              type="button"
               onClick={() => {
-                setDateFilterMode('preset');
-                setSelectedPreset('yesterday');
+                setDateFilterMode('single');
+                if (!singleDate) setSingleDate(latestRecorded);
               }}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                dateFilterMode === 'preset' && selectedPreset === 'yesterday'
-                  ? 'bg-orange-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              Yesterday (28 Oct)
-            </button>
-
-            <button
-              onClick={() => {
-                setDateFilterMode('preset');
-                setSelectedPreset('27oct');
-              }}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                dateFilterMode === 'preset' && selectedPreset === '27oct'
-                  ? 'bg-orange-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              27 Oct
-            </button>
-
-            <button
-              onClick={() => {
-                setDateFilterMode('preset');
-                setSelectedPreset('24oct');
-              }}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                dateFilterMode === 'preset' && selectedPreset === '24oct'
-                  ? 'bg-orange-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              24 Oct
-            </button>
-
-            <button
-              onClick={() => setDateFilterMode('single')}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 dateFilterMode === 'single'
                   ? 'bg-orange-600 text-white shadow-sm'
                   : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -842,8 +937,13 @@ export default function BehaviorResultsTab() {
             </button>
 
             <button
-              onClick={() => setDateFilterMode('range')}
-              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              type="button"
+              onClick={() => {
+                setDateFilterMode('range');
+                setRangeStart((current) => current ?? earliestRecorded ?? latestRecorded);
+                setRangeEnd((current) => current ?? latestRecorded);
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 dateFilterMode === 'range'
                   ? 'bg-orange-600 text-white shadow-sm'
                   : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -856,63 +956,96 @@ export default function BehaviorResultsTab() {
 
         {/* Dynamic Controls when Single Day or Custom Range is selected */}
         {dateFilterMode === 'single' && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-            <span className="text-xs font-semibold text-slate-700">Select Specific Day:</span>
-            <input
-              type="date"
-              value={singleDate}
-              onChange={(e) => setSingleDate(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-orange-500"
+          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+            <RangeAwareDatePicker
+              label="Specific day"
+              value={singleDate ?? ''}
+              onChange={(date) => setSingleDate(date)}
+              selectableDates={recordedDates}
+              minSelectable={earliestRecorded}
+              maxSelectable={latestRecorded}
+              hint="Greyed-out days have no telemetry records and cannot be selected."
             />
-            <span className="text-[11px] text-slate-500">
-              Filtering to all 6:00 AM – 6:00 PM intervals for {singleDate}.
+            <span className="pb-1.5 text-[11px] text-slate-500">
+              {singleDate
+                ? `Showing all 6:00 AM – 6:00 PM intervals for ${formatWeekdayDay(singleDate)}.`
+                : 'Select a recorded day to view its intervals.'}
             </span>
           </div>
         )}
 
         {dateFilterMode === 'range' && (
-          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-700">From:</span>
-              <input
-                type="date"
-                value={rangeStart}
-                onChange={(e) => setRangeStart(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-orange-500"
+          <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <RangeAwareDatePicker
+                label="From"
+                value={rangeStart ?? ''}
+                onChange={(date) => {
+                  setRangeStart(date);
+                  // Keep the window valid: push the end date forward instead of silently showing nothing.
+                  if (rangeEnd && isAfterDate(date, rangeEnd)) setRangeEnd(date);
+                }}
+                selectableDates={recordedDates}
+                minSelectable={earliestRecorded}
+                maxSelectable={rangeEnd ?? latestRecorded}
               />
+
+              <span className="pb-2 text-xs font-semibold text-slate-400">→</span>
+
+              <RangeAwareDatePicker
+                label="To"
+                value={rangeEnd ?? ''}
+                onChange={(date) => {
+                  setRangeEnd(date);
+                  if (rangeStart && isAfterDate(rangeStart, date)) setRangeStart(date);
+                }}
+                selectableDates={recordedDates}
+                minSelectable={rangeStart ?? earliestRecorded}
+                maxSelectable={latestRecorded}
+              />
+
+              {/* Quick durations end on the newest recorded day (not a hard-coded date) */}
+              <div className="flex items-center gap-1.5 pb-1 pl-2 border-l border-slate-200">
+                <span className="text-[11px] text-slate-400 font-medium">Quick Duration:</span>
+                {[5, 3].map((days) => {
+                  const end = latestRecorded ?? today;
+                  const start = addDays(end, -(days - 1));
+                  const active = rangeStart === start && rangeEnd === end;
+                  return (
+                    <button
+                      key={days}
+                      type="button"
+                      disabled={!latestRecorded}
+                      onClick={() => {
+                        setRangeStart(start);
+                        setRangeEnd(end);
+                      }}
+                      title={`${formatLongDay(start)} → ${formatLongDay(end)} (${rangeLength(start, end)} calendar days)`}
+                      className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                        active
+                          ? 'border-orange-300 bg-orange-50 text-orange-700'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-orange-50 hover:text-orange-600'
+                      } disabled:opacity-40`}
+                    >
+                      {days} Days ({formatRange(start, end)})
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-slate-700">To:</span>
-              <input
-                type="date"
-                value={rangeEnd}
-                onChange={(e) => setRangeEnd(e.target.value)}
-                className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-orange-500"
-              />
-            </div>
-
-            {/* Quick Multi-Day Duration buttons */}
-            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
-              <span className="text-[11px] text-slate-400 font-medium">Quick Duration:</span>
-              <button
-                onClick={() => {
-                  setRangeStart('2026-10-24');
-                  setRangeEnd('2026-10-28');
-                }}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-              >
-                5 Days (24–28 Oct)
-              </button>
-              <button
-                onClick={() => {
-                  setRangeStart('2026-10-26');
-                  setRangeEnd('2026-10-28');
-                }}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-orange-50 hover:text-orange-600"
-              >
-                3 Days (26–28 Oct)
-              </button>
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              {isCustomRangeReady ? (
+                <span className="font-semibold text-emerald-700">
+                  {rangeLength(rangeStart!, rangeEnd!)} calendar days · {spanRecordedCount} with records ·{' '}
+                  {filteredIntervals.length} intervals
+                </span>
+              ) : (
+                <span className="font-semibold text-red-600">
+                  The “From” day must be on or before the “To” day.
+                </span>
+              )}
+              {rangeNotice && <span className="text-slate-500">· {rangeNotice}</span>}
             </div>
           </div>
         )}
@@ -931,6 +1064,31 @@ export default function BehaviorResultsTab() {
             INDIVIDUAL VIEW
           </span>
         </div>
+
+        {filteredIntervals.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+            <div className="flex items-start gap-2.5">
+              <CalendarX2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+              <div>
+                <p className="font-bold text-slate-800">No telemetry records for {dateRangeLabel}</p>
+                <p className="mt-1 text-[11px] leading-relaxed">
+                  Pick a highlighted day in the calendar (a green dot marks a recorded day), or choose{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDateFilterMode('preset');
+                      setSelectedPreset('all');
+                    }}
+                    className="font-semibold text-orange-600 underline underline-offset-2 hover:text-orange-700"
+                  >
+                    All Recorded Dates
+                  </button>
+                  .
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Synchronized Telemetry Status Banner */}
         <div className="rounded-2xl border border-emerald-300/80 bg-emerald-50/70 p-4 text-xs text-emerald-950 shadow-sm leading-relaxed">

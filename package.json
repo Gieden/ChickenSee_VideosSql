@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:dates": "node --experimental-strip-types --test lib/date-range.test.mjs lib/range-filter.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

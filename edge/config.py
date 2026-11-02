@@ -27,6 +27,18 @@ class VisionConfig:
     conf_threshold: float = float(os.getenv("CONF_THRESHOLD", "0.15"))
     iou_threshold: float = float(os.getenv("IOU_THRESHOLD", "0.45"))
     num_cpu_threads: int = int(os.getenv("CPU_THREADS", str(os.cpu_count() or 8)))
+
+    # Re-ID tuning (see docs/TRACKING_REID_ALGORITHM.md)
+    # Video source FPS, used to convert frame counts into seconds for identity memory.
+    source_fps_hint: float = float(os.getenv("SOURCE_FPS_HINT", "0"))  # 0 = auto-detect from stream
+    # False = built-in PurpleTracker (ByteTrack forward + reverse pass, shared IDs).
+    use_ultralytics_tracker: bool = os.getenv("USE_ULTRALYTICS_TRACKER", "0").lower() in ("1", "true", "yes")
+    # Seconds a lost identity (colour label + appearance fingerprint) stays available for re-acquisition.
+    reid_max_gap_s: float = float(os.getenv("REID_MAX_GAP_S", "3.0"))
+    # Minimum appearance cosine similarity when two candidates share the same band colour class.
+    reid_appearance_min: float = float(os.getenv("REID_APPEARANCE_MIN", "0.55"))
+    # Minimum body IoU for a detection to be considered by Re-ID at all.
+    reid_iou_gate: float = float(os.getenv("REID_IOU_GATE", "0.05"))
     
     # Preprocessing
     target_width: int = int(os.getenv("TARGET_WIDTH", "640"))  # downscale input if needed
@@ -40,10 +52,26 @@ class VisionConfig:
     video_fps_target: float = float(os.getenv("FPS_TARGET", "15.0"))
     reconnect_delay_s: float = 2.0
     max_reconnect_delay_s: float = 30.0
+    # Populated at runtime by edge/pipeline.py from cv2.CAP_PROP_FPS so Re-ID frame
+    # budgets translate into real seconds (0 -> falls back to source_fps_hint / 20).
+    source_fps: float = 0.0
     
     # Annotated Video Recording (Saves video with bounding boxes & telemetry HUD)
     record_annotated_video: bool = os.getenv("RECORD_ANNOTATED", "1").lower() in ("1", "true", "yes")
     output_video_dir: str = str(DATA_DIR)
+
+
+def tracker_type_of(tracker_yaml: str) -> str:
+    """Read ``tracker_type`` from a tracker YAML without importing torch/ultralytics."""
+    try:
+        with open(tracker_yaml, "r", encoding="utf-8") as handle:
+            for line in handle:
+                key, _, value = line.partition(":")
+                if key.strip() == "tracker_type":
+                    return value.split("#")[0].strip().lower()
+    except OSError:
+        pass
+    return "bytetrack"
 
 
 @dataclass

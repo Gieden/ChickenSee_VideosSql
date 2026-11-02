@@ -1,10 +1,26 @@
-# Ultralytics ByteTrack configuration customized for poultry tracking
-# Optimized for high occlusion (birds clustering, feeder/drinker occlusion)
-# Modified: thresholds lowered to 25% for enhanced detection and RE-ID
-tracker_type: bytetrack
-track_high_thresh: 0.10  # First-stage match: lowered to 25% (was 0.40) for more sensitive detection
-track_low_thresh: 0.04   # Second-stage: lowered to 25% (was 0.15) for tentative re-association
-new_track_thresh: 0.10   # Confidence required to spawn a brand-new track ID: lowered to 25% (was 0.40)
-track_buffer: 90         # Keep lost tracks alive for 90 frames (~3 s) to survive occlusions
-match_thresh: 0.75       # IoU similarity threshold for spatial association
-fuse_score: true         # Fuse detection confidence score with spatial IoU
+# Ultralytics tracker configuration customised for poultry (ChickenSee edge + analytics).
+#
+# Why these values differ from stock ByteTrack / the previous version of this file:
+#   * track_high_thresh MUST exceed the detector's conf threshold. With the detector emitting
+#     boxes from conf=0.15 and track_high_thresh=0.10 every detection landed in the "high"
+#     bucket, so ByteTrack's low-score re-association stage (the whole point of ByteTrack)
+#     never ran. 0.45 puts ambiguous/occluded birds (0.15-0.45) in the low bucket where they
+#     can only *refresh* an existing ID, never spawn a new one.
+#   * new_track_thresh is raised so a weak detection cannot open a fresh ID: that was the main
+#     source of the ID explosion under feeder/drinker occlusion.
+#   * match_thresh is the maximum association cost (1 - IoU, score-fused). The previous 0.75
+#     means "accept a pair whose boxes barely overlap (>= 0.25 IoU)"; 0.60 requires a much
+#     stronger overlap, which keeps neighbouring birds from getting each other's identity.
+#   * track_buffer is the parked (lost) identity lifetime. It is the cooldown that the Re-ID
+#     layer in edge/detector.py uses to re-attach an identity that ByteTrack has not yet
+#     re-acquired, so it is kept generous at ~4 s @ 15 FPS.
+#   * tracker_type: agribytetrack is ByteTrack plus the apex-anchored association penalty
+#     registered by edge/tracker.py (feet/lower-body IoU instead of torso-only IoU).
+#     Change it back to "bytetrack" to get stock association with the same thresholds.
+tracker_type: agribytetrack
+track_high_thresh: 0.45   # First association: confident, fully-visible detections
+track_low_thresh: 0.15    # Keep everything the detector saw (matches CONF_THRESHOLD)
+new_track_thresh: 0.55    # Confidence required before a brand-new ID may be created
+track_buffer: 60          # ~4 s @ 15 FPS of parked identity for occlusion / re-ID recovery
+match_thresh: 0.60        # Max association cost (1 - fused IoU) for first-stage matching
+fuse_score: true          # Fuse detection confidence into the association cost

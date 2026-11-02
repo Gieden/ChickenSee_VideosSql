@@ -22,6 +22,59 @@ from legband import (
 )
 
 
+def _register_custom_tracker() -> bool:
+    """Make ``agribytetrack`` known to Ultralytics. Returns True when it is available."""
+    try:
+        from ultralytics.trackers.track import TRACKER_MAP
+
+        if "agribytetrack" in TRACKER_MAP:
+            return True
+        from edge.tracker import register_tracker
+
+        register_tracker()
+        return "agribytetrack" in TRACKER_MAP
+    except Exception:
+        return False
+
+
+def resolve_tracker_config(tracker_path: str) -> str:
+    """
+    Return a tracker YAML name Ultralytics can actually load.
+
+    ``bytetrack_poultry.yaml`` declares ``tracker_type: agribytetrack``, which is registered by
+    ``edge/tracker.py``. If that registration is unavailable (partial install, ultralytics
+    internals moved), running the YAML as-is aborts every video with "Only ['botsort',
+    'bytetrack', ...] are supported". In that case the same file is written to a temp copy with
+    ``tracker_type: bytetrack`` -- identical thresholds, stock association -- and a warning is
+    logged once.
+    """
+    try:
+        from ultralytics.utils import YAML
+
+        config = YAML.load(tracker_path)
+    except Exception:
+        return tracker_path
+    if str(config.get("tracker_type", "bytetrack")).lower() != "agribytetrack":
+        return tracker_path
+    if _register_custom_tracker():
+        return tracker_path
+
+    import tempfile
+
+    fallback = dict(config)
+    fallback["tracker_type"] = "bytetrack"
+    path = Path(tempfile.gettempdir()) / "chickensee_bytetrack_fallback.yaml"
+    path.write_text(
+        "\n".join(f"{key}: {value}" for key, value in fallback.items()) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        f"[TRACKER] 'agribytetrack' is not registered; using stock ByteTrack with the same "
+        f"thresholds ({path})"
+    )
+    return str(path)
+
+
 LABEL_COLORS_BGR = {
     "Rooster": (0, 0, 255),
     "Chicken": (0, 165, 255),
@@ -70,19 +123,36 @@ class ZampenYOLOTracker:
     MIN_DETECTION_CONFIDENCE = 0.70  # Set to 70% for strict chicken detection
     MIN_LEG_BAND_CONFIDENCE = 0.05   # Lowered to 25% (was 0.20) for more leg band detections
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
-    REIDENTIFICATION_DISTANCE_RATIO = 0.02  # Lowered to 25% (was 0.08) for more sensitive re-ID matching
-    REIDENTIFICATION_MIN_DISTANCE_PX = 12.5  # Lowered to 25% (was 50.0) for tighter distance matching
+    # Radius = max(MIN_DISTANCE_PX, frame_diagonal * RATIO). On a 2880x1620 flyover the old
+    # 0.02 ratio gave a ~650 px gate, i.e. "anywhere on the frame": every occluded detection
+    # was allowed to steal any nearby bird's ID. These values keep ~6% of the diagonal for the
+    # first 2 s (~7.5 px/frame of ground speed) and halve it after that, plus a body-size cap.
+    REIDENTIFICATION_DISTANCE_RATIO = 0.06
+    REIDENTIFICATION_MIN_DISTANCE_PX = 12.5
+    REIDENTIFICATION_STALE_RATIO = 0.03
+    REIDENTIFICATION_STALE_AFTER_FRAMES = 30
+    REIDENTIFICATION_SIZE_TOLERANCE = 0.60
+    # A colour identity may not be reused by another track within this many frames
+    # (prevents two adjacent birds from swapping Hen1/Hen3 when their boxes overlap).
+    LABEL_REUSE_COOLDOWN_FRAMES = 90
 
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
-        self.tracker_yaml = tracker_yaml or CONFIG.tracker_config
+        self.tracker_yaml = resolve_tracker_config(tracker_yaml or CONFIG.tracker_config)
         self.device = CONFIG.device
         self.conf = CONFIG.conf_threshold
         self.iou = CONFIG.iou_threshold
         self.imgsz = CONFIG.imgsz
+        # min() of the two class-specific gates: leg-band boxes are tiny/low-contrast and must
+        # survive NMS, while the 70% gate is re-applied per class in the parsing pass below.
+        self.track_conf = min(self.conf, self.MIN_LEG_BAND_CONFIDENCE)
 
         print(f"[TRACKER] Initializing YOLO26 Nano from: {self.weights_path}")
         print(f"[TRACKER] Using ByteTrack config: {self.tracker_yaml}")
+
+        # Last line of defence: if a tracker YAML ever becomes unloadable, run detection-only
+        # instead of failing every video in the queue.
+        self._tracking_enabled = True
         self.model = YOLO(self.weights_path)
 
         # Standard poultry class mapping
@@ -110,6 +180,9 @@ class ZampenYOLOTracker:
         self.short_id_map: Dict[int, int] = {}
         self._next_short_id = 1
         self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
+        self.short_track_sizes: Dict[int, float] = {}
+        self.track_last_label: Dict[int, str] = {}
+        self.label_owner: Dict[str, Tuple[int, int]] = {}   # label -> (display id, frame)
 
     def _resolve_short_id(self, raw_track_id: Optional[int]) -> Optional[int]:
         if raw_track_id is None:
@@ -131,6 +204,9 @@ class ZampenYOLOTracker:
         self.short_id_map.clear()
         self._next_short_id = 1
         self.short_track_positions.clear()
+        self.short_track_sizes.clear()
+        self.track_last_label.clear()
+        self.label_owner.clear()
 
         predictor = getattr(self.model, "predictor", None)
         for tracker in getattr(predictor, "trackers", []):
@@ -141,10 +217,22 @@ class ZampenYOLOTracker:
         birds: List[TrackedDetection],
         frame_shape: Tuple[int, ...],
     ) -> None:
+        if not hasattr(self, "short_track_sizes"):
+            self.short_track_sizes: Dict[int, float] = {}
+        if not hasattr(self, "short_track_positions"):
+            self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
+        if not hasattr(self, "short_id_map"):
+            self.short_id_map: Dict[int, int] = {}
+        if not hasattr(self, "_next_short_id"):
+            self._next_short_id = 1
         frame_diagonal = math.hypot(frame_shape[0], frame_shape[1])
         max_distance = max(
             self.REIDENTIFICATION_MIN_DISTANCE_PX,
             frame_diagonal * self.REIDENTIFICATION_DISTANCE_RATIO,
+        )
+        stale_distance = max(
+            self.REIDENTIFICATION_MIN_DISTANCE_PX,
+            frame_diagonal * self.REIDENTIFICATION_STALE_RATIO,
         )
         current_frame = self.processed_frame_count
         pending = []
@@ -175,15 +263,23 @@ class ZampenYOLOTracker:
         for bird, raw_track_id in pending:
             x1, y1, x2, y2 = bird.box
             center = ((x1 + x2) / 2, (y1 + y2) / 2)
-            for display_id, (last_center, last_seen) in self.short_track_positions.items():
+            bird_size = math.sqrt(max(1, x2 - x1) * max(1, y2 - y1))
+            for display_id, (last_center, last_seen) in list(self.short_track_positions.items()):
                 gap = current_frame - last_seen
                 if display_id in assigned_ids or not 1 <= gap <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
                     continue
+                # The longer the bird has been gone the less it can have moved, and a
+                # bird cannot double in apparent size while it is out of sight.
+                allowed = max_distance if gap < self.REIDENTIFICATION_STALE_AFTER_FRAMES else stale_distance
                 distance = math.dist(center, last_center)
-                if distance <= max_distance:
-                    candidate_pairs.append(
-                        (distance, display_id, raw_track_id, bird, center)
-                    )
+                if distance > allowed:
+                    continue
+                last_size = self.short_track_sizes.get(display_id)
+                if last_size and abs(bird_size - last_size) / max(last_size, 1.0) > self.REIDENTIFICATION_SIZE_TOLERANCE:
+                    continue
+                candidate_pairs.append(
+                    (distance, display_id, raw_track_id, bird, center)
+                )
 
         matched_raw_ids = set()
         for _, display_id, raw_track_id, bird, _ in sorted(
@@ -203,10 +299,13 @@ class ZampenYOLOTracker:
             if raw_track_id in matched_raw_ids:
                 continue
             display_id = self.short_id_map.get(raw_track_id)
+            if display_id is not None and display_id in assigned_ids:
+                # Ultra duplicate raw id in one frame (or an id already donated by re-ID)
+                display_id = None
             if display_id is None:
                 display_id = self._next_short_id
                 self._next_short_id += 1
-                self.short_id_map[raw_track_id] = display_id
+            self.short_id_map[raw_track_id] = display_id
             bird.track_id = display_id
             assigned_ids.add(display_id)
 
@@ -218,6 +317,23 @@ class ZampenYOLOTracker:
                 ((x1 + x2) / 2, (y1 + y2) / 2),
                 current_frame,
             )
+            self.short_track_sizes[bird.track_id] = math.sqrt(
+                max(1, x2 - x1) * max(1, y2 - y1)
+            )
+
+        # Forget positions whose display id was pruned, otherwise the size gate above keeps
+        # comparing against birds that no longer exist (slow leak on 12-hour shifts).
+        if len(self.short_track_positions) > 512:
+            live_ids = {
+                self.short_id_map[raw]
+                for raw in self.short_id_map
+                if current_frame - self.short_track_positions.get(self.short_id_map[raw], ((0, 0), current_frame))[1]
+                <= self.REIDENTIFICATION_MAX_GAP_FRAMES
+            }
+            for display_id in list(self.short_track_positions):
+                if display_id not in live_ids:
+                    self.short_track_positions.pop(display_id, None)
+                    self.short_track_sizes.pop(display_id, None)
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
@@ -349,18 +465,45 @@ class ZampenYOLOTracker:
         timestamp_s = frame_idx / fps if fps > 0 else 0.0
 
         # Run ByteTrack prediction workflow
-        results = self.model.track(
-            frame,
+        track_kwargs = dict(
             persist=True,
             tracker=self.tracker_yaml,
             # Keep small leg-band candidates visible to the association pass.
             # Bird detections are filtered below with their stricter threshold.
-            conf=min(self.conf, self.MIN_LEG_BAND_CONFIDENCE),
+            conf=getattr(self, "track_conf", min(self.conf, self.MIN_LEG_BAND_CONFIDENCE)),
             iou=self.iou,
             imgsz=self.imgsz,
             device=self.device,
-            verbose=False
-        )[0]
+            verbose=False,
+        )
+        if getattr(self, "_tracking_enabled", True):
+            try:
+                results = self.model.track(frame, **track_kwargs)[0]
+            except Exception as exc:
+                # A tracker problem must not sink the whole video: keep analysing it without
+                # temporal IDs (the Re-ID bank still gives every bird a stable short ID).
+                print(
+                    f"[TRACKER] WARNING: tracking unavailable ({type(exc).__name__}: {exc}); "
+                    "continuing with detection-only analysis for this video."
+                )
+                self._tracking_enabled = False
+                results = self.model.predict(
+                    frame,
+                    conf=track_kwargs["conf"],
+                    iou=self.iou,
+                    imgsz=self.imgsz,
+                    device=self.device,
+                    verbose=False,
+                )[0]
+        else:
+            results = self.model.predict(
+                frame,
+                conf=track_kwargs["conf"],
+                iou=self.iou,
+                imgsz=self.imgsz,
+                device=self.device,
+                verbose=False,
+            )[0]
 
         birds: List[TrackedDetection] = []
         feeders: List[TrackedDetection] = []
@@ -466,6 +609,8 @@ class ZampenYOLOTracker:
         # A compact, color-qualified tag is a valid tag observation even when
         # the YOLO tag box is missed. This never classifies from the bird's
         # overall appearance; it only inspects a small leg-band candidate area.
+        if not hasattr(self, "track_tag_confirmed"):
+            self.track_tag_confirmed: set = set()
         for bird in birds:
             if bird.track_id is None or bird.class_name == "Rooster":
                 continue
@@ -477,8 +622,16 @@ class ZampenYOLOTracker:
                 for _ in range(3):
                     self._record_track_label(bird.track_id, hen_label)
 
-        # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame
+        # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame.
+        # Stage A keeps each track's previously displayed colour, so two birds whose boxes
+        # overlap can never swap Hen1 <-> Hen3 for a frame (the old code kept "last wins",
+        # which relabelled whichever bird was drawn last).
+        if not hasattr(self, "track_last_label"):
+            self.track_last_label: Dict[int, str] = {}
+        if not hasattr(self, "label_owner"):
+            self.label_owner: Dict[str, Tuple[int, int]] = {}
         used_labels = set()
+
         def _label_priority(b: TrackedDetection) -> int:
             if b.track_id is None:
                 return 0
@@ -489,6 +642,19 @@ class ZampenYOLOTracker:
             return votes.count(lbl)
 
         sorted_birds = sorted(birds, key=_label_priority, reverse=True)
+        for bird in sorted_birds:
+            if bird.class_name != "Chicken" or bird.track_id is None:
+                continue
+            candidate = self.track_last_label.get(bird.track_id)
+            if (
+                candidate
+                and self.track_label_cache.get(bird.track_id) == candidate
+                and candidate not in used_labels
+            ):
+                bird.bird_label = candidate
+                used_labels.add(candidate)
+
+        # Stage B applies newly confirmed colours.
         for bird in sorted_birds:
             if (
                 bird.track_id is not None
@@ -504,6 +670,35 @@ class ZampenYOLOTracker:
                     bird.bird_label = "Chicken"
             elif bird.class_name == "Chicken":
                 bird.bird_label = "Chicken"
+
+        # Stage C: a colour that was already shown by another track cannot be shown twice.
+        # Falls back to the track's own last label; otherwise the bird keeps "Chicken".
+        owner_of_label = {label: tid for tid, label in self.track_last_label.items()}
+        for bird in birds:
+            if bird.track_id is None or not bird.bird_label.startswith("Hen"):
+                continue
+            current_owner = owner_of_label.get(bird.bird_label)
+            if current_owner is not None and current_owner != bird.track_id:
+                bird.bird_label = "Chicken"
+
+        for bird in birds:
+            if bird.track_id is not None and bird.bird_label.startswith("Hen"):
+                self.track_last_label[bird.track_id] = bird.bird_label
+                self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
+
+        # Reclaim identities of tracks that have been out of sight for a while. Before this,
+        # the last displayed label of a dead display id stayed pinned in track_last_label and
+        # its colour could never be assigned again, so "Coward 1 Bird" froze the total count.
+        if self.processed_frame_count % 60 == 0:
+            stale = [
+                tid for tid, label in self.track_last_label.items()
+                if tid not in self.short_id_map.values()
+                and self.processed_frame_count - self.track_label_last_seen.get(tid, 0) > 90
+            ]
+            for tid in stale:
+                label = self.track_last_label.pop(tid, None)
+                if label is not None and self.label_owner.get(label, (None, 0))[0] == tid:
+                    self.label_owner.pop(label, None)
 
         equipment = suppress_overlapping_equipment(
             [
