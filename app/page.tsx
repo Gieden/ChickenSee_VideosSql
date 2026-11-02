@@ -40,14 +40,13 @@ import {
   Users,
   ShieldCheck,
 } from 'lucide-react';
-import SampleInspectorTab from '@/components/SampleInspectorTab';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
 
-type DashboardTab = 'database' | 'results' | 'queue' | 'sample' | 'sensors' | 'staff';
+type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff';
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sample', 'sensors', 'staff'];
+const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sensors', 'staff'];
 
 interface QueueItem {
   item_id: string;
@@ -1901,11 +1900,7 @@ export default function DashboardPage() {
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Idle</span>
               )}
             </button>
-            <button onClick={() => handleTabChange('sample')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sample' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-              <FolderUp className="h-4 w-4" />
-              <span>Sample Inspector</span>
-              <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Offline</span>
-            </button>
+
             <button onClick={() => handleTabChange('sensors')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sensors' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <Radio className="h-4 w-4" />
               <span>Sensor Live Monitoring</span>
@@ -2705,9 +2700,7 @@ export default function DashboardPage() {
         )}
 
         {/* SAMPLE INSPECTOR TAB (kept mounted in DOM to preserve state across tab switches) */}
-        <div className={activeTab === 'sample' ? 'block' : 'hidden'}>
-          <SampleInspectorTab />
-        </div>
+        
 
         {/* SENSOR LIVE MONITORING TAB (kept mounted to maintain Realtime socket & polling) */}
         <div className={activeTab === 'sensors' ? 'block' : 'hidden'}>

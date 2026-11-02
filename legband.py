@@ -124,8 +124,9 @@ def detect_leg_band_color(
     if not best_match:
         return None
 
-    # Ambiguity check: if runner-up is >= 65% of winner, reject
-    if second_best_area >= best_area * 0.65:
+    # Ambiguity check: if runner-up is >= 60% of winner, reject
+    # Lowered from 0.65 to 0.60 for more strict leg-band labeling accuracy
+    if second_best_area >= best_area * 0.60:
         return None
 
     return best_match

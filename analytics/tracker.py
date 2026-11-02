@@ -67,11 +67,11 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
-    MIN_DETECTION_CONFIDENCE = 0.70
-    MIN_LEG_BAND_CONFIDENCE = 0.20
+    MIN_DETECTION_CONFIDENCE = 0.70  # Set to 70% for strict chicken detection
+    MIN_LEG_BAND_CONFIDENCE = 0.05   # Lowered to 25% (was 0.20) for more leg band detections
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
-    REIDENTIFICATION_DISTANCE_RATIO = 0.08
-    REIDENTIFICATION_MIN_DISTANCE_PX = 50.0
+    REIDENTIFICATION_DISTANCE_RATIO = 0.02  # Lowered to 25% (was 0.08) for more sensitive re-ID matching
+    REIDENTIFICATION_MIN_DISTANCE_PX = 12.5  # Lowered to 25% (was 50.0) for tighter distance matching
 
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)

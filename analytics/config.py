@@ -29,7 +29,7 @@ class AnalyticsConfig(BaseModel):
         description="ByteTrack YAML tracker configuration"
     )
     device: str = Field(default=os.getenv("INFERENCE_DEVICE", "cpu"), description="'cpu' or '0' for CUDA")
-    conf_threshold: float = Field(default=0.25, description="Object detection confidence threshold")
+    conf_threshold: float = Field(default=0.70, description="Object detection confidence threshold (set to 70% for strict chicken detection)")
     iou_threshold: float = Field(default=0.45, description="NMS IoU threshold")
     imgsz: int = Field(default=640, description="Inference input image resolution")
     frame_stride: int = Field(default=2, description="Process every Nth frame (2 = 15fps from 30fps input)")
