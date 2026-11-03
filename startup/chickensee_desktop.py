@@ -98,6 +98,7 @@ def find_service_processes() -> Dict[str, List[int]]:
         "sync-agent": [],
         "analytics-api": [],
         "analytics-worker": [],
+        "sensor-streamer": [],
         "supervisor": [],
     }
     for process in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -113,6 +114,8 @@ def find_service_processes() -> Dict[str, List[int]]:
             matches["analytics-api"].append(process.info["pid"])
         elif name.startswith("python") and "-m analytics.worker" in command:
             matches["analytics-worker"].append(process.info["pid"])
+        elif name.startswith("python") and "sensor_live_streamer.py" in command:
+            matches["sensor-streamer"].append(process.info["pid"])
         elif "run-chickensee.ps1" in command:
             matches["supervisor"].append(process.info["pid"])
     return matches

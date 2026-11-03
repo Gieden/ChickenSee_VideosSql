@@ -68,6 +68,12 @@ $Services = @(
         Executable = $Python
         Arguments = @("-u", "-m", "analytics.worker")
         WorkingDirectory = $ProjectRoot
+    },
+    @{
+        Name = "sensor-streamer"
+        Executable = $Python
+        Arguments = @("-u", "scripts/sensor_live_streamer.py")
+        WorkingDirectory = $ProjectRoot
     }
 )
 $RunningServices = @{}
