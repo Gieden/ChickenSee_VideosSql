@@ -30,9 +30,11 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Select specified database or fallback to the latest one
+  // Select specified database or fallback to the latest one.
+  // The `file` param can be either a bare pathname (legacy) or a full storagePath
+  // (e.g. "databases/rec_2026-10-13/sensors.sqlite") so we match against both.
   const selectedDbMeta = targetFile
-    ? databases.find((d) => d.pathname === targetFile) || databases[0]
+    ? databases.find((d) => d.storagePath === targetFile || d.pathname === targetFile) || databases[0]
     : databases[0];
 
   try {
@@ -50,7 +52,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       databases,
-      currentFile: selectedDbMeta.pathname,
+      currentFile: selectedDbMeta.storagePath,
       tables,
       selectedTable: activeTable,
       queryResult,

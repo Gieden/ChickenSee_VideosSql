@@ -156,8 +156,11 @@ interface QueueStatusData {
 interface SyncedFileMeta {
   url: string;
   pathname: string;
+  storagePath: string;
   size: number;
   uploadedAt: string;
+  /** Session label derived from the parent folder name (for namespaced SQLite databases). */
+  sessionLabel?: string;
 }
 
 interface QueryResult {
@@ -803,6 +806,8 @@ export default function DashboardPage() {
       setLoadingDb(true);
       setDatabaseError(null);
       const params = new URLSearchParams();
+      // `file` is a full storagePath (e.g. "databases/rec_2026-10-13/sensors.sqlite")
+      // for session-namespaced entries, or just a bare pathname for legacy top-level files.
       if (file) params.set('file', file);
       if (table) params.set('table', table);
       params.set('limit', pageSize.toString());
@@ -1953,7 +1958,12 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Database:</label>
                     <select value={currentDbFile || ''} onChange={(e) => fetchDatabaseData(e.target.value)} className="max-w-[min(60vw,20rem)] rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 outline-none focus:border-orange-500">
-                      {databases.map((db) => (<option key={db.pathname} value={db.pathname}>{db.pathname} ({formatBytes(db.size)})</option>))}
+                      {databases.map((db) => {
+                        const label = db.sessionLabel
+                          ? `${db.pathname} — ${db.sessionLabel} (${formatBytes(db.size)})`
+                          : `${db.pathname} (${formatBytes(db.size)})`;
+                        return <option key={db.storagePath} value={db.storagePath}>{label}</option>;
+                      })}
                       {databases.length === 0 && <option value="">No databases synced</option>}
                     </select>
                   </div>

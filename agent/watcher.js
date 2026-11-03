@@ -173,6 +173,13 @@ async function uploadDirectToSupabase(filePath, filename, ext, stats) {
     SYNC_REQUEST_TIMEOUT_MS,
   );
   let tokenData;
+
+  // For SQLite/DB files, namespace the upload by parent session folder so that
+  // multiple recordings (each with their own sensors.sqlite) don't collide in
+  // Supabase Storage at databases/sensors.sqlite.
+  const isSqliteFile = ext === '.sqlite' || ext === '.db';
+  const sessionFolder = isSqliteFile ? path.basename(path.dirname(filePath)) : null;
+
   try {
     const tokenRes = await fetch(SYNC_URL, {
       method: 'POST',
@@ -180,6 +187,7 @@ async function uploadDirectToSupabase(filePath, filename, ext, stats) {
         'x-sync-secret': SYNC_SECRET,
         'x-filename': encodeURIComponent(filename),
         'x-action': 'get-upload-url',
+        ...(sessionFolder ? { 'x-folder': encodeURIComponent(sessionFolder) } : {}),
       },
       signal: tokenController.signal,
     });

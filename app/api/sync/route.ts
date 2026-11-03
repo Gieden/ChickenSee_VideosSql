@@ -45,8 +45,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Filename must not contain a path' }, { status: 400 });
     }
 
-    const folder = ext === 'json' || ext === 'jpg' ? 'results' : 'databases';
-    const storagePath = `${folder}/${filename}`;
+    // Optional session folder for namespacing SQLite databases.
+    // Prevents multiple sessions with the same filename (e.g. sensors.sqlite)
+    // from overwriting each other in Supabase Storage.
+    const rawFolder = req.headers.get('x-folder');
+    let sessionFolder: string | null = null;
+    if (rawFolder) {
+      try {
+        sessionFolder = decodeURIComponent(rawFolder);
+      } catch {
+        return NextResponse.json({ error: 'Invalid x-folder encoding' }, { status: 400 });
+      }
+      // Reject any path traversal attempts in the folder name
+      if (
+        sessionFolder.includes('/') ||
+        sessionFolder.includes('\\') ||
+        sessionFolder === '.' ||
+        sessionFolder === '..'
+      ) {
+        return NextResponse.json({ error: 'x-folder must be a plain directory name, not a path' }, { status: 400 });
+      }
+    }
+
+    const baseFolder = ext === 'json' || ext === 'jpg' ? 'results' : 'databases';
+    const storagePath = baseFolder === 'databases' && sessionFolder
+      ? `${baseFolder}/${sessionFolder}/${filename}`
+      : `${baseFolder}/${filename}`;
 
     if (req.headers.get('x-action') !== 'get-upload-url') {
       return NextResponse.json({ error: 'Unsupported sync action' }, { status: 400 });

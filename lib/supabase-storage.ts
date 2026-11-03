@@ -6,6 +6,8 @@ export interface SyncedFileMeta {
   storagePath: string;
   size: number;
   uploadedAt: string;
+  /** Human-readable session label derived from the parent folder (e.g. "rec_2026-10-13_14-33"). */
+  sessionLabel?: string;
 }
 
 export class StorageDownloadError extends Error {
@@ -147,9 +149,46 @@ export async function listSyncedVideos(): Promise<SyncedFileMeta[]> {
 }
 
 export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
-  return (await listStorageFiles('databases'))
-    .filter((file) => /\.(sqlite|db)$/i.test(file.pathname))
-    .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+  // List top-level files directly under databases/
+  const topLevel = (await listStorageFiles('databases'))
+    .filter((file) => /\.(sqlite|db)$/i.test(file.pathname));
+
+  // Also list subdirectory entries (session-namespaced uploads like
+  // databases/<session_folder>/sensors.sqlite). The Supabase Storage list API
+  // returns folders as objects whose names end with '/'. We iterate those to
+  // collect their children.
+  const client = getStorageClient();
+  const bucket = client.storage.from(getBucketName());
+
+  // Fetch the raw listing of databases/ to discover sub-folders
+  const { data: rootEntries, error: rootError } = await bucket.list('databases', {
+    limit: 1000,
+    sortBy: { column: 'created_at', order: 'desc' },
+  });
+
+  const nested: SyncedFileMeta[] = [];
+
+  if (!rootError && rootEntries) {
+    const subFolders = (rootEntries as Array<{ name: string }>)
+      .filter((e) => !e.name.includes('.'));  // folders have no extension
+
+    for (const folder of subFolders) {
+      const folderPath = `databases/${folder.name}`;
+      try {
+        const children = await listStorageFiles(folderPath);
+        const dbFiles = children.filter((f) => /\.(sqlite|db)$/i.test(f.pathname));
+        // Attach the session label derived from the folder name
+        const sessionLabel = folder.name.replace(/_\d{6}$/, '').replace(/_/g, ' ');
+        nested.push(...dbFiles.map((f) => ({ ...f, sessionLabel })));
+      } catch {
+        // Skip unreadable sub-folders
+      }
+    }
+  }
+
+  return [...topLevel, ...nested].sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  );
 }
 
 export async function cleanupOldVideos(retentionDays = 7): Promise<{
