@@ -700,6 +700,26 @@ export default function BehaviorResultsTab() {
     };
   }, [filteredIntervals, birdAggregates.total]);
 
+  // Synchronized telemetry summary aggregates (averages, min/max ranges)
+  const telemetryStats = useMemo(() => {
+    if (!filteredIntervals.length) return null;
+    const temps = filteredIntervals.map((i) => i.tempC);
+    const hums = filteredIntervals.map((i) => i.humidityPct);
+    const amms = filteredIntervals.map((i) => i.ammoniaPpm);
+    const sounds = filteredIntervals.map((i) => i.soundDb);
+    const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const min = (arr: number[]) => (arr.length ? Math.min(...arr) : 0);
+    const max = (arr: number[]) => (arr.length ? Math.max(...arr) : 0);
+
+    return {
+      temp: { avg: avg(temps), min: min(temps), max: max(temps) },
+      hum: { avg: avg(hums), min: min(hums), max: max(hums) },
+      ammonia: { avg: avg(amms), min: min(amms), max: max(amms) },
+      sound: { avg: avg(sounds), min: min(sounds), max: max(sounds) },
+      intervalCount: filteredIntervals.length,
+    };
+  }, [filteredIntervals]);
+
   // Filtered log table entries
   const filteredLogEntries = useMemo(() => {
     return filteredIntervals.filter((interval) => {
@@ -1086,56 +1106,156 @@ export default function BehaviorResultsTab() {
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
           {dynamicProfiles.map((chicken) => {
             const isSelected = selectedBirdId === chicken.id;
+            const beh = chicken.behaviorDistribution;
+            const totalEvents =
+              beh.reducedFeeding +
+              beh.reducedDrinking +
+              beh.prolongedInactivity +
+              beh.socialIsolation;
+            const dominantCount = Math.max(
+              beh.reducedFeeding,
+              beh.reducedDrinking,
+              beh.prolongedInactivity,
+              beh.socialIsolation
+            );
+
+            // Calculate percentage shares for mini stacked bar
+            const pFeed = totalEvents > 0 ? (beh.reducedFeeding / totalEvents) * 100 : 0;
+            const pDrink = totalEvents > 0 ? (beh.reducedDrinking / totalEvents) * 100 : 0;
+            const pInact = totalEvents > 0 ? (beh.prolongedInactivity / totalEvents) * 100 : 0;
+            const pIsol = totalEvents > 0 ? (beh.socialIsolation / totalEvents) * 100 : 0;
+
+            const isWhiteTag = chicken.tagColorHex.toLowerCase() === '#ffffff';
+
             return (
               <div
                 key={chicken.id}
                 onClick={() => setSelectedBirdId(chicken.id)}
-                className={`relative flex flex-col justify-between rounded-2xl p-4 transition cursor-pointer ${
+                className={`group relative flex flex-col justify-between rounded-2xl p-4 transition-all duration-200 cursor-pointer ${
                   isSelected
-                    ? 'border-2 border-orange-500 bg-white shadow-md shadow-orange-500/10'
-                    : 'border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+                    ? 'border-2 border-orange-500 bg-white shadow-lg shadow-orange-500/10 ring-4 ring-orange-500/10'
+                    : 'border border-slate-200/90 bg-white hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5'
                 }`}
               >
                 <div>
-                  {/* Top row with name, subtitle, and color tag */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-50 text-slate-600 border border-slate-200">
-                        <Bird className="h-4 w-4" />
+                  {/* Top row: Avatar & Identity + Tag Badge */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border shadow-xs transition-transform duration-200 group-hover:scale-105"
+                        style={{
+                          backgroundColor: isWhiteTag ? '#f8fafc' : `${chicken.tagColorHex}18`,
+                          borderColor: isWhiteTag ? '#cbd5e1' : `${chicken.tagColorHex}45`,
+                        }}
+                      >
+                        <Bird
+                          className="h-5 w-5"
+                          style={{
+                            color: isWhiteTag ? '#475569' : chicken.tagColorHex,
+                          }}
+                        />
                       </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">{chicken.name}</h4>
-                        <p className="text-[10px] text-slate-400">
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-slate-900 truncate group-hover:text-orange-600 transition-colors">
+                          {chicken.name}
+                        </h4>
+                        <p className="text-[11px] font-medium text-slate-400">
                           {chicken.role} · {chicken.gender}
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                      <span className="h-2 w-2 rounded-full ring-1 ring-slate-300" style={{ backgroundColor: chicken.tagColorHex }} />
-                      <span className="text-[11px] text-slate-600">{chicken.tagColorName}</span>
+                    <div
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-50/80 shadow-2xs"
+                      style={{ borderColor: isWhiteTag ? '#cbd5e1' : `${chicken.tagColorHex}40` }}
+                    >
+                      <span
+                        className="h-2 w-2 rounded-full ring-1 ring-black/10 shrink-0"
+                        style={{ backgroundColor: chicken.tagColorHex }}
+                      />
+                      <span className="truncate">{chicken.tagColorName}</span>
                     </div>
                   </div>
 
-                  {/* Summary paragraph */}
-                  <p className="mt-3 text-xs leading-relaxed text-slate-600">
-                    {chicken.summaryText}
-                  </p>
+                  {/* Metric Highlight Box */}
+                  <div className="mt-3.5 rounded-xl bg-slate-50/90 border border-slate-100 p-2.5 space-y-2">
+                    <div className="flex items-baseline justify-between">
+                      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Observed Stress
+                      </span>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-lg font-black text-slate-900 tracking-tight">
+                          {totalEvents.toLocaleString()}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-400">events</span>
+                      </div>
+                    </div>
+
+                    {/* 4-segment mini stacked distribution bar */}
+                    {totalEvents > 0 ? (
+                      <div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-200 overflow-hidden flex">
+                          {pFeed > 0 && (
+                            <div
+                              style={{ width: `${pFeed}%` }}
+                              className="bg-amber-500 transition-all duration-300"
+                              title={`Reduced feeding: ${beh.reducedFeeding} (${pFeed.toFixed(0)}%)`}
+                            />
+                          )}
+                          {pDrink > 0 && (
+                            <div
+                              style={{ width: `${pDrink}%` }}
+                              className="bg-sky-500 transition-all duration-300"
+                              title={`Reduced drinking: ${beh.reducedDrinking} (${pDrink.toFixed(0)}%)`}
+                            />
+                          )}
+                          {pInact > 0 && (
+                            <div
+                              style={{ width: `${pInact}%` }}
+                              className="bg-purple-500 transition-all duration-300"
+                              title={`Inactivity: ${beh.prolongedInactivity} (${pInact.toFixed(0)}%)`}
+                            />
+                          )}
+                          {pIsol > 0 && (
+                            <div
+                              style={{ width: `${pIsol}%` }}
+                              className="bg-emerald-500 transition-all duration-300"
+                              title={`Social isolation: ${beh.socialIsolation} (${pIsol.toFixed(0)}%)`}
+                            />
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-1.5 w-full rounded-full bg-slate-100" />
+                    )}
+
+                    {/* Dominant pattern chip */}
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 pt-0.5">
+                      <span className="flex items-center gap-1 truncate text-slate-500">
+                        <Activity className="h-3 w-3 text-orange-500 shrink-0" />
+                        <span className="truncate">{chicken.dominantBehavior}</span>
+                      </span>
+                      <span className="font-bold text-slate-800 shrink-0">
+                        {dominantCount} ev
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Footer link indicator */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                {/* Footer selection status */}
+                <div className="mt-3.5 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
                   {isSelected ? (
-                    <span className="text-orange-600 flex items-center gap-1">
-                      Viewing individual detail <span className="text-sm">↓</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-orange-600 bg-orange-50 border border-orange-200/80 px-2.5 py-1 rounded-lg">
+                      <Check className="h-3.5 w-3.5 stroke-[3]" /> Selected Individual
                     </span>
                   ) : (
-                    <span className="text-slate-500 flex items-center gap-1 hover:text-slate-800">
-                      View individual detail <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                    <span className="inline-flex items-center gap-1 font-semibold text-slate-500 group-hover:text-orange-600 transition-colors">
+                      View individual detail
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-400 group-hover:text-orange-500 group-hover:translate-x-0.5 transition-all" />
                     </span>
                   )}
                   {isSelected && (
-                    <span className="h-2 w-2 rounded-full bg-orange-500" />
+                    <span className="flex h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
                   )}
                 </div>
               </div>
@@ -1538,42 +1658,221 @@ export default function BehaviorResultsTab() {
             </div>
 
             {/* Synchronized Interval Readings Strip */}
-            <div className="rounded-xl border border-slate-200/80 bg-white p-3.5 shadow-sm text-xs">
-              <span className="font-bold text-slate-700 text-[11px] block mb-2 uppercase tracking-wider">
-                Synchronized interval readings
-              </span>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 font-mono text-[11px] text-slate-600">
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-sans">Temperature (°C)</span>
-                  <span className="font-semibold text-slate-800">
-                    {filteredIntervals.map((i) => i.tempC.toFixed(0)).join(' / ')} °C
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm space-y-4">
+              {/* Header with status pill */}
+              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-orange-500" />
+                  <span className="font-bold text-slate-800 text-xs uppercase tracking-wider">
+                    Synchronized Interval Readings
                   </span>
                 </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-sans">Humidity (%)</span>
-                  <span className="font-semibold text-slate-800">
-                    {filteredIntervals.map((i) => i.humidityPct.toFixed(0)).join(' / ')} %
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-sans">Ammonia (ppm)</span>
-                  <span className="font-semibold text-slate-800">
-                    {filteredIntervals.map((i) => (i.ammoniaPpm < 0.01 ? i.ammoniaPpm.toFixed(4) : i.ammoniaPpm.toFixed(1))).join(' / ')} ppm
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-sans">Sound (dBA)</span>
-                  <span className="font-semibold text-slate-800">
-                    {filteredIntervals.map((i) => i.soundDb.toFixed(0)).join(' / ')} dBA
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200/70">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    {filteredIntervals.length} interval checkpoints
                   </span>
                 </div>
               </div>
 
-              {/* Explanatory Footnotes matching attached image */}
-              <div className="mt-3 border-t border-slate-100 pt-2 text-[10px] text-slate-500 space-y-0.5">
+              {/* 4 Summary Stat Cards */}
+              {telemetryStats ? (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {/* Temperature */}
+                  <div className="rounded-xl border border-rose-100 bg-rose-50/40 p-3 transition hover:border-rose-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-rose-800 uppercase tracking-wider">
+                        Temperature
+                      </span>
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-rose-100/80 text-rose-600">
+                        <Thermometer className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-rose-950 tracking-tight">
+                        {telemetryStats.temp.avg.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-semibold text-rose-700">°C avg</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-rose-600 font-medium">
+                      Range: {telemetryStats.temp.min.toFixed(0)} – {telemetryStats.temp.max.toFixed(0)} °C
+                    </div>
+                  </div>
+
+                  {/* Humidity */}
+                  <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3 transition hover:border-sky-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-sky-800 uppercase tracking-wider">
+                        Rel. Humidity
+                      </span>
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-sky-100/80 text-sky-600">
+                        <Droplets className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-sky-950 tracking-tight">
+                        {telemetryStats.hum.avg.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-semibold text-sky-700">% avg</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-sky-600 font-medium">
+                      Range: {telemetryStats.hum.min.toFixed(0)} – {telemetryStats.hum.max.toFixed(0)} %
+                    </div>
+                  </div>
+
+                  {/* Ammonia */}
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3 transition hover:border-amber-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider">
+                        Ammonia (NH₃)
+                      </span>
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-amber-100/80 text-amber-600">
+                        <Wind className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-amber-950 tracking-tight">
+                        {telemetryStats.ammonia.avg < 0.01
+                          ? telemetryStats.ammonia.avg.toFixed(4)
+                          : telemetryStats.ammonia.avg.toFixed(2)}
+                      </span>
+                      <span className="text-xs font-semibold text-amber-700">ppm avg</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-amber-600 font-medium">
+                      Peak: {telemetryStats.ammonia.max < 0.01
+                        ? telemetryStats.ammonia.max.toFixed(4)
+                        : telemetryStats.ammonia.max.toFixed(2)} ppm
+                    </div>
+                  </div>
+
+                  {/* Sound */}
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3 transition hover:border-indigo-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold text-indigo-800 uppercase tracking-wider">
+                        Acoustics
+                      </span>
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-100/80 text-indigo-600">
+                        <Volume2 className="h-3.5 w-3.5" />
+                      </div>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-1.5">
+                      <span className="text-xl font-black text-indigo-950 tracking-tight">
+                        {telemetryStats.sound.avg.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-semibold text-indigo-700">dBA avg</span>
+                    </div>
+                    <div className="mt-1 text-[11px] text-indigo-600 font-medium">
+                      Range: {telemetryStats.sound.min.toFixed(0)} – {telemetryStats.sound.max.toFixed(0)} dBA
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Horizontal Scrollable Timeline Matrix of Interval Checkpoints */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    Timeline Sequence (Left to Right)
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Scroll horizontally to inspect each interval →
+                  </span>
+                </div>
+
+                <div className="flex items-stretch gap-2.5 overflow-x-auto pb-2 pt-1 scrollbar-thin">
+                  {filteredIntervals.map((interval, idx) => {
+                    const isAlert = interval.heatStress !== 'Normal';
+                    return (
+                      <div
+                        key={interval.id || idx}
+                        className={`min-w-[155px] shrink-0 rounded-xl border p-2.5 transition-all shadow-xs ${
+                          isAlert
+                            ? 'border-amber-300 bg-amber-50/30'
+                            : 'border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        {/* Checkpoint Header */}
+                        <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5 mb-2">
+                          <span className="font-mono text-xs font-bold text-slate-900">
+                            {interval.timeSlot}
+                          </span>
+                          <span className="rounded-md bg-white border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {interval.dateLabel}
+                          </span>
+                        </div>
+
+                        {/* Metric Readings Stack */}
+                        <div className="space-y-1 font-mono text-[11px]">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-sans text-rose-700 font-medium flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" /> Temp
+                            </span>
+                            <span className="font-bold text-slate-800">
+                              {interval.tempC.toFixed(0)} °C
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-sans text-sky-700 font-medium flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-sky-500" /> Hum
+                            </span>
+                            <span className="font-bold text-slate-800">
+                              {interval.humidityPct.toFixed(0)} %
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-sans text-amber-700 font-medium flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" /> NH₃
+                            </span>
+                            <span className="font-bold text-slate-800">
+                              {interval.ammoniaPpm < 0.01
+                                ? interval.ammoniaPpm.toFixed(4)
+                                : interval.ammoniaPpm.toFixed(2)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-sans text-indigo-700 font-medium flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" /> Sound
+                            </span>
+                            <span className="font-bold text-slate-800">
+                              {interval.soundDb.toFixed(0)} dBA
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Status Footer */}
+                        <div className="mt-2 pt-1.5 border-t border-slate-200/50 flex items-center justify-between">
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                              interval.heatStress === 'Emergency'
+                                ? 'bg-red-100 text-red-700'
+                                : interval.heatStress === 'Severe'
+                                ? 'bg-rose-100 text-rose-700'
+                                : interval.heatStress === 'Moderate'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {interval.heatStress}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            THI {interval.thi.toFixed(0)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Explanatory Footnotes */}
+              <div className="border-t border-slate-100 pt-2.5 text-[11px] text-slate-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
                 <p>Line scales: temperature 0–40 °C · humidity 0–100% · ammonia 0–20 ppm · sound 0–100 dBA.</p>
-                <p>Native values above follow the intervals left to right. Line values are normalized for comparison, not shared raw units.</p>
-                <p className="italic text-emerald-700 font-medium">Synchronized telemetry from paired sensors.sqlite and real video inference.</p>
+                <p className="italic text-emerald-700 font-medium flex items-center gap-1">
+                  <Check className="h-3.5 w-3.5" /> Synchronized telemetry from paired sensors.sqlite and video inference.
+                </p>
               </div>
             </div>
           </div>
