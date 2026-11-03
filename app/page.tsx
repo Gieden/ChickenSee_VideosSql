@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Video,
@@ -100,12 +100,23 @@ interface LiveDetectionStatus {
   captured_at?: string;
 }
 
+const dateLabelCache = new WeakMap<QueueItem, string>();
+
 function getQueueItemDateLabel(item: QueueItem): string {
+  const cached = dateLabelCache.get(item);
+  if (cached) return cached;
+
   const rawDate = item.completed_at || item.queued_at || item.created_at || (item.date ? `${item.date}T00:00:00` : null);
-  if (!rawDate) return 'Date Unknown';
+  if (!rawDate) {
+    dateLabelCache.set(item, 'Date Unknown');
+    return 'Date Unknown';
+  }
   try {
     const d = new Date(rawDate);
-    if (isNaN(d.getTime())) return 'Date Unknown';
+    if (isNaN(d.getTime())) {
+      dateLabelCache.set(item, 'Date Unknown');
+      return 'Date Unknown';
+    }
 
     const itemDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const now = new Date();
@@ -118,15 +129,19 @@ function getQueueItemDateLabel(item: QueueItem): string {
       year: 'numeric',
     });
 
+    let label = 'Date Unknown';
     if (deltaDays === 0) {
-      return `Today — ${formattedDate}`;
+      label = `Today — ${formattedDate}`;
     } else if (deltaDays === 1) {
-      return `Yesterday — ${formattedDate}`;
+      label = `Yesterday — ${formattedDate}`;
     } else {
       const weekday = d.toLocaleDateString(undefined, { weekday: 'long' });
-      return `${weekday}, ${formattedDate}`;
+      label = `${weekday}, ${formattedDate}`;
     }
+    dateLabelCache.set(item, label);
+    return label;
   } catch {
+    dateLabelCache.set(item, 'Date Unknown');
     return 'Date Unknown';
   }
 }
@@ -666,6 +681,469 @@ function HenStressTimelinePanel({
   );
 }
 
+// ── Memoized Queue Components for Zero-Lag Rendering ──────────────────────────
+
+const QueueRow = React.memo(function QueueRow({ item }: { item: QueueItem }) {
+  const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
+  let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
+  if (statusUpper === 'PROCESSING') badgeColor = 'bg-orange-50 text-orange-700 border-orange-200 font-semibold';
+  else if (statusUpper === 'QUEUED') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
+  else if (statusUpper === 'WAITING') badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
+  else if (statusUpper === 'COMPLETED') badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  else if (statusUpper === 'FAILED') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
+  else if (statusUpper === 'CANCELLED') badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
+
+  const timeStr = item.completed_at
+    ? new Date(item.completed_at).toLocaleTimeString()
+    : item.created_at
+    ? new Date(item.created_at).toLocaleTimeString()
+    : '—';
+
+  return (
+    <tr className="hover:bg-slate-50/70 transition-colors">
+      <td className="px-6 py-3 font-medium text-slate-900">
+        <div className="flex items-center gap-2">
+          <Video className="h-4 w-4 text-slate-400 shrink-0" />
+          <span className="font-mono text-xs">{item.video_filename}</span>
+        </div>
+      </td>
+      <td className="px-6 py-3">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] border ${badgeColor}`}>
+          {statusUpper === 'PROCESSING' && (
+            <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
+          )}
+          {statusUpper}
+        </span>
+      </td>
+      <td className="px-6 py-3 font-medium text-slate-700">
+        {item.progress_percent != null ? `${item.progress_percent}%` : '—'}
+      </td>
+      <td className="px-6 py-3 text-slate-500 font-mono text-[11px]">
+        {item.frames || '—'}
+      </td>
+      <td className="px-6 py-3 text-slate-500">
+        {timeStr}
+      </td>
+      <td className="px-6 py-3 text-slate-500 max-w-xs truncate" title={item.details || ''}>
+        {item.details || '—'}
+      </td>
+    </tr>
+  );
+});
+
+const QueueMobileCard = React.memo(function QueueMobileCard({ item }: { item: QueueItem }) {
+  const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
+  const statusColor = statusUpper === 'COMPLETED'
+    ? 'text-emerald-700'
+    : statusUpper === 'FAILED'
+      ? 'text-rose-700'
+      : statusUpper === 'PROCESSING'
+        ? 'text-orange-700'
+        : 'text-slate-600';
+  const time = item.completed_at || item.created_at;
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-2">
+          <Video className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+          <span className="break-all font-mono text-xs font-medium text-slate-900">{item.video_filename}</span>
+        </div>
+        <span className={`shrink-0 text-[10px] font-bold ${statusColor}`}>{statusUpper}</span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
+        <div><span className="text-slate-500">Progress</span><div className="font-medium text-slate-800">{item.progress_percent != null ? `${item.progress_percent}%` : '—'}</div></div>
+        <div><span className="text-slate-500">Frames</span><div className="font-mono text-slate-800">{item.frames || '—'}</div></div>
+        <div><span className="text-slate-500">Time</span><div className="text-slate-800">{time ? new Date(time).toLocaleString() : '—'}</div></div>
+        {item.details && <div className="col-span-2 break-words text-slate-600">{item.details}</div>}
+      </div>
+    </article>
+  );
+});
+
+interface DetectionQueueListProps {
+  items: QueueItem[];
+  loadingQueue: boolean;
+  fetchQueueStatus: () => void;
+  queueDateFilter: string;
+  setQueueDateFilter: (val: string) => void;
+  queueStatusFilter: 'All' | 'Completed' | 'Failed' | 'Cancelled';
+  setQueueStatusFilter: (val: 'All' | 'Completed' | 'Failed' | 'Cancelled') => void;
+  collapsedDateGroups: Record<string, boolean>;
+  setCollapsedDateGroups: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+}
+
+function DetectionQueueList({
+  items,
+  loadingQueue,
+  fetchQueueStatus,
+  queueDateFilter,
+  setQueueDateFilter,
+  queueStatusFilter,
+  setQueueStatusFilter,
+  collapsedDateGroups,
+  setCollapsedDateGroups,
+}: DetectionQueueListProps) {
+  const [expandedLimits, setExpandedLimits] = useState<Record<string, number>>({});
+
+  const {
+    activeList,
+    historyList,
+    allDates,
+    dateCounts,
+    dateFiltered,
+    dateGroups,
+  } = useMemo(() => {
+    const ACTIVE_SET = new Set(['PROCESSING', 'QUEUED', 'WAITING']);
+    const active: QueueItem[] = [];
+    const history: QueueItem[] = [];
+    const counts = new Map<string, number>();
+
+    for (const item of items) {
+      const statusUpper = (item.status || '').toUpperCase();
+      if (ACTIVE_SET.has(statusUpper)) {
+        active.push(item);
+      } else {
+        history.push(item);
+        const label = getQueueItemDateLabel(item);
+        counts.set(label, (counts.get(label) || 0) + 1);
+      }
+    }
+
+    const datesList = Array.from(counts.keys());
+
+    const statusFiltered = history.filter((i) => {
+      if (queueStatusFilter === 'All') return true;
+      return (i.status || '').toUpperCase() === queueStatusFilter.toUpperCase();
+    });
+
+    const dateFilteredList = statusFiltered.filter((i) => {
+      if (queueDateFilter === 'All dates') return true;
+      return getQueueItemDateLabel(i) === queueDateFilter;
+    });
+
+    const groups: {
+      dateLabel: string;
+      items: QueueItem[];
+      completedCount: number;
+      failedCount: number;
+    }[] = [];
+    const groupMap = new Map<string, {
+      dateLabel: string;
+      items: QueueItem[];
+      completedCount: number;
+      failedCount: number;
+    }>();
+
+    for (const it of dateFilteredList) {
+      const label = getQueueItemDateLabel(it);
+      let entry = groupMap.get(label);
+      if (!entry) {
+        entry = { dateLabel: label, items: [], completedCount: 0, failedCount: 0 };
+        groupMap.set(label, entry);
+        groups.push(entry);
+      }
+      entry.items.push(it);
+      const st = (it.status || '').toUpperCase();
+      if (st === 'COMPLETED') entry.completedCount++;
+      else if (st === 'FAILED') entry.failedCount++;
+    }
+
+    return {
+      activeList: active,
+      historyList: history,
+      allDates: datesList,
+      dateCounts: counts,
+      dateFiltered: dateFilteredList,
+      dateGroups: groups,
+    };
+  }, [items, queueStatusFilter, queueDateFilter]);
+
+  const toggleGroup = useCallback((lbl: string) => {
+    setCollapsedDateGroups((prev) => {
+      const currentIndex = allDates.indexOf(lbl);
+      const currentVal = prev[lbl] ?? (currentIndex > 0);
+      return {
+        ...prev,
+        [lbl]: !currentVal,
+      };
+    });
+  }, [allDates, setCollapsedDateGroups]);
+
+  const allCollapsed = allDates.length > 0 && allDates.every((d, idx) => collapsedDateGroups[d] ?? (idx > 0));
+
+  const toggleAll = useCallback(() => {
+    const targetState = !allCollapsed;
+    const next: Record<string, boolean> = {};
+    allDates.forEach((d) => {
+      next[d] = targetState;
+    });
+    setCollapsedDateGroups(next);
+  }, [allCollapsed, allDates, setCollapsedDateGroups]);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
+      {/* Header Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4 shrink-0 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
+              {items.length > 0 && (
+                <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
+                  {items.length} {items.length === 1 ? 'entry' : 'entries'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Real-time queueing status segregated by date from the OptiPlex daemon.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={fetchQueueStatus}
+          disabled={loadingQueue}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${loadingQueue ? 'animate-spin' : ''}`} />
+          <span>Refresh Queue</span>
+        </button>
+      </div>
+
+      {/* Date & Status Segregator Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 border-b border-slate-200 px-3 py-3 text-xs sm:px-6">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Date Dropdown Segregator */}
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-orange-600 shrink-0" />
+            <span className="font-semibold text-slate-700">Date:</span>
+            <select
+              value={queueDateFilter}
+              onChange={(e) => setQueueDateFilter(e.target.value)}
+              className="min-h-10 max-w-[min(72vw,20rem)] rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="All dates">All dates ({historyList.length})</option>
+              {allDates.map((dateStr) => {
+                const count = dateCounts.get(dateStr) || 0;
+                return (
+                  <option key={dateStr} value={dateStr}>
+                    {dateStr} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          {/* Status Pills */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:ml-2">
+            <span className="font-semibold text-slate-700 mr-1">Status:</span>
+            {(['All', 'Completed', 'Failed', 'Cancelled'] as const).map((st) => {
+              const isActive = queueStatusFilter === st;
+              return (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => setQueueStatusFilter(st)}
+                  className={`min-h-9 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                    isActive
+                      ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/20'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                  }`}
+                >
+                  {st}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Expand/Collapse All Button */}
+        {allDates.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="min-h-10 text-left text-[11px] text-slate-500 hover:text-orange-600 font-medium transition"
+          >
+            {allCollapsed ? '▼ Expand All Dates' : '▲ Collapse All Dates'}
+          </button>
+        )}
+      </div>
+
+      {/* Scrollable Container */}
+      <div className="max-h-[520px] overflow-x-auto overflow-y-auto divide-y divide-slate-100">
+        {/* Active / In-Flight Section */}
+        {activeList.length > 0 && (
+          <div className="border-b border-orange-200 bg-orange-50/20">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-r from-orange-100/70 via-amber-100/50 to-orange-50/30 border-b border-orange-200/80 sm:px-6">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-orange-600 animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-wider text-orange-900">
+                  Active &amp; Queued In-Flight Tasks
+                </span>
+                <span className="rounded-full bg-orange-200 px-2 py-0.5 text-[10px] font-bold text-orange-800">
+                  {activeList.length} active
+                </span>
+              </div>
+              <span className="text-[11px] text-orange-800 font-medium">In-flight on daemon</span>
+            </div>
+            <div className="space-y-2 p-3 sm:hidden">
+              {activeList.map((item) => (
+                <QueueMobileCard key={item.item_id || item.video_filename} item={item} />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto sm:block">
+              <table className="w-full min-w-[700px] text-left text-xs border-collapse">
+                <thead className="border-b border-orange-200/50 bg-orange-50/60 text-[10px] font-semibold uppercase tracking-wider text-orange-800">
+                  <tr>
+                    <th className="px-6 py-2">Video Name</th>
+                    <th className="px-6 py-2">Status</th>
+                    <th className="px-6 py-2">Progress</th>
+                    <th className="px-6 py-2">Frames Read / Total</th>
+                    <th className="px-6 py-2">Time</th>
+                    <th className="px-6 py-2">Pipeline Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-orange-100/60 bg-white">
+                  {activeList.map((item) => (
+                    <QueueRow key={item.item_id || item.video_filename} item={item} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Date-Segregated History Sections */}
+        {dateGroups.length > 0 ? (
+          dateGroups.map(({ dateLabel, items: grpItems, completedCount, failedCount }, groupIndex) => {
+            const isCollapsed = collapsedDateGroups[dateLabel] ?? (groupIndex > 0);
+            const limit = expandedLimits[dateLabel] || 25;
+            const visibleItems = grpItems.slice(0, limit);
+            const hasMore = grpItems.length > limit;
+
+            return (
+              <div key={dateLabel} className="border-b border-slate-100 last:border-b-0">
+                {/* Date Group Header Banner */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(dateLabel)}
+                  className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-3 bg-slate-50/90 hover:bg-slate-100/90 transition-colors border-b border-slate-200/60 text-left cursor-pointer sm:px-6"
+                >
+                  <div className="flex items-center gap-2.5">
+                    {isCollapsed ? (
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-slate-600" />
+                    )}
+                    <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700">
+                      <Calendar className="h-3.5 w-3.5" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-900">{dateLabel}</span>
+                    <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-xs">
+                      {grpItems.length} {grpItems.length === 1 ? 'video' : 'videos'}
+                    </span>
+                  </div>
+
+                  <div className="hidden items-center gap-3 text-xs sm:flex">
+                    {completedCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold text-[11px]">
+                        <CheckCircle2 className="h-3 w-3" /> {completedCount} done
+                      </span>
+                    )}
+                    {failedCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-rose-700 font-semibold text-[11px]">
+                        <AlertTriangle className="h-3 w-3" /> {failedCount} failed
+                      </span>
+                    )}
+                    <span className="text-[11px] text-slate-400 font-medium">
+                      {isCollapsed ? 'Click to expand' : 'Click to collapse'}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Group Table Rows */}
+                {!isCollapsed && (
+                  <>
+                    <div className="space-y-2 p-3 sm:hidden">
+                      {visibleItems.map((item) => (
+                        <QueueMobileCard key={item.item_id || item.video_filename} item={item} />
+                      ))}
+                    </div>
+                    <div className="hidden overflow-x-auto sm:block">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                          <tr>
+                            <th className="px-6 py-2.5">Video Name</th>
+                            <th className="px-6 py-2.5">Status</th>
+                            <th className="px-6 py-2.5">Progress</th>
+                            <th className="px-6 py-2.5">Frames Read / Total</th>
+                            <th className="px-6 py-2.5">Completed / Queued</th>
+                            <th className="px-6 py-2.5">Pipeline Details</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {visibleItems.map((item) => (
+                            <QueueRow key={item.item_id || item.video_filename} item={item} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {hasMore && (
+                      <div className="p-3 bg-slate-50/80 border-t border-slate-100 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedLimits((prev) => ({ ...prev, [dateLabel]: grpItems.length }))}
+                          className="text-xs font-semibold text-orange-600 hover:text-orange-700 transition"
+                        >
+                          Show all {grpItems.length} videos from {dateLabel} (+{grpItems.length - limit} more)
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          <div className="py-12 text-center text-slate-400">
+            <Layers className="mx-auto h-8 w-8 text-slate-300" />
+            <p className="mt-2 font-medium text-slate-700">
+              {items.length > 0
+                ? 'No queue history entries match the selected filters'
+                : 'No videos currently in queue'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              {items.length > 0
+                ? 'Try selecting "All dates" or clearing status filters above.'
+                : 'Videos added to watched folders will appear here automatically.'}
+            </p>
+            {queueStatusFilter !== 'All' && (
+              <button
+                type="button"
+                onClick={() => setQueueStatusFilter('All')}
+                className="mt-3 text-xs font-semibold text-orange-600 hover:underline"
+              >
+                Reset status filter to All
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Summary Footer */}
+      {items.length > 0 && (
+        <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-3 text-xs text-slate-500 shrink-0">
+          <span className="font-medium">
+            Showing {dateFiltered.length + activeList.length} of {items.length} total queue entries
+          </span>
+          <span className="text-[11px] text-slate-400">
+            {allDates.length} distinct date {allDates.length === 1 ? 'group' : 'groups'} recorded
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<DashboardTab>('database');
@@ -883,11 +1361,11 @@ export default function DashboardPage() {
   }, [fetchQueueStatus, fetchResults]);
 
   useEffect(() => {
+    // When actively queueing videos, poll responsive 3s interval.
+    // When queue is idle, poll every 10s on queue tab, 25s on other tabs.
     const pollInterval = activeTab === 'queue'
-      ? 1_500
-      : queueStatus?.is_queueing
-        ? 5_000
-        : 15_000;
+      ? (queueStatus?.is_queueing ? 3_000 : 10_000)
+      : (queueStatus?.is_queueing ? 6_000 : 25_000);
     const queueTimer = setInterval(() => { fetchQueueStatus(); }, pollInterval);
     return () => clearInterval(queueTimer);
   }, [activeTab, fetchQueueStatus, queueStatus?.is_queueing]);
@@ -2425,372 +2903,17 @@ export default function DashboardPage() {
             )}
 
             {/* Queue Item Table with Date Segregator */}
-            {(() => {
-              const allItems = queueStatus?.items || [];
-              const ACTIVE_SET = new Set(['PROCESSING', 'QUEUED', 'WAITING']);
-              const activeList = allItems.filter((i) => ACTIVE_SET.has((i.status || '').toUpperCase()));
-              const historyList = allItems.filter((i) => !ACTIVE_SET.has((i.status || '').toUpperCase()));
-
-              const allDates = Array.from(new Set(historyList.map(getQueueItemDateLabel)));
-
-              const statusFiltered = historyList.filter((i) => {
-                if (queueStatusFilter === 'All') return true;
-                return (i.status || '').toUpperCase() === queueStatusFilter.toUpperCase();
-              });
-
-              const dateFiltered = statusFiltered.filter((i) => {
-                if (queueDateFilter === 'All dates') return true;
-                return getQueueItemDateLabel(i) === queueDateFilter;
-              });
-
-              const dateGroups: { dateLabel: string; items: QueueItem[] }[] = [];
-              const dateMap = new Map<string, QueueItem[]>();
-              for (const it of dateFiltered) {
-                const label = getQueueItemDateLabel(it);
-                if (!dateMap.has(label)) {
-                  const arr: QueueItem[] = [];
-                  dateMap.set(label, arr);
-                  dateGroups.push({ dateLabel: label, items: arr });
-                }
-                dateMap.get(label)!.push(it);
-              }
-
-              const toggleGroup = (lbl: string) => {
-                setCollapsedDateGroups((prev) => ({
-                  ...prev,
-                  [lbl]: !prev[lbl],
-                }));
-              };
-
-              const allCollapsed = allDates.length > 0 && allDates.every((d) => collapsedDateGroups[d]);
-
-              const toggleAll = () => {
-                const targetState = !allCollapsed;
-                const next: Record<string, boolean> = {};
-                allDates.forEach((d) => {
-                  next[d] = targetState;
-                });
-                setCollapsedDateGroups(next);
-              };
-
-              const renderRow = (item: QueueItem) => {
-                const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
-                let badgeColor = 'bg-slate-100 text-slate-700 border-slate-200';
-                if (statusUpper === 'PROCESSING') badgeColor = 'bg-orange-50 text-orange-700 border-orange-200 font-semibold';
-                else if (statusUpper === 'QUEUED') badgeColor = 'bg-blue-50 text-blue-700 border-blue-200';
-                else if (statusUpper === 'WAITING') badgeColor = 'bg-purple-50 text-purple-700 border-purple-200';
-                else if (statusUpper === 'COMPLETED') badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                else if (statusUpper === 'FAILED') badgeColor = 'bg-rose-50 text-rose-700 border-rose-200';
-                else if (statusUpper === 'CANCELLED') badgeColor = 'bg-slate-100 text-slate-600 border-slate-200';
-
-                const timeStr = item.completed_at
-                  ? new Date(item.completed_at).toLocaleTimeString()
-                  : item.created_at
-                  ? new Date(item.created_at).toLocaleTimeString()
-                  : '—';
-
-                return (
-                  <tr key={item.item_id || item.video_filename} className="hover:bg-slate-50/70 transition-colors">
-                    <td className="px-6 py-3 font-medium text-slate-900">
-                      <div className="flex items-center gap-2">
-                        <Video className="h-4 w-4 text-slate-400 shrink-0" />
-                        <span className="font-mono text-xs">{item.video_filename}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-3">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] border ${badgeColor}`}>
-                        {statusUpper === 'PROCESSING' && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-orange-600 animate-pulse" />
-                        )}
-                        {statusUpper}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 font-medium text-slate-700">
-                      {item.progress_percent != null ? `${item.progress_percent}%` : '—'}
-                    </td>
-                    <td className="px-6 py-3 text-slate-500 font-mono text-[11px]">
-                      {item.frames || '—'}
-                    </td>
-                    <td className="px-6 py-3 text-slate-500">
-                      {timeStr}
-                    </td>
-                    <td className="px-6 py-3 text-slate-500 max-w-xs truncate" title={item.details || ''}>
-                      {item.details || '—'}
-                    </td>
-                  </tr>
-                );
-              };
-
-              const renderMobileCard = (item: QueueItem) => {
-                const statusUpper = (item.status || 'UNKNOWN').toUpperCase();
-                const statusColor = statusUpper === 'COMPLETED'
-                  ? 'text-emerald-700'
-                  : statusUpper === 'FAILED'
-                    ? 'text-rose-700'
-                    : statusUpper === 'PROCESSING'
-                      ? 'text-orange-700'
-                      : 'text-slate-600';
-                const time = item.completed_at || item.created_at;
-                return (
-                  <article key={item.item_id || item.video_filename} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 items-start gap-2">
-                        <Video className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                        <span className="break-all font-mono text-xs font-medium text-slate-900">{item.video_filename}</span>
-                      </div>
-                      <span className={`shrink-0 text-[10px] font-bold ${statusColor}`}>{statusUpper}</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
-                      <div><span className="text-slate-500">Progress</span><div className="font-medium text-slate-800">{item.progress_percent != null ? `${item.progress_percent}%` : '—'}</div></div>
-                      <div><span className="text-slate-500">Frames</span><div className="font-mono text-slate-800">{item.frames || '—'}</div></div>
-                      <div><span className="text-slate-500">Time</span><div className="text-slate-800">{time ? new Date(time).toLocaleString() : '—'}</div></div>
-                      {item.details && <div className="col-span-2 break-words text-slate-600">{item.details}</div>}
-                    </div>
-                  </article>
-                );
-              };
-
-              return (
-                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden flex flex-col">
-                  {/* Header Strip */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-4 shrink-0 sm:px-6">
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-slate-900">Detection Queue Entries</h3>
-                          {allItems.length > 0 && (
-                            <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-[11px] font-semibold text-slate-600">
-                              {allItems.length} {allItems.length === 1 ? 'entry' : 'entries'}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          Real-time queueing status segregated by date from the OptiPlex daemon.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={fetchQueueStatus}
-                      disabled={loadingQueue}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
-                    >
-                      <RefreshCw className={`h-3.5 w-3.5 ${loadingQueue ? 'animate-spin' : ''}`} />
-                      <span>Refresh Queue</span>
-                    </button>
-                  </div>
-
-                  {/* Date & Status Segregator Filter Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 border-b border-slate-200 px-3 py-3 text-xs sm:px-6">
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Date Dropdown Segregator */}
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-orange-600 shrink-0" />
-                        <span className="font-semibold text-slate-700">Date:</span>
-                        <select
-                          value={queueDateFilter}
-                          onChange={(e) => setQueueDateFilter(e.target.value)}
-                          className="min-h-10 max-w-[min(72vw,20rem)] rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-800 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                        >
-                          <option value="All dates">All dates ({historyList.length})</option>
-                          {allDates.map((dateStr) => {
-                            const count = historyList.filter((i) => getQueueItemDateLabel(i) === dateStr).length;
-                            return (
-                              <option key={dateStr} value={dateStr}>
-                                {dateStr} ({count})
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-
-                      {/* Status Pills */}
-                      <div className="flex flex-wrap items-center gap-1.5 sm:ml-2">
-                        <span className="font-semibold text-slate-700 mr-1">Status:</span>
-                        {(['All', 'Completed', 'Failed', 'Cancelled'] as const).map((st) => {
-                          const isActive = queueStatusFilter === st;
-                          return (
-                            <button
-                              key={st}
-                              type="button"
-                              onClick={() => setQueueStatusFilter(st)}
-                              className={`min-h-9 rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
-                                isActive
-                                  ? 'bg-orange-600 text-white shadow-sm shadow-orange-600/20'
-                                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-                              }`}
-                            >
-                              {st}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Expand/Collapse All Button */}
-                    {allDates.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={toggleAll}
-                        className="min-h-10 text-left text-[11px] text-slate-500 hover:text-orange-600 font-medium transition"
-                      >
-                        {allCollapsed ? '▼ Expand All Dates' : '▲ Collapse All Dates'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Scrollable Container */}
-                  <div className="max-h-[520px] overflow-x-auto overflow-y-auto divide-y divide-slate-100">
-                    {/* Active / In-Flight Section */}
-                    {activeList.length > 0 && (
-                      <div className="border-b border-orange-200 bg-orange-50/20">
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 bg-gradient-to-r from-orange-100/70 via-amber-100/50 to-orange-50/30 border-b border-orange-200/80 sm:px-6">
-                          <div className="flex items-center gap-2">
-                            <span className="h-2 w-2 rounded-full bg-orange-600 animate-pulse" />
-                            <span className="text-xs font-bold uppercase tracking-wider text-orange-900">
-                              Active & Queued In-Flight Tasks
-                            </span>
-                            <span className="rounded-full bg-orange-200 px-2 py-0.5 text-[10px] font-bold text-orange-800">
-                              {activeList.length} active
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-orange-800 font-medium">In-flight on daemon</span>
-                        </div>
-                        <div className="space-y-2 p-3 sm:hidden">{activeList.map(renderMobileCard)}</div>
-                        <div className="hidden overflow-x-auto sm:block">
-                        <table className="w-full min-w-[700px] text-left text-xs border-collapse">
-                          <thead className="border-b border-orange-200/50 bg-orange-50/60 text-[10px] font-semibold uppercase tracking-wider text-orange-800">
-                            <tr>
-                              <th className="px-6 py-2">Video Name</th>
-                              <th className="px-6 py-2">Status</th>
-                              <th className="px-6 py-2">Progress</th>
-                              <th className="px-6 py-2">Frames Read / Total</th>
-                              <th className="px-6 py-2">Time</th>
-                              <th className="px-6 py-2">Pipeline Details</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-orange-100/60 bg-white">
-                            {activeList.map(renderRow)}
-                          </tbody>
-                        </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Date-Segregated History Sections */}
-                    {dateGroups.length > 0 ? (
-                      dateGroups.map(({ dateLabel, items }) => {
-                        const isCollapsed = Boolean(collapsedDateGroups[dateLabel]);
-                        const completedCount = items.filter((i) => (i.status || '').toUpperCase() === 'COMPLETED').length;
-                        const failedCount = items.filter((i) => (i.status || '').toUpperCase() === 'FAILED').length;
-
-                        return (
-                          <div key={dateLabel} className="border-b border-slate-100 last:border-b-0">
-                            {/* Date Group Header Banner */}
-                            <button
-                              type="button"
-                              onClick={() => toggleGroup(dateLabel)}
-                              className="w-full flex flex-wrap items-center justify-between gap-2 px-3 py-3 bg-slate-50/90 hover:bg-slate-100/90 transition-colors border-b border-slate-200/60 text-left cursor-pointer sm:px-6"
-                            >
-                              <div className="flex items-center gap-2.5">
-                                {isCollapsed ? (
-                                  <ChevronRight className="h-4 w-4 text-slate-400" />
-                                ) : (
-                                  <ChevronDown className="h-4 w-4 text-slate-600" />
-                                )}
-                                <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700">
-                                  <Calendar className="h-3.5 w-3.5" />
-                                </div>
-                                <span className="text-xs font-bold text-slate-900">{dateLabel}</span>
-                                <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-xs">
-                                  {items.length} {items.length === 1 ? 'video' : 'videos'}
-                                </span>
-                              </div>
-
-                              <div className="hidden items-center gap-3 text-xs sm:flex">
-                                {completedCount > 0 && (
-                                  <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold text-[11px]">
-                                    <CheckCircle2 className="h-3 w-3" /> {completedCount} done
-                                  </span>
-                                )}
-                                {failedCount > 0 && (
-                                  <span className="inline-flex items-center gap-1 text-rose-700 font-semibold text-[11px]">
-                                    <AlertTriangle className="h-3 w-3" /> {failedCount} failed
-                                  </span>
-                                )}
-                                <span className="text-[11px] text-slate-400 font-medium">
-                                  {isCollapsed ? 'Click to expand' : 'Click to collapse'}
-                                </span>
-                              </div>
-                            </button>
-
-                            {/* Group Table Rows */}
-                            {!isCollapsed && (
-                              <>
-                              <div className="space-y-2 p-3 sm:hidden">{items.map(renderMobileCard)}</div>
-                              <div className="hidden overflow-x-auto sm:block">
-                              <table className="w-full text-left text-xs border-collapse">
-                                <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                                  <tr>
-                                    <th className="px-6 py-2.5">Video Name</th>
-                                    <th className="px-6 py-2.5">Status</th>
-                                    <th className="px-6 py-2.5">Progress</th>
-                                    <th className="px-6 py-2.5">Frames Read / Total</th>
-                                    <th className="px-6 py-2.5">Completed / Queued</th>
-                                    <th className="px-6 py-2.5">Pipeline Details</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100 bg-white">
-                                  {items.map(renderRow)}
-                                </tbody>
-                              </table>
-                              </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })
-                    ) : (
-                      <div className="py-12 text-center text-slate-400">
-                        <Layers className="mx-auto h-8 w-8 text-slate-300" />
-                        <p className="mt-2 font-medium text-slate-700">
-                          {allItems.length > 0
-                            ? 'No queue history entries match the selected filters'
-                            : 'No videos currently in queue'}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-slate-400">
-                          {allItems.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setQueueDateFilter('All dates');
-                                setQueueStatusFilter('All');
-                              }}
-                              className="mt-2 text-xs font-semibold text-orange-600 hover:underline"
-                            >
-                              Reset filters to show all dates
-                            </button>
-                          ) : (
-                            'Videos discovered in the watched folders appear here as they are queued and analyzed.'
-                          )}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Summary Footer */}
-                  {allItems.length > 0 && (
-                    <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/70 px-6 py-3 text-xs text-slate-500 shrink-0">
-                      <span className="font-medium">
-                        Showing {dateFiltered.length + activeList.length} of {allItems.length} total queue entries
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        {allDates.length} distinct date {allDates.length === 1 ? 'group' : 'groups'} recorded
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            <DetectionQueueList
+              items={queueStatus?.items || []}
+              loadingQueue={loadingQueue}
+              fetchQueueStatus={fetchQueueStatus}
+              queueDateFilter={queueDateFilter}
+              setQueueDateFilter={setQueueDateFilter}
+              queueStatusFilter={queueStatusFilter}
+              setQueueStatusFilter={setQueueStatusFilter}
+              collapsedDateGroups={collapsedDateGroups}
+              setCollapsedDateGroups={setCollapsedDateGroups}
+            />
           </div>
         )}
 
