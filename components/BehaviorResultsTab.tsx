@@ -21,7 +21,6 @@ import {
   Zap,
   Flame,
   Volume2,
-  CalendarCheck,
   CalendarX2,
   Sparkles,
 } from 'lucide-react';
@@ -891,35 +890,6 @@ export default function BehaviorResultsTab() {
             >
               <Sparkles className="h-3.5 w-3.5" /> All Recorded Dates
             </button>
-
-            {presetDays.map((preset) => {
-              const active = dateFilterMode === 'preset' && selectedPreset === preset.key;
-              const unavailable = preset.date === null;
-              return (
-                <button
-                  key={preset.key}
-                  type="button"
-                  disabled={unavailable}
-                  title={unavailable ? 'No telemetry recorded on this day' : formatWeekdayDay(preset.date!)}
-                  onClick={() => {
-                    if (!preset.date) return;
-                    setDateFilterMode('preset');
-                    setSelectedPreset(preset.key);
-                  }}
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
-                    active
-                      ? 'bg-orange-600 text-white shadow-sm'
-                      : unavailable
-                      ? 'cursor-not-allowed border border-dashed border-slate-200 bg-slate-50 text-slate-400 line-through decoration-slate-300'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {!unavailable && preset.key === 'yesterday' && <CalendarCheck className="h-3.5 w-3.5" />}
-                  {unavailable && <CalendarX2 className="h-3.5 w-3.5" />}
-                  {preset.key === 'yesterday' ? preset.label : formatShortDay(preset.date!)}
-                </button>
-              );
-            })}
 
             <button
               type="button"
