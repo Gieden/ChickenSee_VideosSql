@@ -151,13 +151,11 @@ def start_supervisor(
 
 
 def capture_service_processes() -> Dict[str, List[Tuple[psutil.Process, float]]]:
+    procs = find_service_processes()
     captured: Dict[str, List[Tuple[psutil.Process, float]]] = {
-        "sync-agent": [],
-        "analytics-api": [],
-        "analytics-worker": [],
-        "supervisor": [],
+        category: [] for category in procs.keys()
     }
-    for category, pids in find_service_processes().items():
+    for category, pids in procs.items():
         for pid in pids:
             try:
                 process = psutil.Process(pid)
@@ -195,34 +193,93 @@ def stop_processes_after_signal(
         for target in group
         if still_running(target)
     ]
-    if not remaining_supervisors and not remaining_services:
-        return False
 
     # Stop supervisor first so it does not attempt to respawn child processes
     for process, _ in remaining_supervisors:
         try:
+            try:
+                for child in process.children(recursive=True):
+                    try:
+                        child.terminate()
+                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                        pass
+            except Exception:
+                pass
             process.terminate()
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
+
     if remaining_supervisors:
-        psutil.wait_procs([target[0] for target in remaining_supervisors], timeout=1.0)
+        _, stubborn_supervisors = psutil.wait_procs(
+            [target[0] for target in remaining_supervisors], timeout=1.0
+        )
+        for process in stubborn_supervisors:
+            try:
+                try:
+                    for child in process.children(recursive=True):
+                        try:
+                            child.kill()
+                        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                            pass
+                except Exception:
+                    pass
+                process.kill()
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                continue
 
     # Terminate remaining service processes
     for process, _ in remaining_services:
         try:
+            try:
+                for child in process.children(recursive=True):
+                    try:
+                        child.terminate()
+                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                        pass
+            except Exception:
+                pass
             process.terminate()
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
             continue
-    _, stubborn = psutil.wait_procs(
-        [target[0] for target in remaining_services], timeout=1.0
-    )
-    for process in stubborn:
-        try:
-            process.kill()
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-            continue
-    if stubborn:
-        psutil.wait_procs(stubborn, timeout=0.5)
+
+    if remaining_services:
+        _, stubborn = psutil.wait_procs(
+            [target[0] for target in remaining_services], timeout=1.0
+        )
+        for process in stubborn:
+            try:
+                try:
+                    for child in process.children(recursive=True):
+                        try:
+                            child.kill()
+                        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                            pass
+                except Exception:
+                    pass
+                process.kill()
+            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
+                continue
+        if stubborn:
+            psutil.wait_procs(stubborn, timeout=0.5)
+
+    # Final cleanup sweep: ensure no orphaned or newly spawned services remain
+    time.sleep(0.3)
+    post_check = find_service_processes()
+    for cat, pids in post_check.items():
+        for pid in pids:
+            try:
+                p = psutil.Process(pid)
+                try:
+                    for c in p.children(recursive=True):
+                        try:
+                            c.kill()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                p.kill()
+            except Exception:
+                pass
 
     return True
 
@@ -420,6 +477,28 @@ class ChickenSeeDesktop:
                 ("disabled", COLORS["surface_raised"]),
                 ("active", COLORS["red_hover"]),
             ],
+        )
+        style.configure(
+            "StartDisabled.TButton",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
+            bordercolor=COLORS["surface_raised"],
+            borderwidth=1,
+            relief="solid",
+            padding=(14, 7),
+            font=("Segoe UI Semibold", 9),
+            focuscolor="none",
+        )
+        style.configure(
+            "StopDisabled.TButton",
+            background=COLORS["surface"],
+            foreground=COLORS["muted"],
+            bordercolor=COLORS["surface_raised"],
+            borderwidth=1,
+            relief="solid",
+            padding=(14, 7),
+            font=("Segoe UI Semibold", 9),
+            focuscolor="none",
         )
         style.configure("TNotebook", background=COLORS["background"], borderwidth=0)
         style.configure(
@@ -1895,7 +1974,13 @@ class ChickenSeeDesktop:
             fg=COLORS["amber_text"],
         )
         self._log("Starting ChickenSee services…")
-        threading.Thread(target=self._start_services_worker, daemon=True).start()
+        try:
+            threading.Thread(target=self._start_services_worker, daemon=True).start()
+        except Exception as error:
+            self.starting_services = False
+            self._log(f"Start services error: {error}")
+            self._refresh_status()
+            messagebox.showerror("Could not start ChickenSee", str(error))
 
     def _start_services_worker(self) -> None:
         try:
@@ -1957,20 +2042,26 @@ class ChickenSeeDesktop:
             bg=COLORS["red_soft"],
             fg=COLORS["red_text"],
         )
-        targets = capture_service_processes()
         try:
-            request_stop(
-                Path(str(self.settings["storage_root"])).expanduser(),
-                processes["supervisor"],
-            )
+            targets = capture_service_processes()
+            try:
+                request_stop(
+                    Path(str(self.settings["storage_root"])).expanduser(),
+                    processes.get("supervisor", []),
+                )
+            except Exception as error:
+                self._log(f"Stop request file note: {error}")
+            self._log("Stopping ChickenSee services…")
+            threading.Thread(
+                target=self._stop_services_worker,
+                args=(targets,),
+                daemon=True,
+            ).start()
         except Exception as error:
-            self._log(f"Stop request file note: {error}")
-        self._log("Stopping ChickenSee services…")
-        threading.Thread(
-            target=self._stop_services_worker,
-            args=(targets,),
-            daemon=True,
-        ).start()
+            self.stopping_services = False
+            self._log(f"Stop services error: {error}")
+            self._refresh_status()
+            messagebox.showerror("Could not stop ChickenSee", str(error))
 
     def _stop_services_worker(
         self, targets: Dict[str, List[Tuple[psutil.Process, float]]]
@@ -2510,17 +2601,47 @@ class ChickenSeeDesktop:
 
         busy = self.starting_services or self.stopping_services
         if self.starting_services:
-            self.start_button.configure(state="disabled", text="Starting ChickenSee…")
-        else:
             self.start_button.configure(
-                state="disabled" if is_running or busy else "normal",
+                state="disabled",
+                style="StartDisabled.TButton",
+                text="⏳ Starting ChickenSee…",
+            )
+            self.stop_button.configure(
+                state="disabled",
+                style="StopDisabled.TButton",
+                text="■  Stop ChickenSee",
+            )
+        elif self.stopping_services:
+            self.start_button.configure(
+                state="disabled",
+                style="StartDisabled.TButton",
                 text="▶  Start ChickenSee",
             )
-        if self.stopping_services:
-            self.stop_button.configure(state="disabled", text="Stopping ChickenSee…")
-        else:
             self.stop_button.configure(
-                state="normal" if is_running and not busy else "disabled",
+                state="disabled",
+                style="StopDisabled.TButton",
+                text="⏳ Stopping ChickenSee…",
+            )
+        elif is_running:
+            self.start_button.configure(
+                state="disabled",
+                style="StartDisabled.TButton",
+                text="▶  Start ChickenSee",
+            )
+            self.stop_button.configure(
+                state="normal",
+                style="Stop.TButton",
+                text="■  Stop ChickenSee",
+            )
+        else:
+            self.start_button.configure(
+                state="normal",
+                style="Start.TButton",
+                text="▶  Start ChickenSee",
+            )
+            self.stop_button.configure(
+                state="disabled",
+                style="StopDisabled.TButton",
                 text="■  Stop ChickenSee",
             )
 
