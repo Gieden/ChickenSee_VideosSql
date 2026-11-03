@@ -533,7 +533,7 @@ class ChickenSeeDesktop:
 
     def _apply_window_icon(self) -> None:
         icon_ico = PROJECT_ROOT / "favicon.ico"
-        icon_png = Path(__file__).resolve().parent / "favicon_logo128.png"
+        icon_png = Path(__file__).resolve().parent / "favicon_logo256.png"
         if not icon_ico.is_file():
             icon_ico = Path(__file__).resolve().parent / "favicon.ico"
         if not icon_png.is_file():
@@ -551,9 +551,13 @@ class ChickenSeeDesktop:
         if icon_png.is_file():
             try:
                 if Image and ImageTk:
-                    pil_img = Image.open(icon_png).resize((32, 32), Image.Resampling.LANCZOS)
-                    self._icon_photo = ImageTk.PhotoImage(pil_img)
-                    self.root.iconphoto(True, self._icon_photo)
+                    # Provide multi-resolution icons for crystal-clear titlebar and taskbar rendering
+                    pil_master = Image.open(icon_png).convert("RGBA")
+                    self._icon_photos = [
+                        ImageTk.PhotoImage(pil_master.resize((size, size), Image.Resampling.LANCZOS))
+                        for size in (16, 24, 32, 48, 64, 128)
+                    ]
+                    self.root.iconphoto(True, *self._icon_photos)
                 else:
                     self._icon_photo = tk.PhotoImage(file=str(icon_png))
                     self.root.iconphoto(True, self._icon_photo)
