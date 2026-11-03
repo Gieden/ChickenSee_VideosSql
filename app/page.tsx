@@ -43,6 +43,7 @@ import {
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
+import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
 type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff';
 
@@ -957,6 +958,22 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Inactivity auto-logout (1 min timeout, 20 s warning) ──────────────────
+  const {
+    showWarning: showInactivityWarning,
+    secondsLeft: inactivitySecondsLeft,
+    resetTimer: resetInactivityTimer,
+  } = useInactivityLogout({
+    timeoutMs: 60_000,   // 1 minute total
+    warningMs: 20_000,   // show warning with 20 s to go
+    onTimeout: async () => {
+      // Silent force-logout – clear cookie then redirect
+      try { await fetch('/api/auth', { method: 'DELETE' }); } catch { /* ignore */ }
+      router.push('/login?reason=inactivity');
+      router.refresh();
+    },
+  });
+
   function formatBytes(bytes: number) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -1808,6 +1825,74 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* ── Inactivity Warning Modal ───────────────────────────────────────── */}
+      {showInactivityWarning && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="inactivity-title"
+            aria-describedby="inactivity-desc"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-200"
+          >
+            {/* Icon + Title */}
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                <Clock className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <h2 id="inactivity-title" className="text-base font-bold text-slate-900">
+                  Session expiring soon
+                </h2>
+                <p id="inactivity-desc" className="mt-1 text-sm text-slate-500">
+                  You've been inactive. For security, you'll be signed out automatically.
+                </p>
+              </div>
+            </div>
+
+            {/* Countdown ring */}
+            <div className="mt-5 flex flex-col items-center gap-1">
+              <span className="text-4xl font-bold tabular-nums text-amber-600">
+                {inactivitySecondsLeft}
+              </span>
+              <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                seconds remaining
+              </span>
+              {/* Progress bar */}
+              <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-1000"
+                  style={{ width: `${(inactivitySecondsLeft / 20) * 100}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  try { await fetch('/api/auth', { method: 'DELETE' }); } catch { /* ignore */ }
+                  router.push('/login');
+                  router.refresh();
+                }}
+                className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Sign Out Now
+              </button>
+              <button
+                type="button"
+                onClick={resetInactivityTimer}
+                className="flex-1 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700"
+              >
+                Stay Signed In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-2 px-3 py-2.5 sm:px-6 sm:py-3.5">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">

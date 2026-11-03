@@ -12,6 +12,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirect = searchParams.get('redirect') || '/';
+  const sessionExpired = searchParams.get('reason') === 'inactivity';
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +57,13 @@ function LoginForm() {
           Optiplex Server Synced Storage & SQLite Viewer
         </p>
       </div>
+
+      {sessionExpired && !error && (
+        <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-400/30 bg-amber-50 p-3.5 text-sm text-amber-700">
+          <AlertCircle className="h-5 w-5 shrink-0 text-amber-500" />
+          <span>Your session expired due to inactivity. Please sign in again.</span>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 flex items-center gap-3 rounded-lg border border-red-500/20 bg-red-500/10 p-3.5 text-sm text-red-400">
