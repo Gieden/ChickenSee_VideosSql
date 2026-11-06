@@ -149,44 +149,64 @@ export async function listSyncedVideos(): Promise<SyncedFileMeta[]> {
 }
 
 export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
-  // List top-level files directly under databases/
-  const topLevel = (await listStorageFiles('databases'))
-    .filter((file) => /\.(sqlite|db)$/i.test(file.pathname));
-
-  // Also list subdirectory entries (session-namespaced uploads like
-  // databases/<session_folder>/sensors.sqlite). The Supabase Storage list API
-  // returns folders as objects whose names end with '/'. We iterate those to
-  // collect their children.
+  // The Supabase Storage list API only returns folder "entries" when a delimiter
+  // is used; without it, nested objects come back with their full path in `name`
+  // (e.g. "rec_2026-11-05_10-09-13_763336/sensors.sqlite"). We do one recursive
+  // listing of databases/ and derive session folders from the object paths, so
+  // each recording's database shows up as its own viewer entry.
   const client = getStorageClient();
   const bucket = client.storage.from(getBucketName());
+  const all: Array<{ name: string; created_at?: string; updated_at?: string; metadata?: { size?: number } }> = [];
+  const limit = 1000;
 
-  // Fetch the raw listing of databases/ to discover sub-folders
-  const { data: rootEntries, error: rootError } = await bucket.list('databases', {
-    limit: 1000,
-    sortBy: { column: 'created_at', order: 'desc' },
-  });
-
-  const nested: SyncedFileMeta[] = [];
-
-  if (!rootError && rootEntries) {
-    const subFolders = (rootEntries as Array<{ name: string }>)
-      .filter((e) => !e.name.includes('.'));  // folders have no extension
-
-    for (const folder of subFolders) {
-      const folderPath = `databases/${folder.name}`;
-      try {
-        const children = await listStorageFiles(folderPath);
-        const dbFiles = children.filter((f) => /\.(sqlite|db)$/i.test(f.pathname));
-        // Attach the session label derived from the folder name
-        const sessionLabel = folder.name.replace(/_\d{6}$/, '').replace(/_/g, ' ');
-        nested.push(...dbFiles.map((f) => ({ ...f, sessionLabel })));
-      } catch {
-        // Skip unreadable sub-folders
-      }
+  for (let offset = 0; ; offset += limit) {
+    const { data, error } = await bucket.list('databases', {
+      limit,
+      offset,
+      sortBy: { column: 'created_at', order: 'desc' },
+    });
+    if (error) {
+      throw new Error(`Failed to list Supabase Storage folder "databases": ${error.message}`);
     }
+    const objects = (data || []) as Array<{ name: string; created_at?: string; updated_at?: string; metadata?: { size?: number } }>;
+    all.push(...objects);
+    if (objects.length < limit) break;
   }
 
-  return [...topLevel, ...nested].sort(
+  const files: SyncedFileMeta[] = [];
+  for (const object of all) {
+    if (!object.name || object.name.endsWith('/')) continue;
+    // Top-level file: name is "sensors.sqlite". Nested file: name is
+    // "<session_folder>/sensors.sqlite".
+    const slashIdx = object.name.indexOf('/');
+    const isNested = slashIdx > 0;
+    const fileName = isNested ? object.name.slice(slashIdx + 1).split('/').pop()! : object.name;
+    if (!/\.(sqlite|db)$/i.test(fileName)) continue;
+    if (isNested && !/\.(sqlite|db)$/i.test(object.name)) continue;
+
+    const sessionFolder = isNested ? object.name.slice(0, slashIdx) : undefined;
+    const storagePath = isNested ? `databases/${object.name}` : `databases/${fileName}`;
+    const uploadedAt = object.updated_at || object.created_at || new Date(0).toISOString();
+    const sessionLabel = sessionFolder
+      ? sessionFolder.replace(/_\d{6}$/, '').replace(/_/g, ' ')
+      : undefined;
+
+    files.push({
+      url: '',
+      pathname: fileName,
+      storagePath,
+      size: Number(object.metadata?.size || 0),
+      uploadedAt,
+      sessionLabel,
+    });
+  }
+
+  // De-duplicate by storagePath (recursive listing can return a folder marker
+  // plus its children) and sort newest first.
+  const unique = new Map<string, SyncedFileMeta>();
+  for (const f of files) unique.set(f.storagePath, f);
+
+  return Array.from(unique.values()).sort(
     (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
   );
 }
