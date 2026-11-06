@@ -149,48 +149,51 @@ export async function listSyncedVideos(): Promise<SyncedFileMeta[]> {
 }
 
 export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
-  // The Supabase Storage list API only returns folder "entries" when a delimiter
-  // is used; without it, nested objects come back with their full path in `name`
-  // (e.g. "rec_2026-11-05_10-09-13_763336/sensors.sqlite"). We do one recursive
-  // listing of databases/ and derive session folders from the object paths, so
-  // each recording's database shows up as its own viewer entry.
+  // Supabase Storage's list endpoint is folder-scoped: a plain list of
+  // "databases" only returns objects directly inside it, NOT nested ones.
+  // With a delimiter of "/" it additionally returns one pseudo-entry per
+  // sub-folder (id null, metadata null). So: list the root with a delimiter
+  // to discover session folders, then list each folder for its databases.
   const client = getStorageClient();
   const bucket = client.storage.from(getBucketName());
-  const all: Array<{ name: string; created_at?: string; updated_at?: string; metadata?: { size?: number } }> = [];
   const limit = 1000;
 
-  for (let offset = 0; ; offset += limit) {
-    const { data, error } = await bucket.list('databases', {
-      limit,
-      offset,
-      sortBy: { column: 'created_at', order: 'desc' },
-    });
-    if (error) {
-      throw new Error(`Failed to list Supabase Storage folder "databases": ${error.message}`);
+  type RawObject = { name: string; id: string | null; created_at?: string; updated_at?: string; metadata?: { size?: number } | null };
+
+  async function listFolder(prefix: string, delimiter?: string): Promise<RawObject[]> {
+    const out: RawObject[] = [];
+    for (let offset = 0; ; offset += limit) {
+      const { data, error } = await bucket.list(prefix, {
+        limit,
+        offset,
+        ...(delimiter ? { delimiter } : {}),
+        sortBy: { column: 'created_at', order: 'desc' },
+      } as Parameters<typeof bucket.list>[1]);
+      if (error) {
+        throw new Error(`Failed to list Supabase Storage folder "${prefix}": ${error.message}`);
+      }
+      const objects = (data || []) as RawObject[];
+      out.push(...objects);
+      if (objects.length < limit) break;
     }
-    const objects = (data || []) as Array<{ name: string; created_at?: string; updated_at?: string; metadata?: { size?: number } }>;
-    all.push(...objects);
-    if (objects.length < limit) break;
+    return out;
   }
 
   const files: SyncedFileMeta[] = [];
-  for (const object of all) {
-    if (!object.name || object.name.endsWith('/')) continue;
-    // Top-level file: name is "sensors.sqlite". Nested file: name is
-    // "<session_folder>/sensors.sqlite".
-    const slashIdx = object.name.indexOf('/');
-    const isNested = slashIdx > 0;
-    const fileName = isNested ? object.name.slice(slashIdx + 1).split('/').pop()! : object.name;
-    if (!/\.(sqlite|db)$/i.test(fileName)) continue;
-    if (isNested && !/\.(sqlite|db)$/i.test(object.name)) continue;
 
-    const sessionFolder = isNested ? object.name.slice(0, slashIdx) : undefined;
-    const storagePath = isNested ? `databases/${object.name}` : `databases/${fileName}`;
+  const pushEntry = (object: RawObject, sessionFolder?: string) => {
+    const fileName = object.name.split('/').pop() || object.name;
+    // Only sensors.sqlite files are treated as sensor databases — other stray
+    // .db / .sqlite uploads (old flat duplicates, telemetry test files) are
+    // excluded from the viewer so the session list stays clean.
+    if (fileName.toLowerCase() !== 'sensors.sqlite') return;
     const uploadedAt = object.updated_at || object.created_at || new Date(0).toISOString();
+    const storagePath = sessionFolder
+      ? `databases/${sessionFolder}/${fileName}`
+      : `databases/${fileName}`;
     const sessionLabel = sessionFolder
       ? sessionFolder.replace(/_\d{6}$/, '').replace(/_/g, ' ')
       : undefined;
-
     files.push({
       url: '',
       pathname: fileName,
@@ -199,21 +202,36 @@ export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
       uploadedAt,
       sessionLabel,
     });
+  };
+
+  // 1. Top-level flat databases (legacy uploads) + folder discovery in one call
+  const rootEntries = await listFolder('databases', '/');
+  for (const object of rootEntries) {
+    if (object.id === null) continue; // folder pseudo-entry
+    pushEntry(object);
+  }
+  const folderNames = rootEntries
+    .filter((e) => e.id === null && e.name && !e.name.includes('.'))
+    .map((e) => e.name);
+
+  // 2. Session folders discovered from the delimiter listing
+  for (const folder of folderNames) {
+    try {
+      for (const object of await listFolder(`databases/${folder}`)) {
+        pushEntry(object, folder);
+      }
+    } catch {
+      // Skip unreadable sub-folders
+    }
   }
 
-  // De-duplicate by storagePath (recursive listing can return a folder marker
-  // plus its children) and sort newest first.
+  // De-duplicate by storagePath and sort newest first.
   const unique = new Map<string, SyncedFileMeta>();
   for (const f of files) unique.set(f.storagePath, f);
 
-  // Only sensors.sqlite files are treated as sensor databases — other stray
-  // .db / .sqlite uploads (old flat duplicates, telemetry test files) are
-  // excluded from the viewer so the session list stays clean.
-  return Array.from(unique.values())
-    .filter((f) => f.pathname.toLowerCase() === 'sensors.sqlite')
-    .sort(
-      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
-    );
+  return Array.from(unique.values()).sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  );
 }
 
 export async function cleanupOldVideos(retentionDays = 7): Promise<{
