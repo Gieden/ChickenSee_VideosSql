@@ -39,6 +39,7 @@ import {
   FolderUp,
   Users,
   ShieldCheck,
+  FolderOpen,
 } from 'lucide-react';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
@@ -2493,6 +2494,68 @@ export default function DashboardPage() {
         {/* DATABASE / SQLITE DATA VIEWER TAB */}
         {activeTab === 'database' && (
           <div className="space-y-6">
+
+            {/* Session picker cards — one card per synced recording database */}
+            {databases.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4 text-orange-600" />
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-600">Recording Sessions</h2>
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">{databases.length}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {databases.map((db) => {
+                    const active = currentDbFile === db.storagePath;
+                    const sessionDateMatch = (db.sessionLabel || db.pathname).match(/(\d{4})-(\d{2})-(\d{2})/);
+                    const sessionDate = sessionDateMatch
+                      ? new Date(`${sessionDateMatch[1]}-${sessionDateMatch[2]}-${sessionDateMatch[3]}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+                      : null;
+                    return (
+                      <button
+                        key={db.storagePath}
+                        onClick={() => fetchDatabaseData(db.storagePath)}
+                        disabled={loadingDb}
+                        aria-pressed={active}
+                        className={`group rounded-xl border-2 p-3.5 text-left transition-all focus:outline-none focus:ring-2 focus:ring-orange-400 focus:ring-offset-1 ${
+                          active
+                            ? 'border-orange-500 bg-orange-50/80 shadow-md shadow-orange-500/10'
+                            : 'border-slate-200 bg-white shadow-sm hover:border-orange-300 hover:bg-orange-50/40 hover:shadow'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${active ? 'bg-orange-500 text-white' : 'bg-slate-100 text-slate-500 group-hover:bg-orange-100 group-hover:text-orange-600'}`}>
+                              <Database className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className={`truncate text-sm font-bold ${active ? 'text-orange-800' : 'text-slate-800'}`}>
+                                {db.sessionLabel || db.pathname}
+                              </div>
+                              <div className="truncate text-[11px] text-slate-500 font-medium">
+                                {db.pathname} · {formatBytes(db.size)}
+                              </div>
+                            </div>
+                          </div>
+                          {active && (
+                            <span className="shrink-0 rounded-full bg-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Viewing</span>
+                          )}
+                        </div>
+                        <div className="mt-2.5 flex items-center gap-2">
+                          {sessionDate && (
+                            <span className="flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                              <Calendar className="h-3 w-3 text-slate-400" />{sessionDate}
+                            </span>
+                          )}
+                          <span className="flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-100">
+                            <FileCode className="h-3 w-3" /> SQLite
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Header strip – mirrors Detection Queue style */}
             <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
