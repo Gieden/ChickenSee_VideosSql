@@ -206,9 +206,14 @@ export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
   const unique = new Map<string, SyncedFileMeta>();
   for (const f of files) unique.set(f.storagePath, f);
 
-  return Array.from(unique.values()).sort(
-    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
-  );
+  // Only sensors.sqlite files are treated as sensor databases — other stray
+  // .db / .sqlite uploads (old flat duplicates, telemetry test files) are
+  // excluded from the viewer so the session list stays clean.
+  return Array.from(unique.values())
+    .filter((f) => f.pathname.toLowerCase() === 'sensors.sqlite')
+    .sort(
+      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+    );
 }
 
 export async function cleanupOldVideos(retentionDays = 7): Promise<{

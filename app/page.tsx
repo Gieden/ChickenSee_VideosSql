@@ -1233,6 +1233,16 @@ export default function DashboardPage() {
   const [pageOffset, setPageOffset] = useState(0);
   const pageSize = 50;
 
+  // Session detail modal state — opens when a user clicks any row in the
+  // SQLite Data Viewer table, showing all sensor data inside that session day.
+  const [sessionModalFile, setSessionModalFile] = useState<string | null>(null);
+  const [sessionModalLabel, setSessionModalLabel] = useState<string | null>(null);
+  const [sessionModalData, setSessionModalData] = useState<Record<string, { columns: string[]; values: unknown[][]; totalRows: number }> | null>(null);
+  const [sessionModalActiveTable, setSessionModalActiveTable] = useState<string | null>(null);
+  const [sessionModalSearch, setSessionModalSearch] = useState('');
+  const [loadingSessionModal, setLoadingSessionModal] = useState(false);
+  const [sessionModalError, setSessionModalError] = useState<string | null>(null);
+
   const [results, setResults] = useState<BehaviorResult[]>([]);
   const [loadingResults, setLoadingResults] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
@@ -1307,6 +1317,37 @@ export default function DashboardPage() {
       setDatabaseError(err instanceof Error ? err.message : 'Could not load synchronized databases.');
     } finally {
       setLoadingDb(false);
+    }
+  }
+
+  /**
+   * Open the session detail modal for a given database. Fetches ALL rows of
+   * every table in the session database (no pagination) so the user sees the
+   * complete sensor data recorded inside that day's session.
+   */
+  async function openSessionModal(file: string, label?: string | null) {
+    setSessionModalFile(file);
+    setSessionModalLabel(label || null);
+    setSessionModalData(null);
+    setSessionModalActiveTable(null);
+    setSessionModalSearch('');
+    setSessionModalError(null);
+    setLoadingSessionModal(true);
+    try {
+      const res = await fetch(`/api/database/session?file=${encodeURIComponent(file)}`);
+      if (res.status === 401) { router.push('/login'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      const tableData = data.tables || {};
+      setSessionModalData(tableData);
+      // Default to the table with the most rows (usually sensor_logs)
+      const preferred = (Object.entries(tableData) as Array<[string, { totalRows?: number }]>)
+        .sort((a, b) => (b[1].totalRows || 0) - (a[1].totalRows || 0));
+      setSessionModalActiveTable(preferred[0]?.[0] || null);
+    } catch (err) {
+      setSessionModalError(err instanceof Error ? err.message : 'Could not load session data.');
+    } finally {
+      setLoadingSessionModal(false);
     }
   }
 
@@ -2687,11 +2728,17 @@ export default function DashboardPage() {
                                 {displayColIdxs.map((ci) => (
                                 <th key={ci} className="px-4 py-2.5 whitespace-nowrap text-slate-400">{queryResult.columns[ci]}</th>
                                 ))}
+                                <th className="px-4 py-2.5 text-right text-slate-400">Details</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 bg-white">
                               {rows.map(({ row, rowIndex }) => (
-                                <tr key={rowIndex} className="hover:bg-orange-50/30 transition-colors">
+                                <tr
+                                  key={rowIndex}
+                                  onClick={() => openSessionModal(currentDbFile || '', sessionModalLabel)}
+                                  className="cursor-pointer hover:bg-orange-50/50 transition-colors"
+                                  title="Click to view all sensor data inside this session"
+                                >
                                   <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{pageOffset + rowIndex + 1}</td>
                                   {displayColIdxs.map((ci) => {
                                     const cell = row[ci];
@@ -2715,6 +2762,11 @@ export default function DashboardPage() {
                                       </td>
                                     );
                                   })}
+                                  <td className="px-4 py-3 text-right">
+                                    <span className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-2 py-1 text-[10px] font-bold text-orange-700">
+                                      <Eye className="h-3 w-3" /> View
+                                    </span>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2740,6 +2792,205 @@ export default function DashboardPage() {
                   </div>
                 );
               })()}
+            </div>
+          </div>
+        )}
+
+        {/* SESSION DETAIL MODAL — shows all sensor data inside the clicked session */}
+        {sessionModalFile && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-6"
+            onClick={() => setSessionModalFile(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Session sensor data"
+          >
+            <div
+             className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+             onClick={(e) => e.stopPropagation()}
+            >
+             {/* Modal header */}
+             <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
+               <div className="min-w-0">
+                 <div className="flex items-center gap-2">
+                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500 text-white">
+                     <Database className="h-4 w-4" />
+                   </div>
+                   <h3 className="truncate text-base font-bold text-slate-900">
+                     {sessionModalLabel || sessionModalFile}
+                   </h3>
+                 </div>
+                 <p className="mt-1 truncate font-mono text-[10px] text-slate-400" title={sessionModalFile}>{sessionModalFile}</p>
+               </div>
+               <button
+                 onClick={() => setSessionModalFile(null)}
+                 aria-label="Close"
+                 className="shrink-0 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+               >
+                 <X className="h-4 w-4" />
+               </button>
+             </div>
+
+             {/* Table tabs + search */}
+             {sessionModalData && Object.keys(sessionModalData).length > 0 && (
+               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5">
+                 <div className="flex flex-wrap gap-1.5">
+                   {Object.keys(sessionModalData).map((t) => (
+                     <button
+                       key={t}
+                       onClick={() => setSessionModalActiveTable(t)}
+                       className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                         sessionModalActiveTable === t
+                           ? 'bg-orange-500 text-white shadow-sm'
+                           : 'bg-white text-slate-600 border border-slate-200 hover:bg-orange-50 hover:text-orange-700'
+                       }`}
+                     >
+                       {t === 'sensor_logs' ? '📡 Sensor Logs' : t === 'recording' ? '🎥 Recording' : t}
+                       <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.5 text-[9px] font-bold">
+                         {sessionModalData[t].totalRows}
+                       </span>
+                     </button>
+                   ))}
+                 </div>
+                 <div className="relative">
+                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                   <input
+                     type="search"
+                     value={sessionModalSearch}
+                     onChange={(e) => setSessionModalSearch(e.target.value)}
+                     placeholder="Search rows…"
+                     className="w-48 rounded-lg border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-orange-500 sm:w-64"
+                   />
+                 </div>
+               </div>
+             )}
+
+             {/* Modal body */}
+             <div className="min-h-0 flex-1 overflow-auto">
+               {loadingSessionModal ? (
+                 <div className="flex h-48 items-center justify-center">
+                   <RefreshCw className="h-6 w-6 animate-spin text-orange-500" />
+                 </div>
+               ) : sessionModalError ? (
+                 <div role="alert" className="p-6 text-sm text-red-600">Could not load session data: {sessionModalError}</div>
+               ) : !sessionModalData || Object.keys(sessionModalData).length === 0 ? (
+                 <div className="flex flex-col items-center justify-center p-12 text-center">
+                   <FileCode className="mb-4 h-12 w-12 text-slate-300" />
+                   <h4 className="text-base font-semibold text-slate-700">No tables in this session database</h4>
+                   <p className="mt-1 text-sm text-slate-400">This recording session has no sensor data stored.</p>
+                 </div>
+               ) : (() => {
+                 const active = sessionModalActiveTable ? sessionModalData![sessionModalActiveTable] : null;
+                 if (!active) return null;
+                 const searchLower = sessionModalSearch.trim().toLowerCase();
+                 const filtered = searchLower
+                   ? active.values.filter((row) =>
+                       row.some((cell) => cell !== null && String(cell).toLowerCase().includes(searchLower)))
+                   : active.values;
+                 // Highlight the key sensor columns first, but show everything
+                 const highlightCols = ['captured_at','recorded_at','started_at','ended_at','video_file','video_time','elapsed_seconds','temperature','humidity','ammonia_ppm','sound_db','duration_seconds','frame_count'];
+                 const orderedIdxs = active.columns
+                   .map((col, idx) => ({ col: col.toLowerCase(), idx }))
+                   .sort((a, b) => {
+                     const ai = highlightCols.indexOf(a.col); const bi = highlightCols.indexOf(b.col);
+                     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+                   })
+                   .map(({ idx }) => idx);
+                 const dateIdx = active.columns.findIndex((c) => ['captured_at','recorded_at','started_at'].includes(c.toLowerCase()));
+                 // Group filtered rows by day for readability
+                 const dayMap = new Map<string, Array<{ row: unknown[]; idx: number }>>();
+                 filtered.forEach((row, i) => {
+                   let dayLabel = 'Session Data';
+                   if (dateIdx >= 0 && row[dateIdx]) {
+                     try {
+                       const d = new Date(String(row[dateIdx]));
+                       if (!isNaN(d.getTime())) dayLabel = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                     } catch { /* keep */ }
+                   }
+                   if (!dayMap.has(dayLabel)) dayMap.set(dayLabel, []);
+                   dayMap.get(dayLabel)!.push({ row, idx: i });
+                 });
+
+                 return (
+                   <div>
+                     {Array.from(dayMap.entries()).map(([day, rows]) => (
+                       <div key={day}>
+                         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/95 px-5 py-2 backdrop-blur">
+                           <div className="flex items-center gap-2">
+                             <Calendar className="h-3.5 w-3.5 text-orange-600" />
+                             <span className="text-xs font-bold text-slate-800">{day}</span>
+                           </div>
+                           <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                             {rows.length} {rows.length === 1 ? 'reading' : 'readings'}
+                           </span>
+                         </div>
+                         <div className="overflow-x-auto">
+                           <table className="w-full text-left text-xs border-collapse">
+                             <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                               <tr>
+                                 <th className="px-4 py-2 text-slate-400 w-10">#</th>
+                                 {orderedIdxs.map((ci) => (
+                                   <th key={ci} className="px-4 py-2.5 whitespace-nowrap text-slate-400">{active.columns[ci]}</th>
+                                 ))}
+                               </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-100 bg-white">
+                               {rows.map(({ row, idx }) => (
+                                 <tr key={idx} className="hover:bg-orange-50/30 transition-colors">
+                                   <td className="px-4 py-2.5 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                                   {orderedIdxs.map((ci) => {
+                                     const cell = row[ci];
+                                     const colName = active.columns[ci].toLowerCase();
+                                     const isTime = colName.includes('at') || colName.includes('time');
+                                     const isNum = typeof cell === 'number';
+                                     return (
+                                       <td key={ci} className="px-4 py-2.5 whitespace-nowrap max-w-[16rem] truncate" title={cell !== null ? String(cell) : 'NULL'}>
+                                         {cell === null ? (
+                                           <span className="text-slate-300 italic">null</span>
+                                         ) : isTime && !isNum ? (
+                                           <span className="flex items-center gap-1 text-slate-700 font-medium">
+                                             <Clock className="h-3 w-3 text-orange-500 shrink-0" />
+                                             {(() => { try { return new Date(String(cell)).toLocaleString(); } catch { return String(cell); } })()}
+                                           </span>
+                                         ) : isNum ? (
+                                           <span className="font-mono text-slate-800 font-semibold">{String(cell)}</span>
+                                         ) : (
+                                           <span className="text-slate-700">{String(cell)}</span>
+                                         )}
+                                       </td>
+                                     );
+                                   })}
+                                 </tr>
+                               ))}
+                             </tbody>
+                           </table>
+                         </div>
+                       </div>
+                     ))}
+                     {filtered.length === 0 && (
+                       <div className="p-10 text-center text-sm text-slate-400">
+                         No rows match “{sessionModalSearch}”.
+                       </div>
+                     )}
+                   </div>
+                 );
+               })()}
+             </div>
+
+             {/* Modal footer */}
+             <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs">
+               <span className="text-slate-500">
+                 {sessionModalActiveTable && sessionModalData
+                   ? <><span className="font-semibold text-slate-800">{sessionModalData[sessionModalActiveTable].totalRows}</span> total rows in <span className="font-semibold text-slate-800">{sessionModalActiveTable}</span></>
+                   : 'Loading…'}
+               </span>
+               <button
+                 onClick={() => setSessionModalFile(null)}
+                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:bg-slate-100"
+               >
+                 Close
+               </button>
+             </div>
             </div>
           </div>
         )}

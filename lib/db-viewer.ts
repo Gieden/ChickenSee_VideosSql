@@ -101,3 +101,35 @@ export function queryTableData(
     totalRows,
   };
 }
+
+/**
+ * Return every row of a table (no pagination) plus a day-bucketed summary.
+ * Used by the SQLite Data Viewer's session-detail modal, which shows all
+ * sensor readings recorded inside a session, grouped by calendar day.
+ */
+export function queryTableAllRows(
+  db: Database,
+  tableName: string,
+): QueryResult {
+  const sanitizedTable = tableName.replace(/[^a-zA-Z0-9_]/g, '');
+  if (!sanitizedTable) {
+    throw new Error('Invalid table name.');
+  }
+
+  const query = `SELECT * FROM "${sanitizedTable}";`;
+  const result = db.exec(query);
+  const countRes = db.exec(`SELECT COUNT(*) FROM "${sanitizedTable}";`);
+  const totalRows = countRes.length && countRes[0].values.length ? Number(countRes[0].values[0][0]) : 0;
+
+  if (!result.length) {
+    const pragmaRes = db.exec(`PRAGMA table_info("${sanitizedTable}");`);
+    const columns = pragmaRes.length ? pragmaRes[0].values.map((col) => String(col[1])) : [];
+    return { columns, values: [], totalRows: 0 };
+  }
+
+  return {
+    columns: result[0].columns,
+    values: result[0].values,
+    totalRows,
+  };
+}
