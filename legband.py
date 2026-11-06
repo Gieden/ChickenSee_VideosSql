@@ -5,13 +5,16 @@ import numpy as np
 
 
 LEG_BAND_HSV_RANGES = {
-    "Hen1 (Green)": ((35, 75, 70), (85, 255, 255)),
-    # White: High brightness, low saturation to avoid grey dirt, sand, and pale feather highlights
-    "Hen2 (White)": ((0, 0, 195), (180, 45, 255)),
-    # Blue/Violet: Narrow high-saturation & brightness band to prevent dark black feather sheen from matching
-    "Hen3 (Blue)": ((100, 120, 100), (155, 255, 255)),
-    "Hen4 (Yellow)": ((18, 90, 100), (35, 255, 255)),
-    "Hen5 (Pink)": ((150, 65, 80), (178, 255, 255)),
+    # Green tag: Robust to softer lighting and shadows (S>=50, V>=50)
+    "Hen1 (Green)": ((33, 50, 50), (88, 255, 255)),
+    # White tag: High brightness, low saturation to avoid straw/bedding while matching coop lighting (V>=140, S<=55)
+    "Hen2 (White)": ((0, 0, 140), (180, 55, 255)),
+    # Blue/Violet: Covers distinct blue and violet bands while rejecting black feather sheen (S>=75, V>=55)
+    "Hen3 (Blue)": ((95, 75, 55), (160, 255, 255)),
+    # Yellow tag: High contrast yellow in pen lighting (H:16-38, S>=65, V>=65)
+    "Hen4 (Yellow)": ((16, 65, 65), (38, 255, 255)),
+    # Pink tag: Vibrant pink/magenta tag detection (H:145-179, S>=45, V>=60)
+    "Hen5 (Pink)": ((145, 45, 60), (179, 255, 255)),
 }
 
 BAND_CLASS_TO_HEN = {
@@ -77,13 +80,12 @@ def detect_leg_band_color(
     if (box_width / max(1, box_height) > 1.35) or box_height < 25:
         return None
 
-    # Sample the lower 55% of the bird box (bottom of body + full leg zone).
-    # The old crop (y1 + 70% to y2 + 8%) was only 30% of the box height, leaving
-    # leg bands in the lower-middle region undetected on typical 640px inference boxes.
+    # Sample the lower 60% of the bird box plus foot zone below the bounding box
+    # (bottom of body + full leg zone down to feet).
     crop_x1 = max(0, min(frame_width, x1))
     crop_x2 = max(0, min(frame_width, x2))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.45)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.10)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.40)))
+    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.15)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
@@ -111,15 +113,14 @@ def detect_leg_band_color(
             area = stats[j, cv2.CC_STAT_AREA]
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
-            cy = centroids[j][1]
             # Compact leg-band cluster: must be a solid blob, not feather sheen.
-            # compactness = filled_pixels / bounding_box_area — real bands are dense (>= 0.25),
-            # diffuse feather-sheen components are scattered (< 0.25).
+            # compactness = filled_pixels / bounding_box_area — real bands are dense (>= 0.20),
+            # diffuse feather-sheen components are scattered (< 0.20).
             area_upper = max(50, int(box_width * box_height * 0.40))
-            if 8 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+            if 6 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
                 aspect = cw / max(1, ch)
-                if 0.20 <= aspect <= 4.0 and compactness >= 0.25:
+                if 0.15 <= aspect <= 4.5 and compactness >= 0.20:
                     valid_area = max(valid_area, area)
 
         if valid_area > 0:
@@ -133,9 +134,8 @@ def detect_leg_band_color(
     if not best_match:
         return None
 
-    # Ambiguity check: if runner-up is >= 60% of winner, reject
-    # Lowered from 0.65 to 0.60 for more strict leg-band labeling accuracy
-    if second_best_area >= best_area * 0.60:
+    # Ambiguity check: if runner-up is >= 65% of winner, reject
+    if second_best_area >= best_area * 0.65:
         return None
 
     return best_match

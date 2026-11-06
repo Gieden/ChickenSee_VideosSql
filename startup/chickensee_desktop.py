@@ -169,117 +169,55 @@ def stop_processes_after_signal(
     targets: Dict[str, List[Tuple[psutil.Process, float]]],
     graceful_timeout_s: float = 1.0,
 ) -> bool:
-    """Promptly and cleanly stop supervisor and captured ChickenSee service processes."""
-    all_targets = [target for group in targets.values() for target in group]
-    deadline = time.monotonic() + graceful_timeout_s
+    """Immediately force-stop all ChickenSee service processes.
 
-    def still_running(target: Tuple[psutil.Process, float]) -> bool:
-        process, created_at = target
+    On Windows, terminate() (SIGTERM) may be ignored for several seconds by
+    Python/Node processes.  We therefore collect every target PID and all of
+    their child PIDs first, then issue kill() (TerminateProcess) on all of
+    them in one pass — no graceful wait, no sequential per-process timeouts.
+    This keeps the total stop time well under one second.
+    """
+
+    def _kill_tree(proc: psutil.Process) -> None:
+        """Kill a process and all its descendants, ignoring errors."""
         try:
-            return process.is_running() and process.create_time() == created_at
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-            return False
-
-    while time.monotonic() < deadline and any(still_running(target) for target in all_targets):
-        time.sleep(0.1)
-
-    remaining_supervisors = [
-        target for target in targets.get("supervisor", []) if still_running(target)
-    ]
-    remaining_services = [
-        target
-        for name, group in targets.items()
-        if name != "supervisor"
-        for target in group
-        if still_running(target)
-    ]
-
-    # Stop supervisor first so it does not attempt to respawn child processes
-    for process, _ in remaining_supervisors:
-        try:
+            children = proc.children(recursive=True)
+        except Exception:
+            children = []
+        for child in children:
             try:
-                for child in process.children(recursive=True):
-                    try:
-                        child.terminate()
-                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                        pass
-            except Exception:
-                pass
-            process.terminate()
-        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-            continue
-
-    if remaining_supervisors:
-        _, stubborn_supervisors = psutil.wait_procs(
-            [target[0] for target in remaining_supervisors], timeout=1.0
-        )
-        for process in stubborn_supervisors:
-            try:
-                try:
-                    for child in process.children(recursive=True):
-                        try:
-                            child.kill()
-                        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                            pass
-                except Exception:
-                    pass
-                process.kill()
+                child.kill()
             except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                continue
-
-    # Terminate remaining service processes
-    for process, _ in remaining_services:
+                pass
         try:
-            try:
-                for child in process.children(recursive=True):
-                    try:
-                        child.terminate()
-                    except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                        pass
-            except Exception:
-                pass
-            process.terminate()
+            proc.kill()
         except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-            continue
+            pass
 
-    if remaining_services:
-        _, stubborn = psutil.wait_procs(
-            [target[0] for target in remaining_services], timeout=1.0
-        )
-        for process in stubborn:
-            try:
-                try:
-                    for child in process.children(recursive=True):
-                        try:
-                            child.kill()
-                        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                            pass
-                except Exception:
-                    pass
-                process.kill()
-            except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess):
-                continue
-        if stubborn:
-            psutil.wait_procs(stubborn, timeout=0.5)
+    # Collect all process objects across every category
+    all_procs: List[psutil.Process] = []
+    supervisor_procs: List[psutil.Process] = []
+    for name, group in targets.items():
+        for proc, _ in group:
+            all_procs.append(proc)
+            if name == "supervisor":
+                supervisor_procs.append(proc)
 
-    # Final cleanup sweep: ensure no orphaned or newly spawned services remain
-    time.sleep(0.3)
-    post_check = find_service_processes()
-    for cat, pids in post_check.items():
-        for pid in pids:
-            try:
-                p = psutil.Process(pid)
-                try:
-                    for c in p.children(recursive=True):
-                        try:
-                            c.kill()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                p.kill()
-            except Exception:
-                pass
+    # Kill supervisors first so they cannot respawn children
+    for proc in supervisor_procs:
+        _kill_tree(proc)
+
+    # Kill remaining service processes
+    for proc in all_procs:
+        if proc not in supervisor_procs:
+            _kill_tree(proc)
+
+    # Brief pause then wait for all PIDs to disappear (no rescan of system processes)
+    if all_procs:
+        try:
+            psutil.wait_procs(all_procs, timeout=0.5)
+        except Exception:
+            pass
 
     return True
 
@@ -329,6 +267,14 @@ class ChickenSeeDesktop:
         self._configure_styles()
         self._build_layout()
         self._load_settings_into_form()
+        # Immediately reflect any already-running processes so the buttons are
+        # correct from the very first frame (e.g. after a laptop reboot with
+        # autostart enabled, services are running before the GUI opens).
+        try:
+            _initial_procs = find_service_processes()
+            self._update_power_buttons(_initial_procs)
+        except Exception:
+            pass
         self._refresh_status()
         self.root.after(250, self._drain_events)
         self.root.after(REFRESH_INTERVAL_MS, self._schedule_refresh)
@@ -2069,7 +2015,7 @@ class ChickenSeeDesktop:
         try:
             stop_processes_after_signal(targets, graceful_timeout_s=1.0)
             self.events.put(("stop_done", True, "ChickenSee stopped."))
-        except (OSError, RuntimeError) as error:
+        except Exception as error:  # never let the worker hang silently
             self.events.put(("stop_done", False, str(error)))
 
     def _save_queue_status_for_sync(self, queue_data: Any) -> None:

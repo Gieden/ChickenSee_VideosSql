@@ -88,14 +88,15 @@ class ChickenDetector:
         if track_id is None:
             return
         last_seen = self.track_band_last_seen.get(track_id)
-        votes = self.track_band_votes.setdefault(track_id, deque(maxlen=5))
-        if last_seen is not None and self.frame_count - last_seen > 30:
+        votes = self.track_band_votes.setdefault(track_id, deque(maxlen=8))
+        if last_seen is not None and self.frame_count - last_seen > 60:
             votes.clear()
         votes.append(label)
         self.track_band_last_seen[track_id] = self.frame_count
-        if Counter(votes).most_common(1)[0][1] >= 3:
+        most_common = Counter(votes).most_common(1)
+        if most_common and most_common[0][1] >= 2:
             self.track_states[track_id] = {
-                "label": Counter(votes).most_common(1)[0][0],
+                "label": most_common[0][0],
                 "last_seen_frame": self.frame_count,
             }
 
@@ -245,24 +246,29 @@ class ChickenDetector:
             bx1, by1, bx2, by2 = band_box
             band_cx = (bx1 + bx2) / 2
             band_cy = (by1 + by2) / 2
+            color_name = BAND_CLASS_TO_HEN.get(band_class)
+            if not color_name:
+                continue
 
+            best_tid = None
+            best_dist = float("inf")
             for (cbox, _, _, track_id) in chicken_dets:
                 if track_id is None:
                     continue
-
                 cx1, cy1, cx2, cy2 = cbox
-                # Small expansion to catch leg bands at the bottom edge of body box
-                inside_or_near = (cx1 - 10 <= band_cx <= cx2 + 10) and (cy1 - 10 <= band_cy <= cy2 + 10)
-                
-                if not inside_or_near:
-                    continue
+                cw = max(1.0, cx2 - cx1)
+                ch = max(1.0, cy2 - cy1)
+                # Lower torso and leg zone (lower 65% of torso down to 25% below box)
+                if (cx1 - 0.25 * cw <= band_cx <= cx2 + 0.25 * cw) and (cy1 + 0.35 * ch <= band_cy <= cy2 + 0.25 * ch):
+                    dist = abs(band_cx - (cx1 + cx2) / 2) + abs(band_cy - cy2)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_tid = track_id
 
-                color_name = BAND_CLASS_TO_HEN.get(band_class)
-                if not color_name:
-                    continue
-
-                self._record_track_band_label(track_id, color_name)
-                break
+            if best_tid is not None:
+                # 2 votes for explicit YOLO leg-band detection
+                self._record_track_band_label(best_tid, color_name)
+                self._record_track_band_label(best_tid, color_name)
 
         # ------------------------------------------------------------------
         # 2. Strict HSV Fallback — ONLY run on unidentified Chickens
@@ -344,6 +350,8 @@ class ChickenDetector:
                 "color":      colors["hex"],
                 "color_rgb":  colors["rgb"],
                 "color_bgr":  colors["bgr"],
+                "is_tagged":  display_label.startswith("Hen"),
+                "tag_color":  colors["hex"] if display_label.startswith("Hen") else None,
             }
             detections.append(det)
 

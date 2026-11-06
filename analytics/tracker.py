@@ -121,7 +121,7 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.70  # Set to 70% for strict chicken detection
-    MIN_LEG_BAND_CONFIDENCE = 0.05   # Lowered to 25% (was 0.20) for more leg band detections
+    MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
     # Radius = max(MIN_DISTANCE_PX, frame_diagonal * RATIO). On a 2880x1620 flyover the old
     # 0.02 ratio gave a ~650 px gate, i.e. "anywhere on the frame": every occluded detection
@@ -607,40 +607,55 @@ class ZampenYOLOTracker:
             bird.bird_label = resolved_name
 
         # Re-ID lock for leg bands if present.
-        # Band detection is authoritative — record it even on a single frame
-        # so it counts toward the 8-vote threshold without waiting.
+        # Re-ID lock for leg bands if present.
+        # Associate each detected band with the nearest chicken lower body/leg region
         for band_box, band_name in band_dets:
             bx1, by1, bx2, by2 = band_box
             bcx, bcy = (bx1 + bx2) // 2, (by1 + by2) // 2
+            hen_label = BAND_CLASS_TO_HEN.get(band_name)
+            if not hen_label:
+                continue
+
+            best_bird = None
+            best_dist = float("inf")
             for bird in birds:
                 if bird.track_id is None or bird.class_name == "Rooster":
                     continue
                 x1, y1, x2, y2 = bird.box
-                if (x1 - 35 <= bcx <= x2 + 35) and (y1 - 35 <= bcy <= y2 + 35):
-                    hen_label = BAND_CLASS_TO_HEN.get(band_name)
-                    if hen_label:
-                        self.track_tag_confirmed.add(bird.track_id)
-                        # Cast 3 votes at once for an explicit YOLO band detection
-                        # (it's far more reliable than the HSV crop fallback).
-                        for _ in range(3):
-                            self._record_track_label(bird.track_id, hen_label)
-                    break
+                bw = max(1, x2 - x1)
+                bh = max(1, y2 - y1)
+                # Lower body and leg zone (lower 65% of torso down to 25% below box)
+                if (x1 - 0.25 * bw <= bcx <= x2 + 0.25 * bw) and (y1 + 0.35 * bh <= bcy <= y2 + 0.25 * bh):
+                    dist = abs(bcx - (x1 + x2) / 2) + abs(bcy - y2)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_bird = bird
+
+            if best_bird is not None:
+                # Cast 4 votes per YOLO band detection (2 consecutive observations reach 8 votes)
+                for _ in range(4):
+                    self._record_track_label(best_bird.track_id, hen_label)
+                if best_bird.track_id in self.track_label_cache:
+                    self.track_tag_confirmed.add(best_bird.track_id)
 
         # A compact, color-qualified tag is a valid tag observation even when
-        # the YOLO tag box is missed. This never classifies from the bird's
-        # overall appearance; it only inspects a small leg-band candidate area.
+        # the YOLO tag box is missed. Inspect lower leg region of unconfirmed chickens.
         if not hasattr(self, "track_tag_confirmed"):
             self.track_tag_confirmed: set = set()
         for bird in birds:
             if bird.track_id is None or bird.class_name == "Rooster":
                 continue
-            if bird.track_id in self.track_tag_confirmed:
+            # Keep tracks that are already locked in track_label_cache confirmed
+            if bird.track_id in self.track_label_cache:
+                self.track_tag_confirmed.add(bird.track_id)
                 continue
             hen_label = detect_leg_band_color(frame, bird.box)
             if hen_label:
-                self.track_tag_confirmed.add(bird.track_id)
+                # Cast 3 votes per observation; accumulates across frames until 8 votes reached
                 for _ in range(3):
                     self._record_track_label(bird.track_id, hen_label)
+                if bird.track_id in self.track_label_cache:
+                    self.track_tag_confirmed.add(bird.track_id)
 
         # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame.
         # Stage A keeps each track's previously displayed colour, so two birds whose boxes
@@ -691,9 +706,9 @@ class ZampenYOLOTracker:
             elif bird.class_name == "Chicken":
                 bird.bird_label = "Chicken"
 
-        # Stage C: a colour that was already shown by another track cannot be shown twice.
-        # Falls back to the track's own last label; otherwise the bird keeps "Chicken".
-        owner_of_label = {label: tid for tid, label in self.track_last_label.items()}
+        # Stage C: a colour that was already shown by another active track in the current frame cannot be shown twice.
+        active_tids = {bird.track_id for bird in birds if bird.track_id is not None}
+        owner_of_label = {label: tid for tid, label in self.track_last_label.items() if tid in active_tids}
         for bird in birds:
             if bird.track_id is None or not bird.bird_label.startswith("Hen"):
                 continue
@@ -706,19 +721,16 @@ class ZampenYOLOTracker:
                 self.track_last_label[bird.track_id] = bird.bird_label
                 self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
 
-        # Reclaim identities of tracks that have been out of sight for a while. Before this,
-        # the last displayed label of a dead display id stayed pinned in track_last_label and
-        # its colour could never be assigned again, so "Coward 1 Bird" froze the total count.
-        if self.processed_frame_count % 60 == 0:
-            stale = [
-                tid for tid, label in self.track_last_label.items()
-                if tid not in self.short_id_map.values()
-                and self.processed_frame_count - self.track_label_last_seen.get(tid, 0) > 90
-            ]
-            for tid in stale:
-                label = self.track_last_label.pop(tid, None)
-                if label is not None and self.label_owner.get(label, (None, 0))[0] == tid:
-                    self.label_owner.pop(label, None)
+        # Reclaim identities of tracks that are inactive
+        stale = [
+            tid for tid in list(self.track_last_label)
+            if tid not in active_tids
+            and self.processed_frame_count - self.track_label_last_seen.get(tid, 0) > 45
+        ]
+        for tid in stale:
+            label = self.track_last_label.pop(tid, None)
+            if label is not None and self.label_owner.get(label, (None, 0))[0] == tid:
+                self.label_owner.pop(label, None)
 
         equipment = suppress_overlapping_equipment(
             [
@@ -742,9 +754,11 @@ class ZampenYOLOTracker:
         )
 
     def annotate_frame(self, frame: np.ndarray, frame_out: TrackerFrameOutput) -> np.ndarray:
-        """Draws bounding boxes, track IDs, and a detection HUD onto a copy of the frame."""
+        """Draws bounding boxes, track IDs, leg tag anchors, and a detection HUD onto a copy of the frame."""
         vis = frame.copy()
         w = vis.shape[1]
+
+        identified_hens = set()
 
         def _draw(det: TrackedDetection, fallback_name: str):
             x1, y1, x2, y2 = det.box
@@ -752,15 +766,34 @@ class ZampenYOLOTracker:
                 label = fallback_name
             else:
                 label = det.bird_label if det.bird_label else det.class_name or fallback_name
+
+            is_identified_hen = label.startswith("Hen")
+            if is_identified_hen:
+                identified_hens.add(label)
+
             color = LABEL_COLORS_BGR.get(label, LABEL_COLORS_BGR.get(det.class_name, LABEL_COLORS_BGR["Default"]))
+
+            # Draw primary bounding box
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+
+            # Top pill badge
             tid = f"#{det.track_id} " if det.track_id is not None else ""
-            text = f"{tid}{label} ({det.confidence:.2f})"
+            tag_prefix = "TAG: " if is_identified_hen else ""
+            text = f"{tid}{tag_prefix}{label} ({det.confidence:.2f})"
+            # Badge background
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             y_text = max(th + 4, y1)
             cv2.rectangle(vis, (x1, y_text - th - 6), (x1 + tw + 6, y_text + 2), color, -1)
             ink = (0, 0, 0) if sum(color) > 400 else (255, 255, 255)
             cv2.putText(vis, text, (x1 + 3, y_text - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ink, 1)
+
+            # For identified hens, draw a leg-band tag indicator at the bottom edge
+            if is_identified_hen:
+                cx = (x1 + x2) // 2
+                cy_leg = min(vis.shape[0] - 5, y2 - 3)
+                cv2.circle(vis, (cx, cy_leg), 5, (20, 24, 30), -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_leg), 4, color, -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_leg), 1, (255, 255, 255), -1, cv2.LINE_AA)
 
         for bird in frame_out.birds:
             _draw(bird, "Chicken")
@@ -769,12 +802,23 @@ class ZampenYOLOTracker:
         for drinker in frame_out.drinkers:
             _draw(drinker, "Drinker")
 
+        # Top HUD bar
         overlay = vis.copy()
-        cv2.rectangle(overlay, (0, 0), (w, 36), (20, 24, 30), -1)
-        cv2.addWeighted(overlay, 0.85, vis, 0.15, 0, vis)
-        hud = (
+        cv2.rectangle(overlay, (0, 0), (w, 36), (15, 20, 28), -1)
+        cv2.addWeighted(overlay, 0.88, vis, 0.12, 0, vis)
+
+        # Build hen roster indicator (G W B Y P)
+        tag_status = []
+        for hen_key, short_code in [("Hen1 (Green)", "G"), ("Hen2 (White)", "W"), ("Hen3 (Blue)", "B"), ("Hen4 (Yellow)", "Y"), ("Hen5 (Pink)", "P")]:
+            if hen_key in identified_hens:
+                tag_status.append(f"{short_code}:[OK]")
+            else:
+                tag_status.append(f"{short_code}:-")
+        tag_str = " ".join(tag_status)
+
+        hud_left = (
             f"FRAME {frame_out.frame_idx} | BIRDS: {len(frame_out.birds)} | "
-            f"FEEDERS: {len(frame_out.feeders)} | DRINKERS: {len(frame_out.drinkers)}"
+            f"HENS TAGGED: {len(identified_hens)}/5 ({tag_str})"
         )
-        cv2.putText(vis, hud, (12, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+        cv2.putText(vis, hud_left, (12, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 1, cv2.LINE_AA)
         return vis

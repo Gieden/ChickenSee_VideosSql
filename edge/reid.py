@@ -248,8 +248,8 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
 
     crop_x1 = max(0, min(frame_width, x1))
     crop_x2 = max(0, min(frame_width, x2))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.45)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.10)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.40)))
+    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.15)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
@@ -277,10 +277,10 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
             ch = stats[j, cv2.CC_STAT_HEIGHT]
             cy = centroids[j][1]
             area_upper = max(50, int(box_width * box_height * 0.40))
-            if 8 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+            if 6 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
                 aspect = cw / max(1, ch)
-                if 0.20 <= aspect <= 4.0 and compactness >= 0.25 and area > valid_area:
+                if 0.15 <= aspect <= 4.5 and compactness >= 0.20 and area > valid_area:
                     valid_area = float(area)
                     worker = (j, stats[j])
 
@@ -295,7 +295,7 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
 
     if not best_label or best_worker is None:
         return None
-    if second_area >= best_area * 0.60:
+    if second_area >= best_area * 0.65:
         return None
 
     _, stats_row = best_worker

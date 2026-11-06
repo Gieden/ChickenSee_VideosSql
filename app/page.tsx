@@ -2508,6 +2508,9 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">Paired video recordings with sensor data — grouped by date from the SQLite bridge.</p>
+                  {currentDbFile && (
+                    <p className="mt-1 font-mono text-[10px] text-slate-400 truncate max-w-md" title={currentDbFile}>{currentDbFile}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   {tables.length > 0 && (
@@ -2619,7 +2622,7 @@ export default function DashboardPage() {
                               <tr>
                                 <th className="px-4 py-2 text-slate-400 w-10">#</th>
                                 {displayColIdxs.map((ci) => (
-                                  <th key={ci} className="px-4 py-2.5 whitespace-nowrap">{queryResult.columns[ci]}</th>
+                                <th key={ci} className="px-4 py-2.5 whitespace-nowrap text-slate-400">{queryResult.columns[ci]}</th>
                                 ))}
                               </tr>
                             </thead>
