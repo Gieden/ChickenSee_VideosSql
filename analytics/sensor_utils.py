@@ -36,19 +36,58 @@ def calculate_heat_stress(thi: Optional[float]) -> str:
     return "Normal"
 
 
+def _db_contains_video(db_path: Path, video_filename: str) -> bool:
+    """Checks if an SQLite database has a recording table that records this video."""
+    if not db_path.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(f"file:{db_path.resolve().as_posix()}?mode=ro", uri=True)
+        try:
+            cursor = conn.cursor()
+            tables = {r[0] for r in cursor.execute("SELECT name FROM sqlite_master WHERE type='table';").fetchall()}
+            if "recording" in tables:
+                rows = cursor.execute("SELECT video_file FROM recording;").fetchall()
+                norm_target = Path(video_filename).name.casefold()
+                for r in rows:
+                    if r[0]:
+                        norm_recorded = Path(str(r[0])).name.casefold()
+                        if norm_recorded == norm_target or norm_target in norm_recorded or norm_recorded in norm_target:
+                            return True
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return False
+
+
 def find_paired_sensor_db(video_path: str) -> Optional[Path]:
     """
     Finds a paired SQLite database next to the given video file or in its
-    containing session folder. Prefers a same-stem file, then a single
-    database in the nearest searched directory.
+    containing session folder.
+
+    Priority order:
+    1. Exact stem match: e.g. camera.db for camera.mp4
+    2. SQLite database whose `recording` table explicitly records this video file
+    3. Database named 'sensors.sqlite' or 'sensors.db' in the video folder or parent
+    4. Database named 'chicken_telemetry.db' or containing 'sensor' in the video folder or parent
+    5. Single database candidate in the nearest searched directory
+    6. Common local fallback locations (agent/data/sensors.sqlite, etc.)
     """
     if not video_path:
         return None
     video_file = Path(video_path)
     video_stem = video_file.stem.casefold()
+    video_name = video_file.name
     session_dir = video_file.parent
 
-    for directory in (session_dir, session_dir.parent):
+    search_dirs = [session_dir, session_dir.parent]
+    try:
+        subdirs = [p for p in session_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+        search_dirs.extend(subdirs)
+    except OSError:
+        pass
+
+    for directory in search_dirs:
         try:
             candidates = sorted(
                 p for p in directory.iterdir()
@@ -56,11 +95,49 @@ def find_paired_sensor_db(video_path: str) -> Optional[Path]:
             )
         except OSError:
             continue
+        if not candidates:
+            continue
+
+        # 1. Exact stem match (e.g. camera.db for camera.mp4)
         paired = next((p for p in candidates if p.stem.casefold() == video_stem), None)
         if paired is not None:
             return paired
+
+        # 2. Database that explicitly references this video file in its recording table
+        for cand in candidates:
+            if _db_contains_video(cand, video_name):
+                return cand
+
+        # 3. Explicitly named sensors.sqlite or sensors.db
+        explicit = next(
+            (p for p in candidates if p.name.casefold() in ("sensors.sqlite", "sensors.db")),
+            None,
+        )
+        if explicit is not None:
+            return explicit
+
+        # 4. Database containing 'sensor' or 'telemetry' in stem
+        sensor_named = next(
+            (p for p in candidates if "sensor" in p.stem.casefold() or "telemetry" in p.stem.casefold()),
+            None,
+        )
+        if sensor_named is not None:
+            return sensor_named
+
+        # 5. Exactly 1 database candidate in this directory
         if len(candidates) == 1:
             return candidates[0]
+
+    # Fallback to standard project locations if nearby search yielded nothing
+    try:
+        from edge.config import PROJECT_ROOT
+        for cand_name in ("sensors.sqlite", "sensors.db", "chicken_telemetry.db"):
+            agent_cand = PROJECT_ROOT / "agent" / "data" / cand_name
+            if agent_cand.is_file():
+                return agent_cand
+    except Exception:
+        pass
+
     return None
 
 

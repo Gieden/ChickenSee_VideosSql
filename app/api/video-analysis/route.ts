@@ -56,7 +56,18 @@ function getMatchedSensorPoints(db: Database, videoName: string): SensorPoint[] 
   if (!tableColumns(db, 'recording').has('video_file')) return null;
 
   const recordings = db.exec('SELECT video_file FROM recording;')[0]?.values ?? [];
-  if (!recordings.some((row) => normalizeVideoName(textValue(row[0])) === videoName)) return null;
+  const normalizedTarget = normalizeVideoName(videoName);
+  const matches = recordings.some((row) => {
+    const recName = normalizeVideoName(textValue(row[0]));
+    return (
+      recName === normalizedTarget ||
+      recName === 'video' ||
+      normalizedTarget === 'video' ||
+      recName.includes(normalizedTarget) ||
+      normalizedTarget.includes(recName)
+    );
+  });
+  if (!matches && recordings.length !== 1) return null;
 
   const required = ['elapsed_seconds', 'video_time', 'captured_at', 'temperature', 'humidity', 'ammonia_ppm', 'sound_db'];
   if (!required.every((column) => tableColumns(db, 'sensor_logs').has(column))) return [];

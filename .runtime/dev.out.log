@@ -104,3 +104,68 @@
     at DevServer.renderToResponseWithComponentsImpl (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1496:53)
  GET /api/database 500 in 13ms
  ✓ Compiled in 30ms
+ ✓ Compiled in 1402ms (276 modules)
+ ○ Compiling /api/auth ...
+ ✓ Compiled /api/auth in 1379ms (183 modules)
+ POST /api/auth 200 in 2161ms
+ ✓ Compiled /api/database/session in 423ms (189 modules)
+ ⨯ Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set
+    at getStorageClient (webpack-internal:///(rsc)/./lib/supabase-storage.ts:27:15)
+    at listSyncedDatabases (webpack-internal:///(rsc)/./lib/supabase-storage.ts:117:20)
+    at GET (webpack-internal:///(rsc)/./app/api/database/session/route.ts:40:103)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:57234
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:140:36
+    at NoopContextManager.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:7062)
+    at ContextAPI.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:518)
+    at NoopTracer.startActiveSpan (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:18093)
+    at ProxyTracer.startActiveSpan (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:18854)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:122:103
+    at NoopContextManager.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:7062)
+    at ContextAPI.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:518)
+    at NextTracerImpl.trace (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:122:28)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:48896
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at Object.wrap (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:40958)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:47472
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at Object.wrap (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:38293)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:47434
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at eT.execute (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:46881)
+    at eT.handle (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:58771)
+    at doRender (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1366:60)
+    at cacheEntry.responseCache.get.routeKind (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1588:34)
+    at ResponseCache.get (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\response-cache\index.js:49:26)
+    at DevServer.renderToResponseWithComponentsImpl (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1496:53)
+ GET /api/database/session?file=databases/rec_2026-11-05_10-09-13_763336/sensors.sqlite 500 in 661ms
+ POST /api/auth 200 in 35ms
+ ⨯ Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set
+    at getStorageClient (webpack-internal:///(rsc)/./lib/supabase-storage.ts:27:15)
+    at listSyncedDatabases (webpack-internal:///(rsc)/./lib/supabase-storage.ts:117:20)
+    at GET (webpack-internal:///(rsc)/./app/api/database/session/route.ts:40:103)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:57234
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:140:36
+    at NoopContextManager.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:7062)
+    at ContextAPI.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:518)
+    at NoopTracer.startActiveSpan (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:18093)
+    at ProxyTracer.startActiveSpan (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:18854)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:122:103
+    at NoopContextManager.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:7062)
+    at ContextAPI.with (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\@opentelemetry\api\index.js:1:518)
+    at NextTracerImpl.trace (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\lib\trace\tracer.js:122:28)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:48896
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at Object.wrap (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:40958)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:47472
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at Object.wrap (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:38293)
+    at C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:47434
+    at AsyncLocalStorage.run (node:internal/async_local_storage/async_context_frame:63:14)
+    at eT.execute (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:46881)
+    at eT.handle (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\compiled\next-server\app-route.runtime.dev.js:6:58771)
+    at doRender (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1366:60)
+    at cacheEntry.responseCache.get.routeKind (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1588:34)
+    at ResponseCache.get (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\response-cache\index.js:49:26)
+    at DevServer.renderToResponseWithComponentsImpl (C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\node_modules\next\dist\server\base-server.js:1496:53)
+ GET /api/database/session?file=databases/rec_2026-11-05_10-09-13_763336/sensors.sqlite 500 in 34ms
+ ✓ Compiled in 457ms

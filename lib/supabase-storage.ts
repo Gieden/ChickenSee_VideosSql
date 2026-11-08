@@ -191,9 +191,35 @@ export async function listSyncedDatabases(): Promise<SyncedFileMeta[]> {
     const storagePath = sessionFolder
       ? `databases/${sessionFolder}/${fileName}`
       : `databases/${fileName}`;
-    const sessionLabel = sessionFolder
-      ? sessionFolder.replace(/_\d{6}$/, '').replace(/_/g, ' ')
-      : undefined;
+    
+    // Format human-friendly session label (no raw folder names or codes)
+    let sessionLabel: string | undefined = undefined;
+    if (sessionFolder) {
+      const dateMatch = sessionFolder.match(/(\d{4})[-_](\d{2})[-_](\d{2})[-_](\d{2})[-_](\d{2})[-_](\d{2})/);
+      if (dateMatch) {
+        const [, year, month, day, hour, min] = dateMatch;
+        const d = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(min));
+        if (!isNaN(d.getTime())) {
+          sessionLabel = d.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        }
+      }
+      if (!sessionLabel) {
+        if (sessionFolder.toLowerCase() === 'data') {
+          sessionLabel = 'Local Data';
+        } else {
+          sessionLabel = sessionFolder.replace(/_\d{6,}$/, '').replace(/[_-]/g, ' ');
+        }
+      }
+    } else {
+      sessionLabel = 'Primary Stream';
+    }
+
     files.push({
       url: '',
       pathname: fileName,
