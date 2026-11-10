@@ -216,6 +216,11 @@ class ZampenYOLOTracker:
         self.label_owner: Dict[str, Tuple[int, int]] = {}   # label -> (display id, frame)
         self.cached_feeders: List[TrackedDetection] = []
         self.cached_drinkers: List[TrackedDetection] = []
+        # Hen saddle ownership & confidence tracking (ensures higher-confidence saddle stays with hen)
+        self.hen_track_owners: Dict[str, int] = {}          # hen_label -> display_id of owner
+        self.hen_owner_conf: Dict[str, float] = {}          # hen_label -> highest confirmed saddle confidence
+        self.hen_owner_last_frame: Dict[str, int] = {}      # hen_label -> frame when owner was last detected/confirmed
+        self.track_saddle_conf: Dict[int, float] = {}       # track_id -> highest saddle confidence detected on this bird
         # Rooster stable-ID cache: positional Re-ID for roosters across ByteTrack resets.
         # Maps display_id -> (last_centroid, last_frame), and raw_track_id -> display_id.
         self._rooster_display_map: Dict[int, int] = {}       # raw_track_id -> display_id
@@ -267,6 +272,13 @@ class ZampenYOLOTracker:
         self.short_track_sizes.clear()
         self.track_last_label.clear()
         self.label_owner.clear()
+        getattr(self, "hen_track_owners", {}).clear()
+        getattr(self, "hen_owner_conf", {}).clear()
+        getattr(self, "hen_owner_last_frame", {}).clear()
+        getattr(self, "track_saddle_conf", {}).clear()
+        getattr(self, "_rooster_display_map", {}).clear()
+        getattr(self, "_rooster_positions", {}).clear()
+        self._next_rooster_id = 6
 
         predictor = getattr(self.model, "predictor", None)
         for tracker in getattr(predictor, "trackers", []):
@@ -519,6 +531,19 @@ class ZampenYOLOTracker:
         """
         Executes YOLO26 Nano inference with ByteTrack persistence.
         """
+        if not hasattr(self, "hen_track_owners"):
+            self.hen_track_owners: Dict[str, int] = {}
+        if not hasattr(self, "hen_owner_conf"):
+            self.hen_owner_conf: Dict[str, float] = {}
+        if not hasattr(self, "hen_owner_last_frame"):
+            self.hen_owner_last_frame: Dict[str, int] = {}
+        if not hasattr(self, "track_saddle_conf"):
+            self.track_saddle_conf: Dict[int, float] = {}
+        if not hasattr(self, "_rooster_display_map"):
+            self._rooster_display_map: Dict[int, int] = {}
+        if not hasattr(self, "track_tag_confirmed"):
+            self.track_tag_confirmed: set = set()
+
         self.processed_frame_count += 1
         self._prune_track_class_history()
         timestamp_s = frame_idx / fps if fps > 0 else 0.0
@@ -567,8 +592,8 @@ class ZampenYOLOTracker:
         birds: List[TrackedDetection] = []
         feeders: List[TrackedDetection] = []
         drinkers: List[TrackedDetection] = []
-        saddle_dets: List[Tuple[List[int], str]] = []
-        band_dets: List[Tuple[List[int], str]] = []
+        saddle_dets: List[Tuple[List[int], str, float]] = []
+        band_dets: List[Tuple[List[int], str, float]] = []
 
         if results.boxes is None or len(results.boxes) == 0:
             return TrackerFrameOutput(
@@ -590,6 +615,8 @@ class ZampenYOLOTracker:
 
         # First pass: parse raw detections
         for box, conf, cls_id, track_id in zip(boxes, confs, classes, track_ids):
+            if track_id is not None and track_id <= 0:
+                track_id = None
             class_name = self.class_map.get(
                 cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
             )
@@ -627,9 +654,9 @@ class ZampenYOLOTracker:
                 det.track_id = None
                 drinkers.append(det)
             elif class_name.startswith("Saddle_Color_"):
-                saddle_dets.append(([x1, y1, x2, y2], class_name))
+                saddle_dets.append(([x1, y1, x2, y2], class_name, confidence))
             elif class_name.startswith("Leg_Band_"):
-                band_dets.append(([x1, y1, x2, y2], class_name))
+                band_dets.append(([x1, y1, x2, y2], class_name, confidence))
 
         # Suppress duplicate overlapping bird boxes (IoU > 0.60)
         birds = sorted(birds, key=lambda b: b.confidence, reverse=True)
@@ -655,48 +682,117 @@ class ZampenYOLOTracker:
             bird.confidence = resolved_confidence
             bird.bird_label = resolved_name
 
-        # Re-ID lock for saddles (priority)
-        for sbox, sname in saddle_dets:
+        # ------------------------------------------------------------------
+        # Re-ID & Continuity Lock for Saddles (Higher-Confidence Preserved)
+        # ------------------------------------------------------------------
+        current_frame = self.processed_frame_count
+
+        # 1. Match saddle detections to candidate birds
+        bird_saddle_candidates: Dict[int, List[Tuple[float, str, float, List[int]]]] = {}
+        for sbox, sname, sconf in saddle_dets:
             sx1, sy1, sx2, sy2 = sbox
-            scx, scy = (sx1 + sx2) // 2, (sy1 + sy2) // 2
+            scx, scy = (sx1 + sx2) / 2, (sy1 + sy2) / 2
             hen_label = SADDLE_CLASS_TO_HEN.get(sname) or BAND_CLASS_TO_HEN.get(sname)
             if not hen_label:
                 continue
 
-            best_bird = None
-            best_dist = float("inf")
             for bird in birds:
                 if bird.track_id is None:
                     continue
                 x1, y1, x2, y2 = bird.box
-                bw = max(1, x2 - x1)
-                bh = max(1, y2 - y1)
-                # Check if saddle centroid is within or near the chicken box
+                bw = max(1.0, float(x2 - x1))
+                bh = max(1.0, float(y2 - y1))
+                # Check if saddle centroid is within dorsal / body region of bird box
                 if (x1 - 0.20 * bw <= scx <= x2 + 0.20 * bw) and (y1 - 0.20 * bh <= scy <= y2 + 0.20 * bh):
                     dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_bird = bird
+                    bird_saddle_candidates.setdefault(bird.track_id, []).append((sconf, hen_label, dist, sbox))
 
-            if best_bird is not None:
-                # If this bird was misclassified as Rooster, the saddle proves it is a Hen
-                if best_bird.class_name == "Rooster":
-                    best_bird.class_name = "Chicken"
-                    best_bird.class_id = 0
-                    if best_bird.track_id in self.track_resolved_classes:
-                        self.track_resolved_classes[best_bird.track_id] = 0
-                    if best_bird.track_id in self.track_class_history:
-                        self.track_class_history[best_bird.track_id] = {0: (10, 10.0)}
+        # 2. For each bird, pick the saddle detection with the HIGHEST confidence
+        bird_best_saddle: Dict[int, Tuple[float, str, List[int]]] = {}
+        for tid, candidates in bird_saddle_candidates.items():
+            candidates.sort(key=lambda c: (c[0], -c[2]), reverse=True)
+            best_conf, best_label, _, best_sbox = candidates[0]
+            bird_best_saddle[tid] = (best_conf, best_label, best_sbox)
 
-                # Fast lock: 8 votes per YOLO saddle detection so 1 frame commits to cache
-                for _ in range(8):
-                    self._record_track_label(best_bird.track_id, hen_label)
-                if best_bird.track_id in self.track_label_cache:
-                    self.track_tag_confirmed.add(best_bird.track_id)
+        # 3. Resolve competing detections for the same hen_label in this frame:
+        # If multiple birds claim the same hen_label, the higher-confidence detection wins.
+        # If an incumbent owner with continuous tracking claims it, grant continuity protection.
+        label_claims: Dict[str, List[Tuple[int, float]]] = {}
+        for tid, (sconf, hen_label, _) in bird_best_saddle.items():
+            label_claims.setdefault(hen_label, []).append((tid, sconf))
+
+        winning_claims: Dict[str, Tuple[int, float]] = {}
+        for hen_label, claims in label_claims.items():
+            incumbent_tid = self.hen_track_owners.get(hen_label)
+            incumbent_claim = next((c for c in claims if c[0] == incumbent_tid), None)
+
+            claims.sort(key=lambda c: c[1], reverse=True)
+            top_tid, top_conf = claims[0]
+
+            if incumbent_claim is not None and incumbent_tid != top_tid:
+                inc_tid, inc_conf = incumbent_claim
+                # If incumbent has comparable or higher confidence (within 0.15 margin),
+                # ByteTrack previous location continuity keeps ownership on the incumbent!
+                if inc_conf >= top_conf - 0.15:
+                    winning_claims[hen_label] = (inc_tid, inc_conf)
+                else:
+                    winning_claims[hen_label] = (top_tid, top_conf)
+            else:
+                winning_claims[hen_label] = (top_tid, top_conf)
+
+        # 4. Commit winning saddle claims, enforcing confidence & continuity rules
+        for hen_label, (win_tid, sconf) in winning_claims.items():
+            best_bird = next((b for b in birds if b.track_id == win_tid), None)
+            if best_bird is None:
+                continue
+
+            # If this bird was misclassified as Rooster, the saddle proves it is a Hen
+            if best_bird.class_name == "Rooster":
+                best_bird.class_name = "Chicken"
+                best_bird.class_id = 0
+                if best_bird.track_id in self.track_resolved_classes:
+                    self.track_resolved_classes[best_bird.track_id] = 0
+                if best_bird.track_id in self.track_class_history:
+                    self.track_class_history[best_bird.track_id] = {0: (10, 10.0)}
+
+            incumbent_tid = self.hen_track_owners.get(hen_label)
+            incumbent_conf = self.hen_owner_conf.get(hen_label, 0.0)
+            incumbent_last_seen = self.hen_owner_last_frame.get(hen_label, 0)
+            incumbent_is_active = (
+                incumbent_tid in {b.track_id for b in birds}
+                or (current_frame - incumbent_last_seen <= self.REIDENTIFICATION_MAX_GAP_FRAMES)
+            )
+
+            # Rule: When the system detects a higher confidence of that saddle,
+            # then the detection (bytetrack) must remain to the hen.
+            if incumbent_tid is not None and incumbent_tid != win_tid:
+                if incumbent_is_active and sconf <= incumbent_conf:
+                    # Incumbent hen had higher confidence — detection MUST remain with incumbent!
+                    continue
+                if incumbent_is_active and sconf < incumbent_conf + 0.20:
+                    # Not enough margin to steal an active hen's identity
+                    continue
+
+            # Lock / update ownership
+            self.hen_track_owners[hen_label] = win_tid
+            self.hen_owner_conf[hen_label] = max(incumbent_conf if incumbent_tid == win_tid else 0.0, sconf)
+            self.hen_owner_last_frame[hen_label] = current_frame
+            self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
+
+            # Fast lock votes
+            for _ in range(8):
+                self._record_track_label(win_tid, hen_label)
+            if win_tid in self.track_label_cache:
+                self.track_tag_confirmed.add(win_tid)
 
         # Fallback saddle check for unconfirmed chickens
         if not hasattr(self, "track_tag_confirmed"):
             self.track_tag_confirmed: set = set()
+        active_hen_owners = {
+            self.hen_track_owners[lbl]
+            for lbl in SADDLE_CLASS_TO_HEN.values()
+            if lbl in self.hen_track_owners and self.hen_track_owners[lbl] in {b.track_id for b in birds}
+        }
         for bird in birds:
             if bird.track_id is None or bird.class_name == "Rooster":
                 continue
@@ -705,10 +801,18 @@ class ZampenYOLOTracker:
                 continue
             hen_label = detect_saddle_color(frame, bird.box)
             if hen_label:
+                # Never let fallback HSV steal an identity that is already active on another bird
+                if self.hen_track_owners.get(hen_label) in active_hen_owners:
+                    continue
+                if self.hen_owner_conf.get(hen_label, 0.0) >= 0.35:
+                    continue
                 for _ in range(4):
                     self._record_track_label(bird.track_id, hen_label)
                 if bird.track_id in self.track_label_cache:
                     self.track_tag_confirmed.add(bird.track_id)
+                    self.hen_track_owners[hen_label] = bird.track_id
+                    self.hen_owner_conf[hen_label] = 0.30
+                    self.hen_owner_last_frame[hen_label] = current_frame
 
         # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame.
         if not hasattr(self, "track_last_label"):
@@ -717,14 +821,16 @@ class ZampenYOLOTracker:
             self.label_owner: Dict[str, Tuple[int, int]] = {}
         used_labels = set()
 
-        def _label_priority(b: TrackedDetection) -> int:
+        def _label_priority(b: TrackedDetection) -> Tuple[int, float, int]:
             if b.track_id is None:
-                return 0
+                return (0, 0.0, 0)
             lbl = self.track_label_cache.get(b.track_id)
             if not lbl:
-                return 0
-            votes = self.track_label_votes.get(b.track_id, [])
-            return votes.count(lbl)
+                return (0, 0.0, 0)
+            is_incumbent = 1 if self.hen_track_owners.get(lbl) == b.track_id else 0
+            sconf = self.track_saddle_conf.get(b.track_id, 0.0)
+            votes = self.track_label_votes.get(b.track_id, []).count(lbl)
+            return (is_incumbent, sconf, votes)
 
         sorted_birds = sorted(birds, key=_label_priority, reverse=True)
         for bird in sorted_birds:
@@ -747,23 +853,24 @@ class ZampenYOLOTracker:
                 and bird.track_id in self.track_label_cache
             ):
                 assigned = self.track_label_cache[bird.track_id]
-                if assigned not in used_labels:
-                    bird.bird_label = assigned
-                    used_labels.add(assigned)
-                    if assigned in HEN_TO_FIXED_ID:
-                        fixed_id = HEN_TO_FIXED_ID[assigned]
-                        # If another bird currently shares this fixed_id, relocate that bird to an unused ID
-                        for other in birds:
-                            if other is not bird and other.track_id == fixed_id:
-                                used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5}
-                                cand = 6
-                                while cand in used_ids:
-                                    cand += 1
-                                other.track_id = cand
-                                used_ids.add(cand)
-                        bird.track_id = fixed_id
-                else:
-                    bird.bird_label = "Chicken"
+                if bird.bird_label != assigned:
+                    if assigned not in used_labels:
+                        bird.bird_label = assigned
+                        used_labels.add(assigned)
+                    else:
+                        bird.bird_label = "Chicken"
+                if bird.bird_label in HEN_TO_FIXED_ID:
+                    fixed_id = HEN_TO_FIXED_ID[bird.bird_label]
+                    # If another bird currently shares this fixed_id, relocate that bird to an unused ID
+                    for other in birds:
+                        if other is not bird and other.track_id == fixed_id:
+                            used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5}
+                            cand = 6
+                            while cand in used_ids:
+                                cand += 1
+                            other.track_id = cand
+                            used_ids.add(cand)
+                    bird.track_id = fixed_id
             elif bird.class_name == "Chicken":
                 bird.bird_label = "Chicken"
 
@@ -772,11 +879,19 @@ class ZampenYOLOTracker:
             if bird.class_name == "Rooster":
                 bird.bird_label = "Rooster"
                 if bird.track_id in (1, 2, 3, 4, 5) or bird.track_id is None:
-                    used_ids = {b.track_id for b in birds if b.track_id is not None and b is not bird} | {1, 2, 3, 4, 5}
-                    cand = 6
-                    while cand in used_ids:
-                        cand += 1
-                    bird.track_id = cand
+                    display_id = None
+                    if bird.track_id in getattr(self, "_rooster_display_map", {}):
+                        display_id = self._rooster_display_map[bird.track_id]
+                    if display_id is None:
+                        used_ids = {b.track_id for b in birds if b.track_id is not None and b is not bird} | {1, 2, 3, 4, 5}
+                        cand = 6
+                        while cand in used_ids:
+                            cand += 1
+                        display_id = cand
+                    bird.track_id = display_id
+                if bird.track_id is not None and bird.track_id >= 6:
+                    if hasattr(self, "_rooster_display_map"):
+                        self._rooster_display_map[bird.track_id] = bird.track_id
 
         # Stage C: a colour that was already shown by another active track in the current frame cannot be shown twice.
         active_tids = {bird.track_id for bird in birds if bird.track_id is not None}

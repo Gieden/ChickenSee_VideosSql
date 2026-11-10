@@ -40,6 +40,55 @@ class AnalysisCancelled(Exception):
     """Raised when the user cancels the active video analysis."""
 
 
+def cleanup_orphaned_detected_files(videos_dir: Path) -> None:
+    """
+    Cleans up any duplicate or orphaned files left from interrupted or failed transcodes:
+    - Promotes .processing.mp4.h264.mp4 files to final .mp4 if duplicate exists (h264 is web-compatible).
+    - Removes 0-byte or abandoned .processing.mp4 files.
+    - Removes leftover temporary transcoding files.
+    """
+    if not videos_dir or not videos_dir.is_dir():
+        return
+    try:
+        for item in list(videos_dir.rglob("*")):
+            if not item.is_file():
+                continue
+            name = item.name
+            # 1. Consolidate orphaned .processing.mp4.h264.mp4 into final .mp4
+            if name.endswith(".processing.mp4.h264.mp4"):
+                base_detected_name = name.replace(".processing.mp4.h264.mp4", ".mp4")
+                target_detected = item.parent / base_detected_name
+                try:
+                    if item.stat().st_size > 0:
+                        if target_detected.is_file():
+                            try:
+                                target_detected.unlink(missing_ok=True)
+                            except OSError:
+                                pass
+                        os.replace(str(item), str(target_detected))
+                        print(f"[CLEANUP] Consolidated transcoded {name} -> {target_detected.name}")
+                    else:
+                        item.unlink(missing_ok=True)
+                except OSError as exc:
+                    print(f"[CLEANUP WARN] Could not consolidate {name}: {exc}")
+            # 2. Remove 0-byte or stale .processing.mp4 files
+            elif name.endswith(".processing.mp4"):
+                try:
+                    if item.stat().st_size == 0 or (time.time() - item.stat().st_mtime > 60):
+                        item.unlink(missing_ok=True)
+                        print(f"[CLEANUP] Removed orphaned staging file: {name}")
+                except OSError:
+                    pass
+            # 3. Remove leftover .transcoding or .tmp.mp4 files
+            elif ".transcoding" in name or name.endswith(".tmp.mp4"):
+                try:
+                    item.unlink(missing_ok=True)
+                except OSError:
+                    pass
+    except Exception as exc:
+        print(f"[CLEANUP WARN] Error scanning for orphaned video files: {exc}")
+
+
 class ZampenAnalyticsWorker:
     """
     Automated background worker running on the Dell OptiPlex server.
@@ -62,6 +111,7 @@ class ZampenAnalyticsWorker:
         self._queue_snapshot_thread: Optional[threading.Thread] = None
         
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+        cleanup_orphaned_detected_files(VIDEOS_DIR)
         self._start_filesystem_watcher()
 
     def _start_filesystem_watcher(self):
@@ -552,20 +602,59 @@ class ZampenAnalyticsWorker:
             )
             self._raise_if_cancelled(job.id)
             writer.release()
+            del writer
             writer = None
+            import gc
+            gc.collect()
+
+            # Transcode raw OpenCV output to web-compatible H.264
+            h264_transcoded = False
+            temp_transcode = detected_path + ".transcoding.tmp"
             try:
                 import imageio_ffmpeg, subprocess
                 ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-                h264_tmp = staging_path + ".h264.mp4"
-                cmd = [ffmpeg_exe, "-y", "-i", staging_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", h264_tmp]
+                cmd = [
+                    ffmpeg_exe, "-y", "-i", staging_path,
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    temp_transcode
+                ]
                 res = subprocess.run(cmd, capture_output=True)
-                if res.returncode == 0 and os.path.exists(h264_tmp) and os.path.getsize(h264_tmp) > 0:
-                    os.replace(h264_tmp, staging_path)
-                elif os.path.exists(h264_tmp):
-                    os.remove(h264_tmp)
+                if res.returncode == 0 and os.path.isfile(temp_transcode) and os.path.getsize(temp_transcode) > 0:
+                    if os.path.isfile(detected_path):
+                        try:
+                            os.remove(detected_path)
+                        except OSError:
+                            pass
+                    os.replace(temp_transcode, detected_path)
+                    h264_transcoded = True
             except Exception as error:
                 print(f"[WORKER WARN] H.264 transcode failed for {filename}: {error}")
-            os.replace(staging_path, detected_path)
+            finally:
+                if os.path.isfile(temp_transcode):
+                    try:
+                        os.remove(temp_transcode)
+                    except OSError:
+                        pass
+
+            if h264_transcoded:
+                # Successfully created H.264 video at detected_path. Remove raw staging video.
+                for _ in range(5):
+                    try:
+                        if os.path.isfile(staging_path):
+                            os.remove(staging_path)
+                        break
+                    except OSError:
+                        time.sleep(0.3)
+            else:
+                # Fallback: promote staging raw video directly to detected_path
+                if os.path.isfile(detected_path):
+                    try:
+                        os.remove(detected_path)
+                    except OSError:
+                        pass
+                os.replace(staging_path, detected_path)
+
             DB.mark_job_completed(job.id, frames_processed, total_frames, elapsed_s)
             self._update_persisted_queue_status(
                 job.id, filename, 100.0, total_frames, total_frames, "COMPLETED", video_path
@@ -578,6 +667,18 @@ class ZampenAnalyticsWorker:
                 "captured_at": datetime.datetime.utcnow().isoformat() + "Z",
             })
         except AnalysisCancelled:
+            if writer is not None:
+                try:
+                    writer.release()
+                except Exception:
+                    pass
+                del writer
+                writer = None
+            if staging_path and os.path.isfile(staging_path):
+                try:
+                    os.remove(staging_path)
+                except OSError:
+                    pass
             write_detection_status_json({
                 "job_id": job.id,
                 "video_filename": filename,
@@ -591,6 +692,18 @@ class ZampenAnalyticsWorker:
             )
             print(f"[WORKER] Analysis cancelled by user: {filename}")
         except Exception as error:
+            if writer is not None:
+                try:
+                    writer.release()
+                except Exception:
+                    pass
+                del writer
+                writer = None
+            if staging_path and os.path.isfile(staging_path):
+                try:
+                    os.remove(staging_path)
+                except OSError:
+                    pass
             write_detection_status_json({
                 "job_id": job.id,
                 "video_filename": filename,

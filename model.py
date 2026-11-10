@@ -93,6 +93,10 @@ class ChickenDetector:
         self.smoothed_boxes   = {}
         self.short_id_map     = {}
         self._next_short_id   = 1
+        self.hen_track_owners = {}
+        self.hen_owner_conf   = {}
+        self.hen_owner_last_frame = {}
+        self.track_saddle_conf = {}
 
     def set_mode(self, mode: str):
         self.current_mode = mode
@@ -237,9 +241,9 @@ class ChickenDetector:
                 elif name == "Rooster":
                     rooster_dets.append(entry)
                 elif name.startswith("Saddle_Color_"):
-                    saddle_dets.append((box, name))
+                    saddle_dets.append((box, name, float(conf_val)))
                 elif name.startswith("Leg_Band_"):
-                    band_dets.append((box, name))
+                    band_dets.append((box, name, float(conf_val)))
                 elif name in ("Feeder", "Drinker"):
                     low_resolution_infra.append(entry)
 
@@ -257,9 +261,10 @@ class ChickenDetector:
         infra_dets = suppress_overlapping_equipment(infra_dets)
 
         # ------------------------------------------------------------------
-        # 1. Re-ID for Hens via Saddles (primary) and Leg Bands (legacy fallback)
+        # 1. Re-ID for Hens via Saddles (Higher-Confidence Preserved)
         # ------------------------------------------------------------------
-        for (sbox, sclass) in saddle_dets:
+        bird_saddle_candidates = {}
+        for (sbox, sclass, sconf) in saddle_dets:
             sx1, sy1, sx2, sy2 = sbox
             scx = (sx1 + sx2) / 2
             scy = (sy1 + sy2) / 2
@@ -267,33 +272,73 @@ class ChickenDetector:
             if not color_name:
                 continue
 
-            best_tid = None
-            best_dist = float("inf")
-            matched_rooster = None
             for bird_entry in chicken_dets + rooster_dets:
                 cbox, _, cname, track_id = bird_entry
                 if track_id is None:
                     continue
                 cx1, cy1, cx2, cy2 = cbox
                 cw = max(1.0, cx2 - cx1)
-                ch = max(1.0, cy2 - cy1)
-                # Check if saddle centroid is within or near chicken box
-                if (cx1 - 0.20 * cw <= scx <= cx2 + 0.20 * cw) and (cy1 - 0.20 * ch <= scy <= cy2 + 0.20 * ch):
+                bh = max(1.0, cy2 - cy1)
+                if (cx1 - 0.20 * cw <= scx <= cx2 + 0.20 * cw) and (cy1 - 0.20 * bh <= scy <= cy2 + 0.20 * bh):
                     dist = abs(scx - (cx1 + cx2) / 2) + abs(scy - (cy1 + cy2) / 2)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_tid = track_id
-                        if cname == "Rooster":
-                            matched_rooster = bird_entry
+                    bird_saddle_candidates.setdefault(track_id, []).append(
+                        (sconf, color_name, dist, bird_entry)
+                    )
 
-            if best_tid is not None:
-                # If a rooster had a saddle, it's definitely a hen
-                if matched_rooster in rooster_dets:
-                    rooster_dets.remove(matched_rooster)
-                    chicken_dets.append((matched_rooster[0], matched_rooster[1], "Chicken", matched_rooster[3]))
-                # Fast commit to Hen label
-                for _ in range(8):
-                    self._record_track_band_label(best_tid, color_name)
+        # For each bird, pick its highest-confidence saddle
+        bird_best_saddle = {}
+        for tid, candidates in bird_saddle_candidates.items():
+            candidates.sort(key=lambda c: (c[0], -c[2]), reverse=True)
+            best_conf, best_color, _, best_entry = candidates[0]
+            bird_best_saddle[tid] = (best_conf, best_color, best_entry)
+
+        # Resolve competing detections for the same color: higher confidence wins
+        label_claims = {}
+        for tid, (sconf, color_name, entry) in bird_best_saddle.items():
+            label_claims.setdefault(color_name, []).append((tid, sconf, entry))
+
+        winning_claims = {}
+        for color_name, claims in label_claims.items():
+            incumbent_tid = self.hen_track_owners.get(color_name)
+            incumbent_claim = next((c for c in claims if c[0] == incumbent_tid), None)
+            claims.sort(key=lambda c: c[1], reverse=True)
+            top_tid, top_conf, top_entry = claims[0]
+
+            if incumbent_claim is not None and incumbent_tid != top_tid:
+                inc_tid, inc_conf, inc_entry = incumbent_claim
+                if inc_conf >= top_conf - 0.15:
+                    winning_claims[color_name] = (inc_tid, inc_conf, inc_entry)
+                else:
+                    winning_claims[color_name] = (top_tid, top_conf, top_entry)
+            else:
+                winning_claims[color_name] = (top_tid, top_conf, top_entry)
+
+        for color_name, (win_tid, sconf, win_entry) in winning_claims.items():
+            # If a rooster had a saddle, reclassify as Chicken
+            if win_entry[2] == "Rooster":
+                if win_entry in rooster_dets:
+                    rooster_dets.remove(win_entry)
+                chicken_dets.append((win_entry[0], win_entry[1], "Chicken", win_entry[3]))
+
+            incumbent_tid = self.hen_track_owners.get(color_name)
+            incumbent_conf = self.hen_owner_conf.get(color_name, 0.0)
+            incumbent_last_seen = self.hen_owner_last_frame.get(color_name, 0)
+            active_tids = {b[3] for b in chicken_dets + rooster_dets if b[3] is not None}
+            incumbent_is_active = (incumbent_tid in active_tids) or (self.frame_count - incumbent_last_seen <= 30)
+
+            if incumbent_tid is not None and incumbent_tid != win_tid:
+                if incumbent_is_active and sconf <= incumbent_conf:
+                    continue
+                if incumbent_is_active and sconf < incumbent_conf + 0.20:
+                    continue
+
+            self.hen_track_owners[color_name] = win_tid
+            self.hen_owner_conf[color_name] = max(incumbent_conf if incumbent_tid == win_tid else 0.0, sconf)
+            self.hen_owner_last_frame[color_name] = self.frame_count
+            self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
+
+            for _ in range(8):
+                self._record_track_band_label(win_tid, color_name)
 
         # ------------------------------------------------------------------
         # 2. Strict HSV Fallback — ONLY run on unidentified Chickens

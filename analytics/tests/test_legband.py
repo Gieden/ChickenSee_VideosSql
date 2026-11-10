@@ -260,6 +260,97 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual(LABEL_COLORS_BGR["Rooster"], (0, 0, 255))
         self.assertEqual(LABEL_COLORS_BGR["Chicken"], (0, 165, 255))
 
+    def test_higher_confidence_saddle_remains_with_hen_and_cannot_be_stolen(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.track_tag_confirmed = set()
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 0
+        tracker.short_id_map = {}
+        tracker._next_short_id = 1
+        tracker.short_track_positions = {}
+        tracker.short_track_sizes = {}
+        tracker.track_last_label = {}
+        tracker.label_owner = {}
+        tracker.hen_track_owners = {}
+        tracker.hen_owner_conf = {}
+        tracker.hen_owner_last_frame = {}
+        tracker.track_saddle_conf = {}
+        tracker.class_map = {
+            0: "Chicken",
+            12: "Saddle_Color_Yellow",
+        }
+        tracker.conf = 0.25
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.track_conf = 0.15
+        tracker.MIN_DETECTION_CONFIDENCE = 0.25
+        tracker.MIN_SADDLE_CONFIDENCE = 0.15
+
+        class FakeTensor:
+            def __init__(self, values):
+                self.values = np.asarray(values)
+            def cpu(self): return self
+            def numpy(self): return self.values
+            def int(self): return FakeTensor(self.values.astype(int))
+            def tolist(self): return self.values.tolist()
+
+        class FakeBoxes:
+            def __init__(self, xyxy, conf, cls, tid):
+                self.xyxy = FakeTensor(xyxy)
+                self.conf = FakeTensor(conf)
+                self.cls = FakeTensor(cls)
+                self.id = FakeTensor(tid) if tid is not None else None
+            def __len__(self):
+                return len(self.xyxy.values)
+
+        # Frame 0: Bird A at (100, 100) has Yellow saddle with high conf 0.85
+        # Bird B at (500, 500) has no saddle
+        res0 = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[[100, 100, 150, 150], [500, 500, 550, 550], [115, 115, 135, 135]],
+            conf=[0.88, 0.82, 0.85],
+            cls=[0, 0, 12],  # Chicken, Chicken, Saddle_Color_Yellow
+            tid=[101, 102, -1],
+        ))
+
+        # Frame 1: Bird A at (102, 101) has no saddle detection this frame.
+        # But Bird B at (502, 501) generates a low-confidence false Yellow saddle (conf 0.25)!
+        res1 = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[[102, 101, 152, 151], [502, 501, 552, 551], [515, 515, 535, 535]],
+            conf=[0.87, 0.83, 0.25],
+            cls=[0, 0, 12],  # Chicken, Chicken, Saddle_Color_Yellow (false positive on B)
+            tid=[101, 102, -1],
+        ))
+
+        frame_results = [res0, res1]
+        tracker.model = type("MockModel", (), {
+            "names": tracker.class_map,
+            "track": lambda *args, **kwargs: [frame_results[min(tracker.processed_frame_count - 1, 1)]]
+        })()
+
+        blank = np.zeros((600, 600, 3), dtype=np.uint8)
+        out0 = tracker.process_frame(blank, 0)
+        birdA_f0 = next(b for b in out0.birds if b.box[0] < 200)
+        self.assertEqual(birdA_f0.bird_label, "Hen1 (Yellow)")
+        self.assertEqual(birdA_f0.track_id, 1)
+
+        out1 = tracker.process_frame(blank, 1)
+        birdA_f1 = next(b for b in out1.birds if b.box[0] < 200)
+        birdB_f1 = next(b for b in out1.birds if b.box[0] > 400)
+
+        # The detection / ByteTrack MUST REMAIN with Hen1!
+        self.assertEqual(birdA_f1.bird_label, "Hen1 (Yellow)")
+        self.assertEqual(birdA_f1.track_id, 1)
+        # Bird B must NOT steal Hen1 and must NOT become ID 1
+        self.assertNotEqual(birdB_f1.bird_label, "Hen1 (Yellow)")
+        self.assertNotEqual(birdB_f1.track_id, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

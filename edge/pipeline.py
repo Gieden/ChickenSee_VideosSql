@@ -199,18 +199,25 @@ class EdgePipelineManager:
             self.video_writer = None
             if self.current_video_path and os.path.exists(self.current_video_path):
                 # Remux / transcode to web-compatible H.264 for instant browser playback
+                h264_tmp = self.current_video_path + ".tmp.transcode.mp4"
                 try:
                     import imageio_ffmpeg, subprocess
                     ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-                    h264_tmp = self.current_video_path + ".h264.mp4"
                     cmd = [ffmpeg_exe, "-y", "-i", self.current_video_path, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", h264_tmp]
                     res = subprocess.run(cmd, capture_output=True)
                     if res.returncode == 0 and os.path.exists(h264_tmp) and os.path.getsize(h264_tmp) > 0:
-                        os.replace(h264_tmp, self.current_video_path)
-                    elif os.path.exists(h264_tmp):
-                        os.remove(h264_tmp)
+                        try:
+                            os.replace(h264_tmp, self.current_video_path)
+                        except OSError:
+                            pass
                 except Exception:
                     pass
+                finally:
+                    if os.path.exists(h264_tmp):
+                        try:
+                            os.remove(h264_tmp)
+                        except OSError:
+                            pass
 
                 sz_mb = os.path.getsize(self.current_video_path) / 1024 / 1024
                 base_name = os.path.basename(self.current_video_path)
