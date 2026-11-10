@@ -23,7 +23,7 @@ class VisionConfig:
     tracker_config: str = os.getenv("TRACKER_CONFIG", str(ROOT_DIR / "bytetrack_poultry.yaml"))
     
     # Inference Tuning for Dell OptiPlex CPU/GPU
-    inference_size: int = int(os.getenv("INFERENCE_SIZE", "640"))
+    inference_size: int = int(os.getenv("INFERENCE_SIZE", "1088"))
     conf_threshold: float = float(os.getenv("CONF_THRESHOLD", "0.15"))
     iou_threshold: float = float(os.getenv("IOU_THRESHOLD", "0.45"))
     num_cpu_threads: int = int(os.getenv("CPU_THREADS", str(os.cpu_count() or 8)))
@@ -41,7 +41,7 @@ class VisionConfig:
     reid_iou_gate: float = float(os.getenv("REID_IOU_GATE", "0.05"))
     
     # Preprocessing
-    target_width: int = int(os.getenv("TARGET_WIDTH", "640"))  # downscale input if needed
+    target_width: int = int(os.getenv("TARGET_WIDTH", "1088"))  # keep resolution high for small saddle detection
     
     # Video Ingestion
     # Can be RTSP URL (e.g. "rtsp://admin:pass@192.168.1.100:554/ch01"), webcam index (0), or file path

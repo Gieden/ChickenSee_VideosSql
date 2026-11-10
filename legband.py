@@ -163,7 +163,7 @@ def detect_saddle_color(
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
             area_upper = max(60, int(box_width * box_height * 0.60))
-            if 8 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
+            if 25 <= area <= area_upper and 4 <= cw <= max_cw and 4 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
                 if compactness >= 0.18:
                     valid_area = max(valid_area, area)
@@ -193,10 +193,10 @@ def detect_leg_band_color(
     Find a saddle or leg-band spot on a chicken.
     Prioritizes saddle detection on the chicken's back, falling back to lower leg region.
     """
-    # 1. Prioritize dorsal saddle detection
     saddle_result = detect_saddle_color(frame, box)
     if saddle_result:
         return saddle_result
+
     frame_height, frame_width = frame.shape[:2]
     x1, y1, x2, y2 = (int(round(value)) for value in box)
     box_width = x2 - x1
@@ -204,13 +204,9 @@ def detect_leg_band_color(
     if box_width <= 0 or box_height <= 0:
         return None
 
-    # If the bird is crouching/sitting (wide aspect ratio), legs are tucked under body.
-    # Lowered height threshold from 40 to 25 to handle smaller/distant birds.
     if (box_width / max(1, box_height) > 1.35) or box_height < 25:
         return None
 
-    # Sample the lower 60% of the bird box plus foot zone below the bounding box
-    # (bottom of body + full leg zone down to feet).
     crop_x1 = max(0, min(frame_width, x1))
     crop_x2 = max(0, min(frame_width, x2))
     crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.40)))
@@ -220,10 +216,7 @@ def detect_leg_band_color(
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    roi_h = roi.shape[0]
-    # Relaxed width gate: band can span the full leg width at low resolution.
     max_cw = max(5, int(box_width * 0.85))
-    # Relaxed height gate: proportion of box height (was 0.32).
     max_ch = max(5, int(box_height * 0.70))
 
     best_match = None
@@ -242,11 +235,8 @@ def detect_leg_band_color(
             area = stats[j, cv2.CC_STAT_AREA]
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
-            # Compact leg-band cluster: must be a solid blob, not feather sheen.
-            # compactness = filled_pixels / bounding_box_area — real bands are dense (>= 0.20),
-            # diffuse feather-sheen components are scattered (< 0.20).
             area_upper = max(50, int(box_width * box_height * 0.40))
-            if 6 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
+            if 15 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
                 aspect = cw / max(1, ch)
                 if 0.15 <= aspect <= 4.5 and compactness >= 0.20:
@@ -263,7 +253,6 @@ def detect_leg_band_color(
     if not best_match:
         return None
 
-    # Ambiguity check: if runner-up is >= 65% of winner, reject
     if second_best_area >= best_area * 0.65:
         return None
 

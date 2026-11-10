@@ -152,7 +152,7 @@ class ChickenDetector:
         frame_h, frame_w = frame.shape[:2]
         orig_w, orig_h = frame_w, frame_h
 
-        target_width = 640 if self.current_mode == "accuracy" else 320
+        target_width = 1088 if self.current_mode == "accuracy" else 640
         TARGET_W = target_width
         if frame_w > TARGET_W:
             scale_r   = TARGET_W / frame_w
@@ -160,7 +160,7 @@ class ChickenDetector:
             frame     = cv2.resize(frame, (TARGET_W, target_h), interpolation=cv2.INTER_AREA)
             frame_h, frame_w = frame.shape[:2]
 
-        infer_sz = 320
+        infer_sz = 1088 if self.current_mode == "accuracy" else 640
 
         try:
             results = self.model.track(
@@ -269,50 +269,31 @@ class ChickenDetector:
 
             best_tid = None
             best_dist = float("inf")
-            for (cbox, _, _, track_id) in chicken_dets:
+            matched_rooster = None
+            for bird_entry in chicken_dets + rooster_dets:
+                cbox, _, cname, track_id = bird_entry
                 if track_id is None:
                     continue
                 cx1, cy1, cx2, cy2 = cbox
                 cw = max(1.0, cx2 - cx1)
                 ch = max(1.0, cy2 - cy1)
-                # Dorsal / back zone: upper 10% to 75% of chicken torso
-                if (cx1 - 0.25 * cw <= scx <= cx2 + 0.25 * cw) and (cy1 - 0.10 * ch <= scy <= cy1 + 0.80 * ch):
+                # Check if saddle centroid is within or near chicken box
+                if (cx1 - 0.20 * cw <= scx <= cx2 + 0.20 * cw) and (cy1 - 0.20 * ch <= scy <= cy2 + 0.20 * ch):
                     dist = abs(scx - (cx1 + cx2) / 2) + abs(scy - (cy1 + cy2) / 2)
                     if dist < best_dist:
                         best_dist = dist
                         best_tid = track_id
+                        if cname == "Rooster":
+                            matched_rooster = bird_entry
 
             if best_tid is not None:
-                # 3 votes for explicit YOLO saddle detection
-                for _ in range(3):
+                # If a rooster had a saddle, it's definitely a hen
+                if matched_rooster in rooster_dets:
+                    rooster_dets.remove(matched_rooster)
+                    chicken_dets.append((matched_rooster[0], matched_rooster[1], "Chicken", matched_rooster[3]))
+                # Fast commit to Hen label
+                for _ in range(8):
                     self._record_track_band_label(best_tid, color_name)
-
-        for (band_box, band_class) in band_dets:
-            bx1, by1, bx2, by2 = band_box
-            band_cx = (bx1 + bx2) / 2
-            band_cy = (by1 + by2) / 2
-            color_name = BAND_CLASS_TO_HEN.get(band_class)
-            if not color_name:
-                continue
-
-            best_tid = None
-            best_dist = float("inf")
-            for (cbox, _, _, track_id) in chicken_dets:
-                if track_id is None:
-                    continue
-                cx1, cy1, cx2, cy2 = cbox
-                cw = max(1.0, cx2 - cx1)
-                ch = max(1.0, cy2 - cy1)
-                # Lower torso and leg zone
-                if (cx1 - 0.25 * cw <= band_cx <= cx2 + 0.25 * cw) and (cy1 + 0.35 * ch <= band_cy <= cy2 + 0.25 * ch):
-                    dist = abs(band_cx - (cx1 + cx2) / 2) + abs(band_cy - cy2)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_tid = track_id
-
-            if best_tid is not None:
-                self._record_track_band_label(best_tid, color_name)
-                self._record_track_band_label(best_tid, color_name)
 
         # ------------------------------------------------------------------
         # 2. Strict HSV Fallback — ONLY run on unidentified Chickens
