@@ -202,8 +202,9 @@ class ZampenYOLOTracker:
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
         self.short_id_map: Dict[int, int] = {}
-        self._next_short_id = 6
-        # Fixed-population ID pool: IDs 1..5 strictly reserved for Hen1-5
+        self._next_short_id = 1
+        # Fixed-population ID pool: when flock_size > 0 display IDs are drawn
+        # from {1..flock_size}
         self.flock_size: int = CONFIG.flock_size
         self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
         self.short_track_sizes: Dict[int, float] = {}
@@ -219,22 +220,21 @@ class ZampenYOLOTracker:
             self.short_id_map[raw_track_id] = fixed_id
             return fixed_id
         if raw_track_id not in self.short_id_map:
-            new_id = self._next_pool_id(set())
-            self.short_id_map[raw_track_id] = new_id
+            self.short_id_map[raw_track_id] = self._next_short_id
+            self._next_short_id += 1
         return self.short_id_map[raw_track_id]
 
     def _next_pool_id(self, assigned_ids: set) -> int:
-        """Return the smallest available display ID, reserving 1..5 for the 5 fixed Hens."""
+        """Return the smallest available display ID respecting the flock pool."""
         flock_size = getattr(self, "flock_size", 0)
-        used = set(self.short_id_map.values()) | assigned_ids | {1, 2, 3, 4, 5}
-        if flock_size > 5:
-            for candidate in range(6, flock_size + 1):
+        if flock_size > 0:
+            used = set(self.short_id_map.values()) | assigned_ids
+            for candidate in range(1, flock_size + 1):
                 if candidate not in used:
                     return candidate
-        candidate = 6
-        while candidate in used:
-            candidate += 1
-        return candidate
+        new_id = self._next_short_id
+        self._next_short_id += 1
+        return new_id
 
     def reset_video_state(self) -> None:
         self.track_label_cache.clear()

@@ -32,9 +32,18 @@ export interface IntervalTelemetry {
 }
 
 const BIRD_LABEL_TO_ID: Record<string, string> = {
+  'Hen1 (Yellow)': 'hen1_yellow',
+  'Hen2 (Green)': 'hen2_green',
+  'Hen3 (Blue)': 'hen3_blue',
+  'Hen4 (Bluegreen)': 'hen4_bluegreen',
+  'Hen5 (YellowGreen)': 'hen5_yellowgreen',
+  'Saddle_Yellow(Hen1)': 'hen1_yellow',
+  'Saddle_Green(Hen2)': 'hen2_green',
+  'Saddle_Blue(Hen3)': 'hen3_blue',
+  'Saddle_Bluegreen(Hen4)': 'hen4_bluegreen',
+  'Saddle_YellowGreen(Hen5)': 'hen5_yellowgreen',
   'Hen1 (Green)': 'hen1_green',
   'Hen2 (White)': 'hen2_white',
-  'Hen3 (Blue)': 'hen3_blue',
   'Hen4 (Yellow)': 'hen4_yellow',
   'Hen5 (Pink)': 'hen5_pink',
   'Rooster': 'rooster',
@@ -42,9 +51,13 @@ const BIRD_LABEL_TO_ID: Record<string, string> = {
 };
 
 const BIRD_IDS = [
+  'hen1_yellow',
+  'hen2_green',
+  'hen3_blue',
+  'hen4_bluegreen',
+  'hen5_yellowgreen',
   'hen1_green',
   'hen2_white',
-  'hen3_blue',
   'hen4_yellow',
   'hen5_pink',
   'rooster',

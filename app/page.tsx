@@ -245,9 +245,13 @@ interface BirdBehaviorRecord {
 const REPORT_PROFILES = [
   'Flock',
   'Rooster',
+  'Hen1 (Yellow)',
+  'Hen2 (Green)',
+  'Hen3 (Blue)',
+  'Hen4 (Bluegreen)',
+  'Hen5 (YellowGreen)',
   'Hen1 (Green)',
   'Hen2 (White)',
-  'Hen3 (Blue)',
   'Hen4 (Yellow)',
   'Hen5 (Pink)',
 ] as const;
@@ -272,9 +276,13 @@ const REPORT_SENSORS = [
 const CHICKEN_PROFILES = [
   'All Chickens',
   'Rooster',
+  'Hen1 (Yellow)',
+  'Hen2 (Green)',
+  'Hen3 (Blue)',
+  'Hen4 (Bluegreen)',
+  'Hen5 (YellowGreen)',
   'Hen1 (Green)',
   'Hen2 (White)',
-  'Hen3 (Blue)',
   'Hen4 (Yellow)',
   'Hen5 (Pink)',
 ] as const;

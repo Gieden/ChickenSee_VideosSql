@@ -32,15 +32,25 @@ import {
 } from 'lucide-react';
 import initSqlJs from 'sql.js';
 
-// ── Canonical leg-band colors matching model.py / edge/detector.py COLOR_MAP ──
+// ── Canonical saddle & bird colors matching model.py / edge/detector.py COLOR_MAP ──
 const BIRD_COLOR_MAP: Record<string, string> = {
-  'Rooster':       '#FF0000',
-  'Chicken':       '#FFA500',
-  'Hen1 (Green)':  '#00FF00',
-  'Hen2 (White)':  '#FFFFFF',
-  'Hen3 (Blue)':   '#0000FF',
-  'Hen4 (Yellow)': '#FFFF00',
-  'Hen5 (Pink)':   '#FF69B4',
+  'Rooster':                 '#FF0000',
+  'Chicken':                 '#FFA500',
+  'Hen1 (Yellow)':           '#FFFF00',
+  'Saddle_Yellow(Hen1)':     '#FFFF00',
+  'Hen2 (Green)':            '#00FF00',
+  'Saddle_Green(Hen2)':      '#00FF00',
+  'Hen3 (Blue)':             '#0000FF',
+  'Saddle_Blue(Hen3)':       '#0000FF',
+  'Hen4 (Bluegreen)':        '#00CED1',
+  'Saddle_Bluegreen(Hen4)':  '#00CED1',
+  'Hen5 (YellowGreen)':      '#9ACD32',
+  'Saddle_YellowGreen(Hen5)':'#9ACD32',
+  // Legacy leg band aliases
+  'Hen1 (Green)':            '#00FF00',
+  'Hen2 (White)':            '#FFFFFF',
+  'Hen4 (Yellow)':           '#FFFF00',
+  'Hen5 (Pink)':             '#FF69B4',
 };
 const getBirdHex = (name: string) => BIRD_COLOR_MAP[name] ?? '#808080';
 
@@ -418,7 +428,7 @@ export default function SampleInspectorTab() {
       setCurrentPhase('Detection complete — bounding boxes & telemetry active.');
 
       // ── 6. Synthesise behaviour events (sensor data already parsed above) ────
-      const birdsList = ['Rooster', 'Hen1 (Green)', 'Hen2 (White)', 'Hen3 (Blue)', 'Hen4 (Yellow)', 'Hen5 (Pink)'];
+      const birdsList = ['Rooster', 'Hen1 (Yellow)', 'Hen2 (Green)', 'Hen3 (Blue)', 'Hen4 (Bluegreen)', 'Hen5 (YellowGreen)'];
       const behaviorTypes: BirdBehaviorEvent['behavior'][] = [
         'Feather Pecking', 'Reduced Feeding', 'Reduced Drinking', 'Lethargy / Inactivity',
       ];
@@ -1283,7 +1293,7 @@ export default function SampleInspectorTab() {
             </div>
 
             <div className="space-y-4">
-              {['Rooster', 'Hen1 (Green)', 'Hen2 (White)', 'Hen3 (Blue)', 'Hen4 (Yellow)', 'Hen5 (Pink)'].map((birdName) => {
+              {['Rooster', 'Hen1 (Yellow)', 'Hen2 (Green)', 'Hen3 (Blue)', 'Hen4 (Bluegreen)', 'Hen5 (YellowGreen)'].map((birdName) => {
                 const birdEvents = analysisResult.behaviorEvents.filter((e) => e.birdName === birdName);
                 return (
                   <div key={birdName} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">

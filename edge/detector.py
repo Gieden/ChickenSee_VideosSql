@@ -857,4 +857,37 @@ class PoultryInferenceEngine:
         self._prune_seen(self.identity_visible)
         self._prune_expired_tracks()
 
-        return FrameInfere
+        return FrameInferenceResult(
+            frame_idx=self.frame_count,
+            timestamp=timestamp,
+            detections=detections,
+            birds=birds,
+            infrastructure=infra,
+            total_birds=len(birds),
+            roosters=rooster_count,
+            hens_identified=hens_id_count,
+            unidentified_chickens=unid_count,
+            fps=round(fps, 1),
+            inference_time_ms=round(infer_dur, 2)
+        )
+
+    # ------------------------------------------------------------------
+    # Small helpers kept private for readability
+    # ------------------------------------------------------------------
+    def _make_bank(self) -> BandVoteBank:
+        return BandVoteBank(
+            lock_after_votes=self.BAND_LOCK_VOTES,
+            lock_ratio=self.BAND_LOCK_RATIO,
+            switch_margin=self.BAND_SWITCH_MARGIN,
+        )
+
+    def _smooth_box(self, identity_id: int, raw_box: List[float]) -> List[float]:
+        if identity_id is None:
+            return raw_box
+        if identity_id not in self.smoothed_boxes:
+            self.smoothed_boxes[identity_id] = list(raw_box)
+            return raw_box
+        prev = self.smoothed_boxes[identity_id]
+        smoothed = [0.4 * r + 0.6 * p for r, p in zip(raw_box, prev)]
+        self.smoothed_boxes[identity_id] = smoothed
+        return smoothed

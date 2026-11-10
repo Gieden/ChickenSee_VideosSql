@@ -10,8 +10,12 @@ from analytics.tracker import LABEL_COLORS_BGR, TrackedDetection, ZampenYOLOTrac
 from edge.detector import COLOR_MAP as EDGE_COLOR_MAP
 from legband import (
     BAND_CLASS_TO_HEN,
+    HEN_TO_FIXED_ID,
+    HEN_TO_SADDLE_TAG,
     LEG_BAND_HSV_RANGES,
+    SADDLE_CLASS_TO_HEN,
     detect_leg_band_color,
+    detect_saddle_color,
     suppress_overlapping_equipment,
 )
 from model import COLOR_MAP as MODEL_COLOR_MAP, ChickenDetector
@@ -228,6 +232,33 @@ class TestLegBandDetection(unittest.TestCase):
         yolo.assert_called_once_with(str(weights.resolve()))
         self.assertIs(detector.model, fake_model)
         self.assertEqual(detector.class_names, {0: "Chicken"})
+
+    def test_saddle_class_mapping_and_fixed_ids(self):
+        # 1. All 5 saddle classes map to the 5 designated Hens
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Yellow"], "Hen1 (Yellow)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Green"], "Hen2 (Green)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Blue"], "Hen3 (Blue)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Bluegreen"], "Hen4 (Bluegreen)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_YellowGreen"], "Hen5 (YellowGreen)")
+
+        # 2. Fixed ID assignment
+        self.assertEqual(HEN_TO_FIXED_ID["Hen1 (Yellow)"], 1)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen2 (Green)"], 2)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen3 (Blue)"], 3)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen4 (Bluegreen)"], 4)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen5 (YellowGreen)"], 5)
+
+        # 3. Label tag formatting matches user template
+        self.assertEqual(HEN_TO_SADDLE_TAG["Hen1 (Yellow)"], "Saddle_Yellow(Hen1)")
+        self.assertEqual(HEN_TO_SADDLE_TAG["Hen2 (Green)"], "Saddle_Green(Hen2)")
+
+        # 4. Color map matching
+        self.assertEqual(MODEL_COLOR_MAP["Hen1 (Yellow)"]["hex"], "#FFFF00")
+        self.assertEqual(LABEL_COLORS_BGR["Hen1 (Yellow)"], (0, 255, 255))
+        self.assertEqual(LABEL_COLORS_BGR["Hen2 (Green)"], (0, 255, 0))
+        self.assertEqual(LABEL_COLORS_BGR["Hen3 (Blue)"], (255, 0, 0))
+        self.assertEqual(LABEL_COLORS_BGR["Rooster"], (0, 0, 255))
+        self.assertEqual(LABEL_COLORS_BGR["Chicken"], (0, 165, 255))
 
 
 if __name__ == "__main__":

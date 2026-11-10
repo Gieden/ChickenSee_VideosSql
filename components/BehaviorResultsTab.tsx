@@ -82,22 +82,22 @@ export interface IntervalTelemetry {
   >;
 }
 
-// ── Profile definitions aligned strictly with system COLOR_MAP ──
+// ── Profile definitions aligned strictly with system COLOR_MAP & Saddle classes ──
 // Rooster -> Red (#FF0000)
 // Chicken -> Orange (#FFA500)
-// Hen1 (Green) -> Green (#00FF00)
-// Hen2 (White) -> White (#FFFFFF)
+// Hen1 (Yellow) -> Yellow (#FFFF00)
+// Hen2 (Green) -> Green (#00FF00)
 // Hen3 (Blue) -> Blue (#0000FF)
-// Hen4 (Yellow) -> Yellow (#FFFF00)
-// Hen5 (Pink) -> Pink (#FF69B4)
+// Hen4 (Bluegreen) -> Bluegreen (#00CED1)
+// Hen5 (YellowGreen) -> YellowGreen (#9ACD32)
 export const CHICKEN_PROFILES: ChickenProfile[] = [
   {
-    id: 'hen1_green',
-    name: 'Hen1 (Green)',
-    role: 'Hen',
+    id: 'hen1_yellow',
+    name: 'Hen1 (Yellow)',
+    role: 'Hen (ID #1)',
     gender: 'Female',
-    tagColorName: 'Green tag',
-    tagColorHex: '#00FF00',
+    tagColorName: 'Yellow saddle',
+    tagColorHex: '#FFFF00',
     summaryText: 'All four behaviors present in the example; reduced feeding behavior is most frequent.',
     behaviorDistribution: {
       reducedFeeding: 32,
@@ -108,12 +108,12 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     dominantBehavior: 'Reduced feeding behavior',
   },
   {
-    id: 'hen2_white',
-    name: 'Hen2 (White)',
-    role: 'Hen',
+    id: 'hen2_green',
+    name: 'Hen2 (Green)',
+    role: 'Hen (ID #2)',
     gender: 'Female',
-    tagColorName: 'White tag',
-    tagColorHex: '#FFFFFF',
+    tagColorName: 'Green saddle',
+    tagColorHex: '#00FF00',
     summaryText: 'Reduced drinking behavior most frequent; feeding remained relatively steady.',
     behaviorDistribution: {
       reducedFeeding: 14,
@@ -126,9 +126,9 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
   {
     id: 'hen3_blue',
     name: 'Hen3 (Blue)',
-    role: 'Hen',
+    role: 'Hen (ID #3)',
     gender: 'Female',
-    tagColorName: 'Blue tag',
+    tagColorName: 'Blue saddle',
     tagColorHex: '#0000FF',
     summaryText: 'Occasional prolonged low activity; otherwise regular feeding and drinking.',
     behaviorDistribution: {
@@ -140,12 +140,12 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     dominantBehavior: 'Prolonged low activity',
   },
   {
-    id: 'hen4_yellow',
-    name: 'Hen4 (Yellow)',
-    role: 'Hen',
+    id: 'hen4_bluegreen',
+    name: 'Hen4 (Bluegreen)',
+    role: 'Hen (ID #4)',
     gender: 'Female',
-    tagColorName: 'Yellow tag',
-    tagColorHex: '#FFFF00',
+    tagColorName: 'Bluegreen saddle',
+    tagColorHex: '#00CED1',
     summaryText: 'Brief reduced-feeding episodes; lower prolonged low activity.',
     behaviorDistribution: {
       reducedFeeding: 19,
@@ -156,12 +156,12 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     dominantBehavior: 'Reduced feeding episodes',
   },
   {
-    id: 'hen5_pink',
-    name: 'Hen5 (Pink)',
-    role: 'Hen',
+    id: 'hen5_yellowgreen',
+    name: 'Hen5 (YellowGreen)',
+    role: 'Hen (ID #5)',
     gender: 'Female',
-    tagColorName: 'Pink tag',
-    tagColorHex: '#FF69B4',
+    tagColorName: 'YellowGreen saddle',
+    tagColorHex: '#9ACD32',
     summaryText: 'Intermittent reduced drinking behavior and prolonged low activity during the window.',
     behaviorDistribution: {
       reducedFeeding: 11,
@@ -176,7 +176,7 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     name: 'Rooster',
     role: 'Rooster',
     gender: 'Male',
-    tagColorName: 'Red tag',
+    tagColorName: 'Red identifier',
     tagColorHex: '#FF0000',
     summaryText: 'Prolonged low activity episodes between otherwise active periods; dominant vocalizations.',
     behaviorDistribution: {
@@ -192,9 +192,9 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     name: 'Chicken (Unidentified)',
     role: 'Flock Member',
     gender: 'Unidentified',
-    tagColorName: 'Orange tag',
+    tagColorName: 'Orange identifier',
     tagColorHex: '#FFA500',
-    summaryText: 'General flock observation without distinct leg band detection.',
+    summaryText: 'General flock observation without distinct saddle detection.',
     behaviorDistribution: {
       reducedFeeding: 15,
       reducedDrinking: 14,
