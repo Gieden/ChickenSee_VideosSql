@@ -103,6 +103,19 @@ interface LiveDetectionStatus {
 
 const dateLabelCache = new WeakMap<QueueItem, string>();
 
+function formatQueueAge(totalSeconds: number): string {
+  const days = Math.floor(totalSeconds / 86400);
+  const hrs  = Math.floor((totalSeconds % 86400) / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hrs  > 0 || days > 0) parts.push(`${hrs}h`);
+  if (mins > 0 || hrs > 0 || days > 0) parts.push(`${mins}m`);
+  parts.push(`${secs}s`);
+  return parts.join(' ');
+}
+
 function getQueueItemDateLabel(item: QueueItem): string {
   const cached = dateLabelCache.get(item);
   if (cached) return cached;
@@ -3267,7 +3280,7 @@ export default function DashboardPage() {
                   ? 'Live detection updates are delayed. Showing the last known state'
                   : 'Desktop queue updates are delayed. Showing the last known state'}
                 {queueStatus.source_age_seconds != null
-                  ? ` from ${queueStatus.source_age_seconds} seconds ago`
+                  ? ` from ${formatQueueAge(queueStatus.source_age_seconds!)} ago`
                   : ''}. Check that the desktop worker and sync agent are running.
               </div>
             )}
