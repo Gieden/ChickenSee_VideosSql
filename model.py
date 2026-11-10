@@ -6,7 +6,11 @@ from collections import Counter, deque
 from ultralytics import YOLO
 from legband import (
     BAND_CLASS_TO_HEN,
+    HEN_TO_FIXED_ID,
+    HEN_TO_SADDLE_TAG,
+    SADDLE_CLASS_TO_HEN,
     detect_leg_band_color,
+    detect_saddle_color,
     equipment_boxes_overlap,
     suppress_overlapping_equipment,
 )
@@ -14,18 +18,28 @@ from legband import (
 # Strict display colors requested:
 # Rooster -> Red
 # Unidentified Chicken -> Orange
-# Hens -> Matched to leg band color
+# Hens -> Matched to saddle color
 COLOR_MAP = {
-    "Rooster":       {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Chicken":       {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
-    "Hen1 (Green)":  {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen2 (White)":  {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen3 (Blue)":   {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen4 (Yellow)": {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen5 (Pink)":   {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
-    "Feeder":        {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
-    "Drinker":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
-    "Default":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Rooster":                 {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Chicken":                 {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
+    "Hen1 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Saddle_Yellow(Hen1)":     {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Hen2 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Saddle_Green(Hen2)":      {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Hen3 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Saddle_Blue(Hen3)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Hen4 (Bluegreen)":        {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Saddle_Bluegreen(Hen4)":  {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Hen5 (YellowGreen)":      {"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
+    "Saddle_YellowGreen(Hen5)":{"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
+    # Legacy leg band colors for backward compatibility
+    "Hen1 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Hen2 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
+    "Hen4 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Hen5 (Pink)":             {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
+    "Feeder":                  {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Drinker":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Default":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
 }
 
 def get_bbox_color(label: str) -> dict:
@@ -192,6 +206,7 @@ class ChickenDetector:
 
         chicken_dets = []
         rooster_dets = []
+        saddle_dets  = []
         band_dets    = []
         low_resolution_infra = []
         high_resolution_infra = []
@@ -221,6 +236,8 @@ class ChickenDetector:
                     chicken_dets.append(entry)
                 elif name == "Rooster":
                     rooster_dets.append(entry)
+                elif name.startswith("Saddle_Color_"):
+                    saddle_dets.append((box, name))
                 elif name.startswith("Leg_Band_"):
                     band_dets.append((box, name))
                 elif name in ("Feeder", "Drinker"):
@@ -240,8 +257,36 @@ class ChickenDetector:
         infra_dets = suppress_overlapping_equipment(infra_dets)
 
         # ------------------------------------------------------------------
-        # 1. Re-ID ONLY for Hens (Chickens) — Never touch Roosters!
+        # 1. Re-ID for Hens via Saddles (primary) and Leg Bands (legacy fallback)
         # ------------------------------------------------------------------
+        for (sbox, sclass) in saddle_dets:
+            sx1, sy1, sx2, sy2 = sbox
+            scx = (sx1 + sx2) / 2
+            scy = (sy1 + sy2) / 2
+            color_name = SADDLE_CLASS_TO_HEN.get(sclass) or BAND_CLASS_TO_HEN.get(sclass)
+            if not color_name:
+                continue
+
+            best_tid = None
+            best_dist = float("inf")
+            for (cbox, _, _, track_id) in chicken_dets:
+                if track_id is None:
+                    continue
+                cx1, cy1, cx2, cy2 = cbox
+                cw = max(1.0, cx2 - cx1)
+                ch = max(1.0, cy2 - cy1)
+                # Dorsal / back zone: upper 10% to 75% of chicken torso
+                if (cx1 - 0.25 * cw <= scx <= cx2 + 0.25 * cw) and (cy1 - 0.10 * ch <= scy <= cy1 + 0.80 * ch):
+                    dist = abs(scx - (cx1 + cx2) / 2) + abs(scy - (cy1 + cy2) / 2)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_tid = track_id
+
+            if best_tid is not None:
+                # 3 votes for explicit YOLO saddle detection
+                for _ in range(3):
+                    self._record_track_band_label(best_tid, color_name)
+
         for (band_box, band_class) in band_dets:
             bx1, by1, bx2, by2 = band_box
             band_cx = (bx1 + bx2) / 2
@@ -258,7 +303,7 @@ class ChickenDetector:
                 cx1, cy1, cx2, cy2 = cbox
                 cw = max(1.0, cx2 - cx1)
                 ch = max(1.0, cy2 - cy1)
-                # Lower torso and leg zone (lower 65% of torso down to 25% below box)
+                # Lower torso and leg zone
                 if (cx1 - 0.25 * cw <= band_cx <= cx2 + 0.25 * cw) and (cy1 + 0.35 * ch <= band_cy <= cy2 + 0.25 * ch):
                     dist = abs(band_cx - (cx1 + cx2) / 2) + abs(band_cy - cy2)
                     if dist < best_dist:
@@ -266,7 +311,6 @@ class ChickenDetector:
                         best_tid = track_id
 
             if best_tid is not None:
-                # 2 votes for explicit YOLO leg-band detection
                 self._record_track_band_label(best_tid, color_name)
                 self._record_track_band_label(best_tid, color_name)
 
@@ -312,13 +356,27 @@ class ChickenDetector:
 
         live_ids = set()
 
-        def short_id(raw_tid):
+        def short_id(raw_tid, preferred_label=None):
             if raw_tid is None:
                 return None
-            if raw_tid not in self.short_id_map:
-                self.short_id_map[raw_tid] = self._next_short_id
-                self._next_short_id += 1
-            return self.short_id_map[raw_tid]
+            # If the track has a confirmed Hen identity, bind strictly to its fixed ID (1..5)
+            target_label = preferred_label
+            if not target_label and raw_tid in self.track_states:
+                target_label = self.track_states[raw_tid]["label"]
+            if target_label in HEN_TO_FIXED_ID:
+                fixed_id = HEN_TO_FIXED_ID[target_label]
+                self.short_id_map[raw_tid] = fixed_id
+                return fixed_id
+            if raw_tid in self.short_id_map:
+                return self.short_id_map[raw_tid]
+            # Pool unassigned chickens / roosters avoiding reserved 1..5 IDs
+            used = set(self.short_id_map.values()) | {1, 2, 3, 4, 5}
+            candidate = self._next_short_id
+            while candidate in used:
+                candidate += 1
+            self.short_id_map[raw_tid] = candidate
+            self._next_short_id = candidate + 1
+            return candidate
 
         # Process Hens / Chickens
         assigned_hen_labels = set()
@@ -338,20 +396,29 @@ class ChickenDetector:
                     assigned_hen_labels.add(cand)
                 self.track_states[track_id]["last_seen_frame"] = self.frame_count
 
-            # Color determined strictly by display_label
+            # Color determined strictly by saddle / hen display_label
             colors = get_bbox_color(display_label)
+            assigned_id = short_id(track_id, display_label)
+            saddle_tag = HEN_TO_SADDLE_TAG.get(display_label, display_label)
+
+            if display_label.startswith("Hen"):
+                label_text = f"ID_{assigned_id} {saddle_tag}" if assigned_id is not None else saddle_tag
+            else:
+                label_text = f"ID_{assigned_id} Chicken" if assigned_id is not None else "Chicken"
 
             det = {
-                "box":        [int(x1), int(y1), int(x2), int(y2)],
-                "label":      display_label,
-                "confidence": conf_val,
-                "track_id":   short_id(track_id),
-                "type":       "hen",
-                "color":      colors["hex"],
-                "color_rgb":  colors["rgb"],
-                "color_bgr":  colors["bgr"],
-                "is_tagged":  display_label.startswith("Hen"),
-                "tag_color":  colors["hex"] if display_label.startswith("Hen") else None,
+                "box":           [int(x1), int(y1), int(x2), int(y2)],
+                "label":         display_label,
+                "display_label": label_text,
+                "saddle_tag":    saddle_tag if display_label.startswith("Hen") else None,
+                "confidence":    conf_val,
+                "track_id":      assigned_id,
+                "type":          "hen",
+                "color":         colors["hex"],
+                "color_rgb":     colors["rgb"],
+                "color_bgr":     colors["bgr"],
+                "is_tagged":     display_label.startswith("Hen"),
+                "tag_color":     colors["hex"] if display_label.startswith("Hen") else None,
             }
             detections.append(det)
 
@@ -365,16 +432,19 @@ class ChickenDetector:
                 self.cumulative_count.add(track_id)
 
             colors = get_bbox_color("Rooster")
+            assigned_id = short_id(track_id, "Rooster")
+            label_text = f"ID_{assigned_id} Rooster" if assigned_id is not None else "Rooster"
 
             det = {
-                "box":        [int(x1), int(y1), int(x2), int(y2)],
-                "label":      "Rooster",
-                "confidence": conf_val,
-                "track_id":   short_id(track_id),
-                "type":       "rooster",
-                "color":      colors["hex"],
-                "color_rgb":  colors["rgb"],
-                "color_bgr":  colors["bgr"],
+                "box":           [int(x1), int(y1), int(x2), int(y2)],
+                "label":         "Rooster",
+                "display_label": label_text,
+                "confidence":    conf_val,
+                "track_id":      assigned_id,
+                "type":          "rooster",
+                "color":         colors["hex"],
+                "color_rgb":     colors["rgb"],
+                "color_bgr":     colors["bgr"],
             }
             detections.append(det)
 

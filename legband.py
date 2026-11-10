@@ -4,23 +4,81 @@ import cv2
 import numpy as np
 
 
+SADDLE_CLASS_TO_HEN = {
+    "Saddle_Color_Yellow": "Hen1 (Yellow)",
+    "Saddle_Color_Green": "Hen2 (Green)",
+    "Saddle_Color_Blue": "Hen3 (Blue)",
+    "Saddle_Color_Bluegreen": "Hen4 (Bluegreen)",
+    "Saddle_Color_YellowGreen": "Hen5 (YellowGreen)",
+}
+
+HEN_TO_FIXED_ID = {
+    "Hen1 (Yellow)": 1,
+    "Hen2 (Green)": 2,
+    "Hen3 (Blue)": 3,
+    "Hen4 (Bluegreen)": 4,
+    "Hen5 (YellowGreen)": 5,
+    "Hen1 (Green)": 1,
+    "Hen2 (White)": 2,
+    "Hen3 (Violet)": 3,
+    "Hen4 (Yellow)": 4,
+    "Hen5 (Pink)": 5,
+}
+
+FIXED_ID_TO_HEN = {
+    1: "Hen1 (Yellow)",
+    2: "Hen2 (Green)",
+    3: "Hen3 (Blue)",
+    4: "Hen4 (Bluegreen)",
+    5: "Hen5 (YellowGreen)",
+}
+
+HEN_TO_SADDLE_TAG = {
+    "Hen1 (Yellow)": "Saddle_Yellow(Hen1)",
+    "Hen2 (Green)": "Saddle_Green(Hen2)",
+    "Hen3 (Blue)": "Saddle_Blue(Hen3)",
+    "Hen4 (Bluegreen)": "Saddle_Bluegreen(Hen4)",
+    "Hen5 (YellowGreen)": "Saddle_YellowGreen(Hen5)",
+    "Hen1 (Green)": "Saddle_Green(Hen1)",
+    "Hen2 (White)": "Saddle_White(Hen2)",
+    "Hen4 (Yellow)": "Saddle_Yellow(Hen4)",
+    "Hen5 (Pink)": "Saddle_Pink(Hen5)",
+}
+
+SADDLE_HSV_RANGES = {
+    "Hen1 (Yellow)": ((16, 65, 65), (38, 255, 255)),
+    "Hen2 (Green)": ((35, 50, 50), (82, 255, 255)),
+    "Hen3 (Blue)": ((95, 75, 55), (135, 255, 255)),
+    "Hen4 (Bluegreen)": ((80, 55, 50), (102, 255, 255)),
+    "Hen5 (YellowGreen)": ((26, 60, 60), (45, 255, 255)),
+}
+
 LEG_BAND_HSV_RANGES = {
-    # Green tag: Robust to softer lighting and shadows (S>=50, V>=50)
-    "Hen1 (Green)": ((33, 50, 50), (88, 255, 255)),
-    # White tag: High brightness, low saturation to avoid straw/bedding while matching coop lighting (V>=140, S<=55)
-    "Hen2 (White)": ((0, 0, 140), (180, 55, 255)),
-    # Blue/Violet: Covers distinct blue and violet bands while rejecting black feather sheen (S>=75, V>=55)
+    # Saddle Ranges
+    "Hen1 (Yellow)": ((16, 65, 65), (38, 255, 255)),
+    "Hen2 (Green)": ((35, 50, 50), (82, 255, 255)),
     "Hen3 (Blue)": ((95, 75, 55), (160, 255, 255)),
-    # Yellow tag: High contrast yellow in pen lighting (H:16-38, S>=65, V>=65)
+    "Hen4 (Bluegreen)": ((80, 55, 50), (102, 255, 255)),
+    "Hen5 (YellowGreen)": ((26, 60, 60), (45, 255, 255)),
+    # Legacy leg band ranges preserved for backward compatibility
+    "Hen1 (Green)": ((33, 50, 50), (88, 255, 255)),
+    "Hen2 (White)": ((0, 0, 140), (180, 55, 255)),
     "Hen4 (Yellow)": ((16, 65, 65), (38, 255, 255)),
-    # Pink tag: Vibrant pink/magenta tag detection (H:145-179, S>=45, V>=60)
     "Hen5 (Pink)": ((145, 45, 60), (179, 255, 255)),
 }
 
 BAND_CLASS_TO_HEN = {
+    # Saddle classes from new dataset (priority)
+    "Saddle_Color_Yellow": "Hen1 (Yellow)",
+    "Saddle_Color_Green": "Hen2 (Green)",
+    "Saddle_Color_Blue": "Hen3 (Blue)",
+    "Saddle_Color_Bluegreen": "Hen4 (Bluegreen)",
+    "Saddle_Color_YellowGreen": "Hen5 (YellowGreen)",
+    # Legacy leg band classes
     "Leg_Band_Green": "Hen1 (Green)",
     "Leg_Band_White": "Hen2 (White)",
     "Leg_Band_Violet": "Hen3 (Blue)",
+    "Leg_Band_Blue": "Hen3 (Blue)",
     "Leg_Band_Yellow": "Hen4 (Yellow)",
     "Leg_Band_Pink": "Hen5 (Pink)",
 }
@@ -64,10 +122,81 @@ def suppress_overlapping_equipment(
     return [detection for index, detection in enumerate(detections) if index in kept_indices]
 
 
+def detect_saddle_color(
+    frame: np.ndarray, box: Sequence[float]
+) -> Optional[str]:
+    """Find a distinct saddle patch on the dorsal/back region of a chicken box."""
+    frame_height, frame_width = frame.shape[:2]
+    x1, y1, x2, y2 = (int(round(value)) for value in box)
+    box_width = x2 - x1
+    box_height = y2 - y1
+    if box_width <= 0 or box_height <= 0:
+        return None
+
+    # Sample the dorsal / back zone (upper 15% to 68% of chicken box, centered 10% to 90% wide)
+    crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.10)))
+    crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.10)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.15)))
+    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.68)))
+    if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
+        return None
+
+    roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    max_cw = max(6, int(box_width * 0.90))
+    max_ch = max(6, int(box_height * 0.70))
+
+    best_match = None
+    best_area = 0
+    second_best_area = 0
+
+    for label, (lower, upper) in SADDLE_HSV_RANGES.items():
+        mask = cv2.inRange(
+            hsv,
+            np.asarray(lower, dtype=np.uint8),
+            np.asarray(upper, dtype=np.uint8),
+        )
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
+        valid_area = 0
+        for j in range(1, num_labels):
+            area = stats[j, cv2.CC_STAT_AREA]
+            cw = stats[j, cv2.CC_STAT_WIDTH]
+            ch = stats[j, cv2.CC_STAT_HEIGHT]
+            area_upper = max(60, int(box_width * box_height * 0.60))
+            if 8 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
+                compactness = area / max(1, cw * ch)
+                if compactness >= 0.18:
+                    valid_area = max(valid_area, area)
+
+        if valid_area > 0:
+            if valid_area > best_area:
+                second_best_area = best_area
+                best_area = valid_area
+                best_match = label
+            elif valid_area > second_best_area:
+                second_best_area = valid_area
+
+    if not best_match:
+        return None
+
+    # Ambiguity check: if runner-up is >= 65% of winner, reject
+    if second_best_area >= best_area * 0.65:
+        return None
+
+    return best_match
+
+
 def detect_leg_band_color(
     frame: np.ndarray, box: Sequence[float]
 ) -> Optional[str]:
-    """Find a distinct compact leg-band spot in the lower leg region of a bird box."""
+    """
+    Find a saddle or leg-band spot on a chicken.
+    Prioritizes saddle detection on the chicken's back, falling back to lower leg region.
+    """
+    # 1. Prioritize dorsal saddle detection
+    saddle_result = detect_saddle_color(frame, box)
+    if saddle_result:
+        return saddle_result
     frame_height, frame_width = frame.shape[:2]
     x1, y1, x2, y2 = (int(round(value)) for value in box)
     box_width = x2 - x1

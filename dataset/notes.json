@@ -14,15 +14,15 @@
     },
     {
       "id": 3,
-      "name": "Leg_Band_Green"
+      "name": "Leg_Band_Blue"
     },
     {
       "id": 4,
-      "name": "Leg_Band_Pink"
+      "name": "Leg_Band_Green"
     },
     {
       "id": 5,
-      "name": "Leg_Band_Violet"
+      "name": "Leg_Band_Pink"
     },
     {
       "id": 6,
@@ -35,6 +35,26 @@
     {
       "id": 8,
       "name": "Rooster"
+    },
+    {
+      "id": 9,
+      "name": "Saddle_Color_Blue"
+    },
+    {
+      "id": 10,
+      "name": "Saddle_Color_Bluegreen"
+    },
+    {
+      "id": 11,
+      "name": "Saddle_Color_Green"
+    },
+    {
+      "id": 12,
+      "name": "Saddle_Color_Yellow"
+    },
+    {
+      "id": 13,
+      "name": "Saddle_Color_YellowGreen"
     }
   ],
   "info": {

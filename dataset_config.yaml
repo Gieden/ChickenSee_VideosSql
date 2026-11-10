@@ -1,0 +1,19 @@
+path: C:/Users/Kairi/Documents/ChickenSee_Videos(sql)/dataset
+train: train/images
+val: val/images
+nc: 14
+names:
+  0: Chicken
+  1: Drinker
+  2: Feeder
+  3: Leg_Band_Blue
+  4: Leg_Band_Green
+  5: Leg_Band_Pink
+  6: Leg_Band_White
+  7: Leg_Band_Yellow
+  8: Rooster
+  9: Saddle_Color_Blue
+  10: Saddle_Color_Bluegreen
+  11: Saddle_Color_Green
+  12: Saddle_Color_Yellow
+  13: Saddle_Color_YellowGreen

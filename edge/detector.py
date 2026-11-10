@@ -35,26 +35,40 @@ from .reid import (
 )
 from legband import (
     BAND_CLASS_TO_HEN,
+    HEN_TO_FIXED_ID,
+    HEN_TO_SADDLE_TAG,
+    SADDLE_CLASS_TO_HEN,
     detect_leg_band_color,
+    detect_saddle_color,
     suppress_overlapping_equipment,
 )
 
 
 # ---------------------------------------------------------------------------
-# Leg Band HSV Ranges & Color Specifications
+# Saddle & Leg Band HSV Ranges & Color Specifications
 # ---------------------------------------------------------------------------
 
 COLOR_MAP = {
-    "Rooster":       {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Chicken":       {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
-    "Hen1 (Green)":  {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen2 (White)":  {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen3 (Blue)":   {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen4 (Yellow)": {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen5 (Pink)":   {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
-    "Feeder":        {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
-    "Drinker":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
-    "Default":       {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Rooster":                 {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Chicken":                 {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
+    "Hen1 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Saddle_Yellow(Hen1)":     {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Hen2 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Saddle_Green(Hen2)":      {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Hen3 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Saddle_Blue(Hen3)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Hen4 (Bluegreen)":        {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Saddle_Bluegreen(Hen4)":  {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Hen5 (YellowGreen)":      {"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
+    "Saddle_YellowGreen(Hen5)":{"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
+    # Legacy leg band colors for backward compatibility
+    "Hen1 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
+    "Hen2 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
+    "Hen4 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
+    "Hen5 (Pink)":             {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
+    "Feeder":                  {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Drinker":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
+    "Default":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
 }
 
 # Lower HSV half of the white feathers around the feet -- used only to VETO a white band.
@@ -548,6 +562,7 @@ class PoultryInferenceEngine:
 
         n_boxes = len(results.boxes) if results.boxes is not None else 0
         raw_birds: List[dict] = []
+        saddle_raw: List[Tuple[List[float], str, Optional[int]]] = []
         band_raw: List[Tuple[List[float], str, Optional[int]]] = []
         infra_raw: List[tuple] = []
 
@@ -569,6 +584,8 @@ class PoultryInferenceEngine:
                         {"box": [float(v) for v in box], "conf": float(conf_val), "cls": cls_id,
                          "name": name, "raw": raw_tid}
                     )
+                elif name.startswith("Saddle_Color_"):
+                    saddle_raw.append(([float(v) for v in box], name, raw_tid))
                 elif name.startswith("Leg_Band_"):
                     band_raw.append(([float(v) for v in box], name, raw_tid))
                 elif name in ("Feeder", "Drinker"):
@@ -665,7 +682,29 @@ class PoultryInferenceEngine:
             if item.raw_track_id is not None:
                 self.track_identities[item.raw_track_id] = item.identity_id
 
-        # 2c. YOLO leg-band boxes -> decisive votes for the nearest chicken
+        # 2c. YOLO saddle boxes -> decisive votes for the nearest chicken (dorsal region)
+        for (sbox, sclass, stid) in saddle_raw:
+            colour = SADDLE_CLASS_TO_HEN.get(sclass) or BAND_CLASS_TO_HEN.get(sclass)
+            if not colour:
+                continue
+            sx1, sy1, sx2, sy2 = sbox
+            scx, scy = (sx1 + sx2) / 2, (sy1 + sy2) / 2
+            best, best_dist = None, None
+            for item in records:
+                if item.class_name != "Chicken":
+                    continue
+                x1, y1, x2, y2 = item.work_box
+                # Upper/mid body dorsal matching
+                if (x1 - 35 <= scx <= x2 + 35) and (y1 - 35 <= scy <= y2 + 35):
+                    dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
+                    if best is None or dist < best_dist:
+                        best, best_dist = item, dist
+            if best is not None:
+                best_would_be = self.band_banks.get(best.identity_id)
+                if best_would_be is None or best_would_be.locked_label in (None, colour):
+                    self.band_banks.setdefault(best.identity_id, self._make_bank()).add(colour, self.BAND_YOLO_WEIGHT)
+
+        # 2d. YOLO leg-band boxes -> decisive votes for the nearest chicken (legacy fallback)
         for (band_box, band_class, band_tid) in band_raw:
             colour = BAND_CLASS_TO_HEN.get(band_class)
             if not colour:
@@ -741,9 +780,10 @@ class PoultryInferenceEngine:
                 unid_count += 1
 
             cinfo = COLOR_MAP.get(label, COLOR_MAP["Chicken"])
+            final_tid = HEN_TO_FIXED_ID.get(label, item.identity_id) if label.startswith("Hen") else item.identity_id
             det = Detection(
                 box=[int(x1), int(y1), int(x2), int(y2)],
-                track_id=item.identity_id,
+                track_id=final_tid,
                 label=label,
                 confidence=round(item.confidence, 3),
                 type="rooster" if item.class_name == "Rooster" else "hen",
@@ -817,37 +857,4 @@ class PoultryInferenceEngine:
         self._prune_seen(self.identity_visible)
         self._prune_expired_tracks()
 
-        return FrameInferenceResult(
-            frame_idx=self.frame_count,
-            timestamp=timestamp,
-            detections=detections,
-            birds=birds,
-            infrastructure=infra,
-            total_birds=len(birds),
-            roosters=rooster_count,
-            hens_identified=hens_id_count,
-            unidentified_chickens=unid_count,
-            fps=round(fps, 1),
-            inference_time_ms=round(infer_dur, 2)
-        )
-
-    # ------------------------------------------------------------------
-    # Small helpers kept private for readability
-    # ------------------------------------------------------------------
-    def _make_bank(self) -> BandVoteBank:
-        return BandVoteBank(
-            lock_after_votes=self.BAND_LOCK_VOTES,
-            lock_ratio=self.BAND_LOCK_RATIO,
-            switch_margin=self.BAND_SWITCH_MARGIN,
-        )
-
-    def _smooth_box(self, identity_id: int, raw_box: List[float]) -> List[float]:
-        if identity_id is None:
-            return raw_box
-        if identity_id not in self.smoothed_boxes:
-            self.smoothed_boxes[identity_id] = list(raw_box)
-            return raw_box
-        prev = self.smoothed_boxes[identity_id]
-        smoothed = [0.4 * r + 0.6 * p for r, p in zip(raw_box, prev)]
-        self.smoothed_boxes[identity_id] = smoothed
-        return smoothed
+        return FrameInfere

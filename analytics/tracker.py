@@ -17,7 +17,11 @@ from ultralytics import YOLO
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 from legband import (
     BAND_CLASS_TO_HEN,
+    HEN_TO_FIXED_ID,
+    HEN_TO_SADDLE_TAG,
+    SADDLE_CLASS_TO_HEN,
     detect_leg_band_color,
+    detect_saddle_color,
     suppress_overlapping_equipment,
 )
 
@@ -76,16 +80,31 @@ def resolve_tracker_config(tracker_path: str) -> str:
 
 
 LABEL_COLORS_BGR = {
-    "Rooster": (0, 0, 255),
-    "Chicken": (0, 165, 255),
-    "Hen1 (Green)": (0, 255, 0),
-    "Hen2 (White)": (255, 255, 255),
-    "Hen3 (Blue)": (255, 0, 0),
-    "Hen4 (Yellow)": (0, 255, 255),
-    "Hen5 (Pink)": (180, 105, 255),
-    "Feeder": (128, 128, 128),
-    "Drinker": (128, 128, 128),
-    "Default": (128, 128, 128),
+    "Rooster":                 (0, 0, 255),
+    "Chicken":                 (0, 165, 255),
+    "Hen1 (Yellow)":           (0, 255, 255),
+    "Saddle_Yellow(Hen1)":     (0, 255, 255),
+    "Hen2 (Green)":            (0, 255, 0),
+    "Saddle_Green(Hen2)":      (0, 255, 0),
+    "Hen3 (Blue)":             (255, 0, 0),
+    "Saddle_Blue(Hen3)":       (255, 0, 0),
+    "Hen4 (Bluegreen)":        (209, 206, 0),
+    "Saddle_Bluegreen(Hen4)":  (209, 206, 0),
+    "Hen5 (YellowGreen)":      (50, 205, 154),
+    "Saddle_YellowGreen(Hen5)":(50, 205, 154),
+    "Saddle_Color_Yellow":     (0, 255, 255),
+    "Saddle_Color_Green":      (0, 255, 0),
+    "Saddle_Color_Blue":       (255, 0, 0),
+    "Saddle_Color_Bluegreen":  (209, 206, 0),
+    "Saddle_Color_YellowGreen":(50, 205, 154),
+    # Legacy leg band labels
+    "Hen1 (Green)":            (0, 255, 0),
+    "Hen2 (White)":            (255, 255, 255),
+    "Hen4 (Yellow)":           (0, 255, 255),
+    "Hen5 (Pink)":             (180, 105, 255),
+    "Feeder":                  (128, 128, 128),
+    "Drinker":                 (128, 128, 128),
+    "Default":                 (128, 128, 128),
 }
 
 
@@ -122,6 +141,7 @@ class ZampenYOLOTracker:
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.70  # Set to 70% for strict chicken detection
     MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
+    MIN_SADDLE_CONFIDENCE = 0.05    # Sensitive threshold for saddle boxes
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
     # Radius = max(MIN_DISTANCE_PX, frame_diagonal * RATIO). On a 2880x1620 flyover the old
     # 0.02 ratio gave a ~650 px gate, i.e. "anywhere on the frame": every occluded detection
@@ -143,9 +163,8 @@ class ZampenYOLOTracker:
         self.conf = CONFIG.conf_threshold
         self.iou = CONFIG.iou_threshold
         self.imgsz = CONFIG.imgsz
-        # min() of the two class-specific gates: leg-band boxes are tiny/low-contrast and must
-        # survive NMS, while the 70% gate is re-applied per class in the parsing pass below.
-        self.track_conf = min(self.conf, self.MIN_LEG_BAND_CONFIDENCE)
+        # min() of the class-specific gates: saddle and leg-band boxes survive NMS
+        self.track_conf = min(self.conf, self.MIN_LEG_BAND_CONFIDENCE, self.MIN_SADDLE_CONFIDENCE)
 
         print(f"[TRACKER] Initializing YOLO26 Nano from: {self.weights_path}")
         print(f"[TRACKER] Using ByteTrack config: {self.tracker_yaml}")
@@ -155,17 +174,22 @@ class ZampenYOLOTracker:
         self._tracking_enabled = True
         self.model = YOLO(self.weights_path)
 
-        # Standard poultry class mapping
+        # Standard poultry class mapping (all 14 classes)
         self.class_map = {
             0: "Chicken",
             1: "Drinker",
             2: "Feeder",
-            3: "Leg_Band_Green",
-            4: "Leg_Band_Pink",
-            5: "Leg_Band_Violet",
+            3: "Leg_Band_Blue",
+            4: "Leg_Band_Green",
+            5: "Leg_Band_Pink",
             6: "Leg_Band_White",
             7: "Leg_Band_Yellow",
             8: "Rooster",
+            9: "Saddle_Color_Blue",
+            10: "Saddle_Color_Bluegreen",
+            11: "Saddle_Color_Green",
+            12: "Saddle_Color_Yellow",
+            13: "Saddle_Color_YellowGreen",
         }
 
         # Persistent ID Re-ID cache: track_id -> confirmed label
@@ -178,11 +202,8 @@ class ZampenYOLOTracker:
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
         self.short_id_map: Dict[int, int] = {}
-        self._next_short_id = 1
-        # Fixed-population ID pool: when flock_size > 0 display IDs are drawn
-        # from {1..flock_size} and reserved (not retired) when a bird leaves the
-        # frame, so IDs never exceed flock_size and a returning bird always gets
-        # its original slot back.
+        self._next_short_id = 6
+        # Fixed-population ID pool: IDs 1..5 strictly reserved for Hen1-5
         self.flock_size: int = CONFIG.flock_size
         self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
         self.short_track_sizes: Dict[int, float] = {}
@@ -192,23 +213,28 @@ class ZampenYOLOTracker:
     def _resolve_short_id(self, raw_track_id: Optional[int]) -> Optional[int]:
         if raw_track_id is None:
             return None
+        cached_label = self.track_label_cache.get(raw_track_id)
+        if cached_label in HEN_TO_FIXED_ID:
+            fixed_id = HEN_TO_FIXED_ID[cached_label]
+            self.short_id_map[raw_track_id] = fixed_id
+            return fixed_id
         if raw_track_id not in self.short_id_map:
-            self.short_id_map[raw_track_id] = self._next_short_id
-            self._next_short_id += 1
+            new_id = self._next_pool_id(set())
+            self.short_id_map[raw_track_id] = new_id
         return self.short_id_map[raw_track_id]
 
     def _next_pool_id(self, assigned_ids: set) -> int:
-        """Return the smallest available display ID respecting the flock pool."""
+        """Return the smallest available display ID, reserving 1..5 for the 5 fixed Hens."""
         flock_size = getattr(self, "flock_size", 0)
-        if flock_size > 0:
-            used = set(self.short_id_map.values()) | assigned_ids
-            for candidate in range(1, flock_size + 1):
+        used = set(self.short_id_map.values()) | assigned_ids | {1, 2, 3, 4, 5}
+        if flock_size > 5:
+            for candidate in range(6, flock_size + 1):
                 if candidate not in used:
                     return candidate
-            # Pool exhausted (more tracks than known flock size) — fall through to monotonic
-        new_id = self._next_short_id
-        self._next_short_id += 1
-        return new_id
+        candidate = 6
+        while candidate in used:
+            candidate += 1
+        return candidate
 
     def reset_video_state(self) -> None:
         self.track_label_cache.clear()
@@ -528,6 +554,7 @@ class ZampenYOLOTracker:
         birds: List[TrackedDetection] = []
         feeders: List[TrackedDetection] = []
         drinkers: List[TrackedDetection] = []
+        saddle_dets: List[Tuple[List[int], str]] = []
         band_dets: List[Tuple[List[int], str]] = []
 
         if results.boxes is None or len(results.boxes) == 0:
@@ -554,15 +581,11 @@ class ZampenYOLOTracker:
                 cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
             )
             confidence = float(conf)
-            if (
-                not class_name.startswith("Leg_Band_")
-                and confidence < self.MIN_DETECTION_CONFIDENCE
-            ):
+            is_tag = class_name.startswith("Saddle_Color_") or class_name.startswith("Leg_Band_")
+            tag_thresh = self.MIN_SADDLE_CONFIDENCE if class_name.startswith("Saddle_Color_") else self.MIN_LEG_BAND_CONFIDENCE
+            if not is_tag and confidence < self.MIN_DETECTION_CONFIDENCE:
                 continue
-            if (
-                class_name.startswith("Leg_Band_")
-                and confidence < self.MIN_LEG_BAND_CONFIDENCE
-            ):
+            if is_tag and confidence < tag_thresh:
                 continue
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -588,6 +611,8 @@ class ZampenYOLOTracker:
                 det.bird_label = "Drinker"
                 det.track_id = None
                 drinkers.append(det)
+            elif class_name.startswith("Saddle_Color_"):
+                saddle_dets.append(([x1, y1, x2, y2], class_name))
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name))
 
@@ -606,9 +631,36 @@ class ZampenYOLOTracker:
             bird.confidence = resolved_confidence
             bird.bird_label = resolved_name
 
-        # Re-ID lock for leg bands if present.
-        # Re-ID lock for leg bands if present.
-        # Associate each detected band with the nearest chicken lower body/leg region
+        # Re-ID lock for saddles (priority)
+        for sbox, sname in saddle_dets:
+            sx1, sy1, sx2, sy2 = sbox
+            scx, scy = (sx1 + sx2) // 2, (sy1 + sy2) // 2
+            hen_label = SADDLE_CLASS_TO_HEN.get(sname) or BAND_CLASS_TO_HEN.get(sname)
+            if not hen_label:
+                continue
+
+            best_bird = None
+            best_dist = float("inf")
+            for bird in birds:
+                if bird.track_id is None or bird.class_name == "Rooster":
+                    continue
+                x1, y1, x2, y2 = bird.box
+                bw = max(1, x2 - x1)
+                bh = max(1, y2 - y1)
+                # Dorsal saddle zone (upper 10% to 75% of chicken torso)
+                if (x1 - 0.25 * bw <= scx <= x2 + 0.25 * bw) and (y1 - 0.10 * bh <= scy <= y1 + 0.80 * bh):
+                    dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_bird = bird
+
+            if best_bird is not None:
+                for _ in range(4):
+                    self._record_track_label(best_bird.track_id, hen_label)
+                if best_bird.track_id in self.track_label_cache:
+                    self.track_tag_confirmed.add(best_bird.track_id)
+
+        # Re-ID lock for leg bands if present (legacy fallback)
         for band_box, band_name in band_dets:
             bx1, by1, bx2, by2 = band_box
             bcx, bcy = (bx1 + bx2) // 2, (by1 + by2) // 2
@@ -700,6 +752,8 @@ class ZampenYOLOTracker:
                 if assigned not in used_labels:
                     bird.bird_label = assigned
                     used_labels.add(assigned)
+                    if assigned in HEN_TO_FIXED_ID:
+                        bird.track_id = HEN_TO_FIXED_ID[assigned]
                 else:
                     # Duplicate hen identity in the same frame is invalid; retain generic Chicken
                     bird.bird_label = "Chicken"
@@ -718,6 +772,8 @@ class ZampenYOLOTracker:
 
         for bird in birds:
             if bird.track_id is not None and bird.bird_label.startswith("Hen"):
+                if bird.bird_label in HEN_TO_FIXED_ID:
+                    bird.track_id = HEN_TO_FIXED_ID[bird.bird_label]
                 self.track_last_label[bird.track_id] = bird.bird_label
                 self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
 
@@ -754,7 +810,7 @@ class ZampenYOLOTracker:
         )
 
     def annotate_frame(self, frame: np.ndarray, frame_out: TrackerFrameOutput) -> np.ndarray:
-        """Draws bounding boxes, track IDs, leg tag anchors, and a detection HUD onto a copy of the frame."""
+        """Draws bounding boxes, track IDs, saddle anchors, and a detection HUD onto a copy of the frame."""
         vis = frame.copy()
         w = vis.shape[1]
 
@@ -773,13 +829,22 @@ class ZampenYOLOTracker:
 
             color = LABEL_COLORS_BGR.get(label, LABEL_COLORS_BGR.get(det.class_name, LABEL_COLORS_BGR["Default"]))
 
-            # Draw primary bounding box
+            # Draw primary bounding box according to saddle color
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
 
-            # Top pill badge
-            tid = f"#{det.track_id} " if det.track_id is not None else ""
-            tag_prefix = "TAG: " if is_identified_hen else ""
-            text = f"{tid}{tag_prefix}{label} ({det.confidence:.2f})"
+            # Top pill badge with requested template: ID_1 Saddle_Yellow(Hen1)
+            if is_identified_hen:
+                saddle_tag = HEN_TO_SADDLE_TAG.get(label, label)
+                text = f"ID_{det.track_id} {saddle_tag} ({det.confidence:.2f})"
+            elif label == "Rooster":
+                tid = f"ID_{det.track_id} " if det.track_id is not None else ""
+                text = f"{tid}Rooster ({det.confidence:.2f})"
+            elif label == "Chicken":
+                tid = f"ID_{det.track_id} " if det.track_id is not None else ""
+                text = f"{tid}Chicken ({det.confidence:.2f})"
+            else:
+                text = f"{label} ({det.confidence:.2f})"
+
             # Badge background
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             y_text = max(th + 4, y1)
@@ -787,13 +852,13 @@ class ZampenYOLOTracker:
             ink = (0, 0, 0) if sum(color) > 400 else (255, 255, 255)
             cv2.putText(vis, text, (x1 + 3, y_text - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ink, 1)
 
-            # For identified hens, draw a leg-band tag indicator at the bottom edge
+            # For identified hens, draw a saddle anchor indicator on the dorsal/back region
             if is_identified_hen:
                 cx = (x1 + x2) // 2
-                cy_leg = min(vis.shape[0] - 5, y2 - 3)
-                cv2.circle(vis, (cx, cy_leg), 5, (20, 24, 30), -1, cv2.LINE_AA)
-                cv2.circle(vis, (cx, cy_leg), 4, color, -1, cv2.LINE_AA)
-                cv2.circle(vis, (cx, cy_leg), 1, (255, 255, 255), -1, cv2.LINE_AA)
+                cy_saddle = max(0, y1 + int((y2 - y1) * 0.25))
+                cv2.circle(vis, (cx, cy_saddle), 5, (20, 24, 30), -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_saddle), 4, color, -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_saddle), 1, (255, 255, 255), -1, cv2.LINE_AA)
 
         for bird in frame_out.birds:
             _draw(bird, "Chicken")
@@ -807,18 +872,27 @@ class ZampenYOLOTracker:
         cv2.rectangle(overlay, (0, 0), (w, 36), (15, 20, 28), -1)
         cv2.addWeighted(overlay, 0.88, vis, 0.12, 0, vis)
 
-        # Build hen roster indicator (G W B Y P)
+        # Build hen roster indicator (Y G B BG YG)
         tag_status = []
-        for hen_key, short_code in [("Hen1 (Green)", "G"), ("Hen2 (White)", "W"), ("Hen3 (Blue)", "B"), ("Hen4 (Yellow)", "Y"), ("Hen5 (Pink)", "P")]:
+        for hen_key, short_code in [
+            ("Hen1 (Yellow)", "Y"),
+            ("Hen2 (Green)", "G"),
+            ("Hen3 (Blue)", "B"),
+            ("Hen4 (Bluegreen)", "BG"),
+            ("Hen5 (YellowGreen)", "YG"),
+            ("Hen1 (Green)", "G"),
+            ("Hen2 (White)", "W"),
+            ("Hen5 (Pink)", "P"),
+        ]:
             if hen_key in identified_hens:
                 tag_status.append(f"{short_code}:[OK]")
-            else:
+            elif short_code not in [s.split(":")[0] for s in tag_status]:
                 tag_status.append(f"{short_code}:-")
-        tag_str = " ".join(tag_status)
+        tag_str = " ".join(tag_status[:5])
 
         hud_left = (
             f"FRAME {frame_out.frame_idx} | BIRDS: {len(frame_out.birds)} | "
-            f"HENS TAGGED: {len(identified_hens)}/5 ({tag_str})"
+            f"HENS SADDLED: {len(identified_hens)}/5 ({tag_str})"
         )
         cv2.putText(vis, hud_left, (12, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 1, cv2.LINE_AA)
         return vis

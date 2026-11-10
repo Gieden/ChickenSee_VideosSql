@@ -1,9 +1,14 @@
 Chicken
 Drinker
 Feeder
+Leg_Band_Blue
 Leg_Band_Green
 Leg_Band_Pink
-Leg_Band_Violet
 Leg_Band_White
 Leg_Band_Yellow
 Rooster
+Saddle_Color_Blue
+Saddle_Color_Bluegreen
+Saddle_Color_Green
+Saddle_Color_Yellow
+Saddle_Color_YellowGreen
