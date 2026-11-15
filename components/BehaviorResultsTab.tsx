@@ -161,11 +161,21 @@ function formatMetric(value: number | null, digits: number): string {
   return value === null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
 }
 
-function axisTickLabel(interval: IntervalTelemetry, previous: IntervalTelemetry | null): string {
-  if (previous && previous.date === interval.date) {
-    return interval.timeSlot;
+function isSingleDayView(mode: 'preset' | 'single' | 'range', selectedPreset: string, singleDate: IsoDate | null, rangeStart: IsoDate | null, rangeEnd: IsoDate | null): boolean {
+  if (mode === 'single' && singleDate) return true;
+  if (mode === 'preset') return selectedPreset !== 'all';
+  if (mode === 'range') return Boolean(rangeStart && rangeEnd && rangeStart === rangeEnd);
+  return false;
+}
+
+function axisTickLabel(interval: IntervalTelemetry, previous: IntervalTelemetry | null, showTime: boolean): string {
+  if (showTime) {
+    if (previous && previous.date === interval.date) {
+      return interval.timeSlot;
+    }
+    return `${interval.dateLabel} · ${interval.timeSlot}`;
   }
-  return `${interval.dateLabel} · ${interval.timeSlot}`;
+  return interval.dateLabel;
 }
 
 export default function BehaviorResultsTab() {
@@ -1229,6 +1239,7 @@ export default function BehaviorResultsTab() {
                 const b4X = b3X + chartConfig.barW + 2;
 
                 const isHovered = hoveredIntervalId === interval.id;
+                const showTimeLabels = isSingleDayView(dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd);
 
                 return (
                   <g
@@ -1307,7 +1318,7 @@ export default function BehaviorResultsTab() {
                       fontWeight={isHovered ? '700' : '500'}
                       textAnchor="middle"
                     >
-                      {axisTickLabel(interval, idx > 0 ? filteredIntervals[idx - 1] : null)}
+                      {axisTickLabel(interval, idx > 0 ? filteredIntervals[idx - 1] : null, showTimeLabels)}
                     </text>
                   </g>
                 );
@@ -1369,10 +1380,11 @@ export default function BehaviorResultsTab() {
               prolongedInactivity: 0,
               featherPecking: 0,
             };
+            const showTimeLabels = isSingleDayView(dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd);
             return (
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs text-slate-700">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-bold text-slate-900">{interval.fullTimeLabel}</span>
+                  <span className="font-bold text-slate-900">{showTimeLabels ? interval.fullTimeLabel : interval.dateLabel}</span>
                   <span className="font-semibold text-orange-800">
                     {interval.heatStress}: {getStressDescription(interval.heatStress)}
                   </span>
