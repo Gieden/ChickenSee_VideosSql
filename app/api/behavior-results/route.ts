@@ -12,7 +12,7 @@ export interface BirdBehaviorCounts {
   reducedFeeding: number;
   reducedDrinking: number;
   prolongedInactivity: number;
-  socialIsolation: number;
+  featherPecking: number;
 }
 
 export interface IntervalTelemetry {
@@ -22,12 +22,12 @@ export interface IntervalTelemetry {
   timeSlot: string; // e.g. "06:00"
   intervalLabel: string; // e.g. "24 Oct · 06:00"
   fullTimeLabel: string; // e.g. "24 Oct 2026 · 06:00 AM – 12:00 PM"
-  tempC: number;
-  humidityPct: number;
-  ammoniaPpm: number;
-  soundDb: number;
-  thi: number;
-  heatStress: 'Normal' | 'Moderate' | 'Severe' | 'Emergency';
+  tempC: number | null;
+  humidityPct: number | null;
+  ammoniaPpm: number | null;
+  soundDb: number | null;
+  thi: number | null;
+  heatStress: 'Normal' | 'Moderate' | 'Severe' | 'Emergency' | 'Unavailable';
   behaviorsByBird: Record<string, BirdBehaviorCounts>;
 }
 
@@ -49,20 +49,6 @@ const BIRD_LABEL_TO_ID: Record<string, string> = {
   'Rooster': 'rooster',
   'Chicken': 'chicken_orange',
 };
-
-const BIRD_IDS = [
-  'hen1_yellow',
-  'hen2_green',
-  'hen3_blue',
-  'hen4_bluegreen',
-  'hen5_yellowgreen',
-  'hen1_green',
-  'hen2_white',
-  'hen4_yellow',
-  'hen5_pink',
-  'rooster',
-  'chicken_orange',
-];
 
 function computeThi(tempC: number, rhPct: number): number {
   return Math.round((0.8 * tempC + (rhPct / 100.0) * (tempC - 14.4) + 46.4) * 10) / 10;
@@ -107,23 +93,22 @@ const CACHE_TTL_MS = 60 * 1000; // 1 minute
 
 async function loadAnalyticsDbData() {
   const dbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
-  if (!fs.existsSync(dbPath)) return null;
+  if (!fs.existsSync(dbPath)) {
+    throw new Error('The behavior analytics database is not available.');
+  }
+
+  const SQL = await initSqlJs();
+  const buf = fs.readFileSync(dbPath);
+  const db = new SQL.Database(buf);
 
   try {
-    const SQL = await initSqlJs();
-    const buf = fs.readFileSync(dbPath);
-    const db = new SQL.Database(buf);
-
-    // Fetch half hour metrics
     const metricsRes = db.exec(`
-      SELECT id, date_slot, hour_slot, chunk_start, chunk_end,
-             temp_avg_c, humidity_avg_pct, ammonia_ppm_avg, thi_avg, heat_stress_level,
-             feeding_bouts, drinking_bouts, lethargic_birds_flagged, feather_pecking_events
+      SELECT id, date_slot, hour_slot, temp_avg_c, humidity_avg_pct,
+             ammonia_ppm_avg, thi_avg, sensor_data_available
       FROM half_hour_metrics
       ORDER BY date_slot ASC, hour_slot ASC
     `);
 
-    // Fetch bird tracks
     const birdsRes = db.exec(`
       SELECT chunk_metric_id, bird_label,
              sum(reduced_eating_flag) as red_eat,
@@ -131,42 +116,33 @@ async function loadAnalyticsDbData() {
              sum(case when drinking_bouts = 0 and drinking_s < 1.0 then 1 else 0 end) as low_drink,
              sum(is_lethargic) as leth,
              sum(case when inactivity_s > 60.0 then 1 else 0 end) as inact,
-             sum(pecking_aggressor_count + pecking_victim_count) as pecking,
-             count(*) as count
+             sum(pecking_aggressor_count + pecking_victim_count) as pecking
       FROM bird_track_metrics
       GROUP BY chunk_metric_id, bird_label
     `);
 
-    db.close();
-
     const metrics = metricsRes?.[0]?.values || [];
     const birds = birdsRes?.[0]?.values || [];
-
-    // Map bird tracks by chunk_metric_id
     const birdsByChunk = new Map<number, Record<string, BirdBehaviorCounts>>();
     for (const row of birds) {
       const [chunkId, label, redEat, lowFeed, lowDrink, leth, inact, pecking] = row as [
-        number, string, number, number, number, number, number, number, number
+        number, string, number, number, number, number, number, number
       ];
       const birdId = BIRD_LABEL_TO_ID[label];
       if (!birdId) continue;
 
-      if (!birdsByChunk.has(chunkId)) {
-        birdsByChunk.set(chunkId, {});
-      }
-
+      if (!birdsByChunk.has(chunkId)) birdsByChunk.set(chunkId, {});
       birdsByChunk.get(chunkId)![birdId] = {
         reducedFeeding: Math.max(Number(redEat) || 0, Number(lowFeed) || 0),
         reducedDrinking: Number(lowDrink) || 0,
         prolongedInactivity: Math.max(Number(leth) || 0, Number(inact) || 0),
-        socialIsolation: Number(pecking) || 0,
+        featherPecking: Number(pecking) || 0,
       };
     }
 
     return { metrics, birdsByChunk };
-  } catch (err) {
-    console.error('Failed to query zampen_analytics.db:', err);
-    return null;
+  } finally {
+    db.close();
   }
 }
 
@@ -181,29 +157,31 @@ async function loadSupabaseSlotAverages(dateStr: string, startH: number, endH: n
     const startIso = `${dateStr}T${String(startH).padStart(2, '0')}:00:00.000Z`;
     const endIso = `${dateStr}T${String(endH - 1).padStart(2, '0')}:59:59.999Z`;
 
-    const { data } = await client
+    const { data, error } = await client
       .from('sensor_logs')
       .select('temperature, humidity, ammonia_ppm, sound_db')
       .gte('recorded_at', startIso)
       .lte('recorded_at', endIso)
       .limit(200);
 
-    if (data && data.length > 0) {
-      const validTemp = data.filter((d) => typeof d.temperature === 'number' && d.temperature > 0);
-      const validHum = data.filter((d) => typeof d.humidity === 'number' && d.humidity > 0);
-      const validNh3 = data.filter((d) => typeof d.ammonia_ppm === 'number' && d.ammonia_ppm > 0);
-      const validSound = data.filter((d) => typeof d.sound_db === 'number' && d.sound_db > 0);
+    if (error) {
+      console.warn(`Supabase slot average failed for ${dateStr} [${startH}-${endH}]:`, error.message);
+      return null;
+    }
 
-      const avgTemp = validTemp.length ? validTemp.reduce((a, b) => a + (b.temperature || 0), 0) / validTemp.length : 28.5;
-      const avgHum = validHum.length ? validHum.reduce((a, b) => a + (b.humidity || 0), 0) / validHum.length : 65.0;
-      const avgNh3 = validNh3.length ? validNh3.reduce((a, b) => a + (b.ammonia_ppm || 0), 0) / validNh3.length : 0.000015;
-      const avgSound = validSound.length ? validSound.reduce((a, b) => a + (b.sound_db || 0), 0) / validSound.length : 73.5;
+    if (data && data.length > 0) {
+      const average = (values: Array<number | null>) => {
+        const valid = values.filter((value): value is number => typeof value === 'number' && value > 0);
+        return valid.length ? valid.reduce((total, value) => total + value, 0) / valid.length : null;
+      };
+      const round = (value: number | null, digits: number) =>
+        value === null ? null : Number(value.toFixed(digits));
 
       return {
-        tempC: Math.round(avgTemp * 10) / 10,
-        humidityPct: Math.round(avgHum * 10) / 10,
-        ammoniaPpm: Math.round(avgNh3 * 100000) / 100000,
-        soundDb: Math.round(avgSound * 10) / 10,
+        tempC: round(average(data.map((d) => d.temperature)), 1),
+        humidityPct: round(average(data.map((d) => d.humidity)), 1),
+        ammoniaPpm: round(average(data.map((d) => d.ammonia_ppm)), 5),
+        soundDb: round(average(data.map((d) => d.sound_db)), 1),
       };
     }
   } catch (err) {
@@ -218,129 +196,115 @@ export async function GET(req: NextRequest) {
     const reqDate = searchParams.get('date');
     const reqStartDate = searchParams.get('startDate');
     const reqEndDate = searchParams.get('endDate');
+    const forceRefresh = searchParams.get('refresh') === 'true';
 
     const now = Date.now();
     let intervals: IntervalTelemetry[] = [];
 
-    if (cachedIntervals && now - lastCacheTime < CACHE_TTL_MS) {
+    if (!forceRefresh && cachedIntervals && now - lastCacheTime < CACHE_TTL_MS) {
       intervals = cachedIntervals;
     } else {
       const analyticsData = await loadAnalyticsDbData();
+      const grouped = new Map<string, {
+        date: string;
+        slot: string;
+        startHour: number;
+        endHour: number;
+        sensorRows: number;
+        tempTotal: number;
+        humidityTotal: number;
+        ammoniaTotal: number;
+        thiTotal: number;
+        behaviorsByBird: Record<string, BirdBehaviorCounts>;
+      }>();
 
-      // Master defined days: 24 Oct, 27 Oct, 28 Oct (Yesterday), and historical days
-      const targetDays = ['2026-10-24', '2026-10-27', '2026-10-28'];
-      const targetSlots = [
-        { slot: '06:00', startH: 6, endH: 12 },
-        { slot: '12:00', startH: 12, endH: 18 },
-        { slot: '18:00', startH: 18, endH: 24 },
-      ];
+      for (const metricRow of analyticsData.metrics) {
+        const [
+          chunkId,
+          date,
+          hourSlot,
+          tempAvg,
+          humidityAvg,
+          ammoniaAvg,
+          thiAvg,
+          sensorDataAvailable,
+        ] = metricRow as [number, string, string, number, number, number, number, number];
+        const hour = Number.parseInt(hourSlot, 10);
+        if (!date || !Number.isInteger(hour) || hour < 6 || hour >= 24) continue;
 
-      const builtIntervals: IntervalTelemetry[] = [];
-
-      // Extract bird behaviors from analytics DB grouped by date and hour slot
-      const birdBehaviorsByDateHour = new Map<string, Record<string, BirdBehaviorCounts>>();
-      if (analyticsData) {
-        for (const metricRow of analyticsData.metrics) {
-          const [chunkId, dateSlot, hourSlot] = metricRow as [number, string, string];
-          const chunkBirds = analyticsData.birdsByChunk.get(chunkId);
-          if (chunkBirds) {
-            const key = `${dateSlot}_${hourSlot}`;
-            if (!birdBehaviorsByDateHour.has(key)) {
-              birdBehaviorsByDateHour.set(key, {});
-            }
-            const targetMap = birdBehaviorsByDateHour.get(key)!;
-            for (const [birdId, counts] of Object.entries(chunkBirds)) {
-              if (!targetMap[birdId]) {
-                targetMap[birdId] = { reducedFeeding: 0, reducedDrinking: 0, prolongedInactivity: 0, socialIsolation: 0 };
-              }
-              targetMap[birdId].reducedFeeding += counts.reducedFeeding;
-              targetMap[birdId].reducedDrinking += counts.reducedDrinking;
-              targetMap[birdId].prolongedInactivity += counts.prolongedInactivity;
-              targetMap[birdId].socialIsolation += counts.socialIsolation;
-            }
-          }
-        }
-      }
-
-      // Build intervals for target dates using real sensor readings from Supabase
-      for (const d of targetDays) {
-        for (const slotDef of targetSlots) {
-          const slot = slotDef.slot;
-          const id = `int_${d.replace(/-/g, '_')}_${slot.replace(':', '')}`;
-
-          // Real sensor averages from Supabase
-          const sensorAvg = await loadSupabaseSlotAverages(d, slotDef.startH, slotDef.endH);
-
-          // Fallbacks based on verified telemetry from sensors.sqlite / Supabase
-          const tempC = sensorAvg?.tempC ?? (d === '2026-10-27' && slot === '18:00' ? 37.4 : d === '2026-10-27' ? 33.0 : d === '2026-10-28' && slot === '06:00' ? 32.3 : d === '2026-10-28' ? 29.5 : 29.0);
-          const humidityPct = sensorAvg?.humidityPct ?? (d === '2026-10-27' && slot === '18:00' ? 57.5 : d === '2026-10-27' ? 62.0 : d === '2026-10-28' ? 70.0 : 65.0);
-          const ammoniaPpm = sensorAvg?.ammoniaPpm ?? (tempC > 32 ? 0.00002 : 0.00001);
-          const soundDb = sensorAvg?.soundDb ?? (tempC > 32 ? 76.0 : 72.5);
-
-          const thi = computeThi(tempC, humidityPct);
-          const heatStress = classifyHeatStress(thi);
-
-          // Assemble real bird behavior distribution
-          // If this exact (date, hour) has records in DB, use them; otherwise scale from the nearest real analyzed chunk
-          const behaviorsByBird: Record<string, BirdBehaviorCounts> = {};
-
-          // Find matching behavior keys
-          const matchingKeys = Array.from(birdBehaviorsByDateHour.keys()).filter((k) => k.startsWith(d));
-          let chosenKey = matchingKeys.find((k) => k.includes(slot.split(':')[0])) || matchingKeys[0];
-
-          if (!chosenKey) {
-            // Pick a representative analyzed date from analytics DB (e.g. 2026-10-24)
-            const fallbackKeys = Array.from(birdBehaviorsByDateHour.keys()).filter((k) => k.startsWith('2026-10-24'));
-            chosenKey = fallbackKeys.find((k) => k.includes(slot.split(':')[0])) || fallbackKeys[0];
-          }
-
-          const rawBirdMap = chosenKey ? birdBehaviorsByDateHour.get(chosenKey) : null;
-
-          for (const birdId of BIRD_IDS) {
-            const raw = rawBirdMap?.[birdId];
-            if (raw) {
-              // Scale down raw total tracks into standard interval bout counts
-              behaviorsByBird[birdId] = {
-                reducedFeeding: Math.max(1, Math.round(raw.reducedFeeding / 4)),
-                reducedDrinking: Math.max(1, Math.round(raw.reducedDrinking / 4)),
-                prolongedInactivity: Math.max(0, Math.round(raw.prolongedInactivity / 3)),
-                socialIsolation: Math.max(0, Math.round(raw.socialIsolation / 10)),
-              };
-            } else {
-              // Profile-specific baseline behavior
-              behaviorsByBird[birdId] = {
-                reducedFeeding: birdId === 'hen1_green' ? 4 : birdId === 'chicken_orange' ? 3 : 2,
-                reducedDrinking: birdId === 'hen2_white' ? 5 : birdId === 'hen5_pink' ? 3 : 2,
-                prolongedInactivity: birdId === 'rooster' ? 4 : birdId === 'hen3_blue' ? 3 : 1,
-                socialIsolation: birdId === 'rooster' ? 2 : birdId === 'chicken_orange' ? 1 : 0,
-              };
-            }
-
-            // High heat stress multiplier (elevated inactivity and reduced feeding during hot slots)
-            if (heatStress === 'Emergency' || heatStress === 'Severe') {
-              behaviorsByBird[birdId].reducedFeeding = Math.round(behaviorsByBird[birdId].reducedFeeding * 1.5);
-              behaviorsByBird[birdId].reducedDrinking = Math.round(behaviorsByBird[birdId].reducedDrinking * 1.4);
-              behaviorsByBird[birdId].prolongedInactivity = Math.round(behaviorsByBird[birdId].prolongedInactivity * 1.8);
-            }
-          }
-
-          builtIntervals.push({
-            id,
-            date: d,
-            dateLabel: formatDateLabel(d),
-            timeSlot: slot,
-            intervalLabel: `${formatDateLabel(d)} · ${slot}`,
-            fullTimeLabel: formatFullTimeLabel(d, slot),
-            tempC,
-            humidityPct,
-            ammoniaPpm,
-            soundDb,
-            thi,
-            heatStress,
-            behaviorsByBird,
+        const startHour = hour < 12 ? 6 : hour < 18 ? 12 : 18;
+        const slot = `${String(startHour).padStart(2, '0')}:00`;
+        const key = `${date}_${slot}`;
+        if (!grouped.has(key)) {
+          grouped.set(key, {
+            date,
+            slot,
+            startHour,
+            endHour: startHour + 6,
+            sensorRows: 0,
+            tempTotal: 0,
+            humidityTotal: 0,
+            ammoniaTotal: 0,
+            thiTotal: 0,
+            behaviorsByBird: {},
           });
         }
+
+        const interval = grouped.get(key)!;
+        if (Number(sensorDataAvailable)) {
+          interval.sensorRows += 1;
+          interval.tempTotal += Number(tempAvg) || 0;
+          interval.humidityTotal += Number(humidityAvg) || 0;
+          interval.ammoniaTotal += Number(ammoniaAvg) || 0;
+          interval.thiTotal += Number(thiAvg) || 0;
+        }
+
+        const chunkBirds = analyticsData.birdsByChunk.get(Number(chunkId));
+        if (!chunkBirds) continue;
+        for (const [birdId, counts] of Object.entries(chunkBirds)) {
+          const current = interval.behaviorsByBird[birdId] ??= {
+            reducedFeeding: 0,
+            reducedDrinking: 0,
+            prolongedInactivity: 0,
+            featherPecking: 0,
+          };
+          current.reducedFeeding += counts.reducedFeeding;
+          current.reducedDrinking += counts.reducedDrinking;
+          current.prolongedInactivity += counts.prolongedInactivity;
+          current.featherPecking += counts.featherPecking;
+        }
       }
+
+      const builtIntervals: IntervalTelemetry[] = [];
+      for (const group of Array.from(grouped.values())) {
+        const sensorAvg = await loadSupabaseSlotAverages(group.date, group.startHour, group.endHour);
+        const tempC = sensorAvg?.tempC ?? (group.sensorRows ? group.tempTotal / group.sensorRows : null);
+        const humidityPct = sensorAvg?.humidityPct ?? (group.sensorRows ? group.humidityTotal / group.sensorRows : null);
+        const ammoniaPpm = sensorAvg?.ammoniaPpm ?? (group.sensorRows ? group.ammoniaTotal / group.sensorRows : null);
+        const storedThi = group.sensorRows ? group.thiTotal / group.sensorRows : null;
+        const thi = tempC !== null && humidityPct !== null
+          ? computeThi(tempC, humidityPct)
+          : storedThi;
+        const heatStress = thi === null ? 'Unavailable' : classifyHeatStress(thi);
+
+        builtIntervals.push({
+          id: `int_${group.date.replace(/-/g, '_')}_${group.slot.replace(':', '')}`,
+          date: group.date,
+          dateLabel: formatDateLabel(group.date),
+          timeSlot: group.slot,
+          intervalLabel: `${formatDateLabel(group.date)} · ${group.slot}`,
+          fullTimeLabel: formatFullTimeLabel(group.date, group.slot),
+          tempC,
+          humidityPct,
+          ammoniaPpm,
+          soundDb: sensorAvg?.soundDb ?? null,
+          thi,
+          heatStress,
+          behaviorsByBird: group.behaviorsByBird,
+        });
+      }
+
+      builtIntervals.sort((a, b) => a.date.localeCompare(b.date) || a.timeSlot.localeCompare(b.timeSlot));
 
       cachedIntervals = builtIntervals;
       lastCacheTime = now;
@@ -359,7 +323,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      source: 'sensors.sqlite + Supabase sensor_logs + zampen_analytics.db',
+      source: 'zampen_analytics.db + Supabase sensor_logs',
       count: filtered.length,
       availableDates,
       intervals: filtered,
