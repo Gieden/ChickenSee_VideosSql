@@ -8,6 +8,12 @@ import os
 from pathlib import Path
 from pydantic import BaseModel, Field
 
+try:
+    import torch
+    _DEFAULT_DEVICE = "0" if torch.cuda.is_available() else "cpu"
+except Exception:
+    _DEFAULT_DEVICE = "cpu"
+
 # Base directories
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
@@ -19,7 +25,7 @@ ANALYTICS_DB_PATH = Path(os.getenv("ANALYTICS_DB_PATH", str(BASE_DIR / "zampen_a
 
 class AnalyticsConfig(BaseModel):
     # Model & Tracker
-    model_name: str = Field(default="yolo26n.pt", description="YOLO model weights name or path")
+    model_name: str = Field(default="custom_poultry.pt", description="YOLO model weights name or path")
     custom_weights_path: str = Field(
         default=str(PROJECT_ROOT / "custom_poultry.pt"),
         description="Optional fine-tuned poultry weights fallback"
@@ -28,10 +34,13 @@ class AnalyticsConfig(BaseModel):
         default=str(PROJECT_ROOT / "bytetrack_poultry.yaml") if (PROJECT_ROOT / "bytetrack_poultry.yaml").exists() else "bytetrack.yaml",
         description="ByteTrack YAML tracker configuration"
     )
-    device: str = Field(default=os.getenv("INFERENCE_DEVICE", "cpu"), description="'cpu' or '0' for CUDA")
+    device: str = Field(
+        default_factory=lambda: os.getenv("INFERENCE_DEVICE", _DEFAULT_DEVICE),
+        description="'cpu' or '0' for CUDA"
+    )
     conf_threshold: float = Field(default=0.25, description="Object detection confidence threshold")
     iou_threshold: float = Field(default=0.45, description="NMS IoU threshold")
-    imgsz: int = Field(default=1088, description="Inference input image resolution")
+    imgsz: int = Field(default_factory=lambda: int(os.getenv("INFERENCE_SIZE", "640")), description="Inference input image resolution")
     frame_stride: int = Field(default=2, description="Process every Nth frame (2 = 15fps from 30fps input)")
 
     # Processing & video discovery

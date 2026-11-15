@@ -14,7 +14,7 @@
 #   * track_buffer is the parked (lost) identity lifetime. It is the cooldown that the Re-ID
 #     layer in edge/detector.py uses to re-attach an identity that ByteTrack has not yet
 #     re-acquired, so it is kept generous at ~4 s @ 15 FPS.
-#   * tracker_type: agribytetrack is ByteTrack plus the apex-anchored association penalty
+#   * tracker_type: bytetrack is ByteTrack plus the apex-anchored association penalty
 #     registered by edge/tracker.py (feet/lower-body IoU instead of torso-only IoU).
 #     Change it back to "bytetrack" to get stock association with the same thresholds.
 tracker_type: agribytetrack

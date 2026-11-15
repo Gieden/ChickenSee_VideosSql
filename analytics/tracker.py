@@ -313,6 +313,7 @@ class ZampenYOLOTracker:
         for bird in birds:
             raw_track_id = bird.track_id
             if raw_track_id is None:
+                pending.append((bird, None))
                 continue
 
             display_id = self.short_id_map.get(raw_track_id)
@@ -354,29 +355,35 @@ class ZampenYOLOTracker:
                 )
 
         matched_raw_ids = set()
+        matched_birds = set()
         for _, display_id, raw_track_id, bird, _ in sorted(
             candidate_pairs, key=lambda pair: pair[:3]
         ):
-            if display_id in assigned_ids or raw_track_id in matched_raw_ids:
+            if display_id in assigned_ids or id(bird) in matched_birds or (raw_track_id is not None and raw_track_id in matched_raw_ids):
                 continue
-            for previous_raw_id, previous_display_id in list(self.short_id_map.items()):
-                if previous_display_id == display_id:
-                    self.short_id_map.pop(previous_raw_id)
-            self.short_id_map[raw_track_id] = display_id
+            if raw_track_id is not None:
+                for previous_raw_id, previous_display_id in list(self.short_id_map.items()):
+                    if previous_display_id == display_id:
+                        self.short_id_map.pop(previous_raw_id)
+                self.short_id_map[raw_track_id] = display_id
+                matched_raw_ids.add(raw_track_id)
             bird.track_id = display_id
             assigned_ids.add(display_id)
-            matched_raw_ids.add(raw_track_id)
+            matched_birds.add(id(bird))
 
         for bird, raw_track_id in pending:
-            if raw_track_id in matched_raw_ids:
+            if id(bird) in matched_birds:
                 continue
-            display_id = self.short_id_map.get(raw_track_id)
+            if raw_track_id is not None and raw_track_id in matched_raw_ids:
+                continue
+            display_id = self.short_id_map.get(raw_track_id) if raw_track_id is not None else None
             if display_id is not None and display_id in assigned_ids:
                 # Ultra duplicate raw id in one frame (or an id already donated by re-ID)
                 display_id = None
             if display_id is None:
                 display_id = self._next_pool_id(assigned_ids)
-            self.short_id_map[raw_track_id] = display_id
+            if raw_track_id is not None:
+                self.short_id_map[raw_track_id] = display_id
             bird.track_id = display_id
             assigned_ids.add(display_id)
 
@@ -658,6 +665,69 @@ class ZampenYOLOTracker:
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name, confidence))
 
+        # ByteTrack Kalman filters are tuned for moving birds and may drop small 10x10 saddle
+        # patches, stationary equipment, or birds below new_track_thresh. Recover raw detections
+        # via the dedicated predict engine so saddle identification and equipment tracking are reliable:
+        if len(saddle_dets) < 5 or len(feeders) == 0 or len(drinkers) == 0 or len(birds) < 5:
+            try:
+                equip_model = getattr(self, "_equip_model", self.model)
+                if equip_model is not None and hasattr(equip_model, "predict"):
+                    raw_res = equip_model.predict(
+                        frame,
+                        conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15), self.MIN_SADDLE_CONFIDENCE),
+                        iou=self.iou,
+                        imgsz=self.imgsz,
+                        device=self.device,
+                        verbose=False,
+                    )[0]
+                    if raw_res.boxes is not None and len(raw_res.boxes) > 0:
+                        r_boxes = raw_res.boxes.xyxy.cpu().numpy()
+                        r_confs = raw_res.boxes.conf.cpu().numpy()
+                        r_classes = raw_res.boxes.cls.int().cpu().tolist()
+                        for r_box, r_conf, r_cls in zip(r_boxes, r_confs, r_classes):
+                            r_name = self.class_map.get(r_cls, self.model.names.get(r_cls, ""))
+                            r_confidence = float(r_conf)
+                            rx1, ry1, rx2, ry2 = [int(v) for v in r_box]
+                            if r_name.startswith("Saddle_Color_"):
+                                if r_confidence >= self.MIN_SADDLE_CONFIDENCE:
+                                    if not any(abs(rx1 - s[0][0]) < 8 and abs(ry1 - s[0][1]) < 8 for s in saddle_dets):
+                                        saddle_dets.append(([rx1, ry1, rx2, ry2], r_name, r_confidence))
+                            elif r_name == "Feeder" and r_confidence >= getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15):
+                                if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], f.box, 0.5) for f in feeders):
+                                    feeders.append(TrackedDetection(
+                                        box=[rx1, ry1, rx2, ry2],
+                                        centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
+                                        confidence=r_confidence,
+                                        class_id=r_cls,
+                                        class_name="Feeder",
+                                        track_id=None,
+                                        bird_label="Feeder",
+                                    ))
+                            elif r_name == "Drinker" and r_confidence >= getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15):
+                                if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], d.box, 0.5) for d in drinkers):
+                                    drinkers.append(TrackedDetection(
+                                        box=[rx1, ry1, rx2, ry2],
+                                        centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
+                                        confidence=r_confidence,
+                                        class_id=r_cls,
+                                        class_name="Drinker",
+                                        track_id=None,
+                                        bird_label="Drinker",
+                                    ))
+                            elif r_name in ("Chicken", "Rooster") and r_confidence >= self.MIN_DETECTION_CONFIDENCE:
+                                if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], b.box, 0.50) for b in birds):
+                                    birds.append(TrackedDetection(
+                                        box=[rx1, ry1, rx2, ry2],
+                                        centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
+                                        confidence=r_confidence,
+                                        class_id=r_cls,
+                                        class_name=r_name,
+                                        track_id=None,
+                                        bird_label=r_name,
+                                    ))
+            except Exception:
+                pass
+
         # Suppress duplicate overlapping bird boxes (IoU > 0.60)
         birds = sorted(birds, key=lambda b: b.confidence, reverse=True)
         kept_birds = []
@@ -806,7 +876,7 @@ class ZampenYOLOTracker:
                     continue
                 if self.hen_owner_conf.get(hen_label, 0.0) >= 0.35:
                     continue
-                for _ in range(4):
+                for _ in range(8):
                     self._record_track_label(bird.track_id, hen_label)
                 if bird.track_id in self.track_label_cache:
                     self.track_tag_confirmed.add(bird.track_id)

@@ -10,7 +10,7 @@ imgsz: 640
 save: true
 save_period: 25
 cache: false
-device: ''
+device: '0'
 workers: 8
 project: C:\Users\Kairi\Documents\ChickenSee_Videos(sql)\runs\detect
 name: poultry_v6

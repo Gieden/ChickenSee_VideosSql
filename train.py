@@ -3,6 +3,7 @@ import json
 import yaml
 import shutil
 import random
+import torch
 from ultralytics import YOLO
 
 # ---------------------------------------------------------------------------
@@ -62,7 +63,10 @@ elif os.path.isfile(notes_file):
 # ---------------------------------------------------------------------------
 def split_dataset(val_ratio=0.20, seed=42):
     """Split flat dataset/images + dataset/labels into train/val folders."""
+    # Ensure fresh directory state
     for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
+        if os.path.isdir(d):
+            shutil.rmtree(d)
         os.makedirs(d, exist_ok=True)
 
     # Collect images that have a matching label file
@@ -103,23 +107,31 @@ def split_dataset(val_ratio=0.20, seed=42):
             shutil.copy(src_lbl, os.path.join(train_lbl_dir, lbl_name))
             copied_train += 1
 
-    print(f"✅ Split complete → train: {copied_train}  val: {copied_val}")
+    print(f"✅ Split complete → train: {copied_train}  val: {copied_val} (Total: {len(paired)})")
     return copied_train, copied_val
 
 
 def main():
-    # Only split if train/val folders are empty or missing
+    # Count paired raw images
+    raw_images = [
+        f for f in os.listdir(images_dir)
+        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+    total_raw = len(raw_images)
+    n_train = len(os.listdir(train_img_dir)) if os.path.isdir(train_img_dir) else 0
+    n_val   = len(os.listdir(val_img_dir)) if os.path.isdir(val_img_dir) else 0
+
+    # Split if train/val missing, empty, or out of sync with total raw images
     need_split = (
         not os.path.isdir(train_img_dir)
-        or len(os.listdir(train_img_dir)) == 0
+        or n_train == 0
+        or (n_train + n_val) != total_raw
     )
 
     if need_split:
-        print("📂 Splitting dataset into train/val (80/20)...")
+        print(f"📂 Dataset out of sync or missing ({n_train + n_val}/{total_raw} split). Splitting train/val (80/20)...")
         split_dataset()
     else:
-        n_train = len(os.listdir(train_img_dir))
-        n_val   = len(os.listdir(val_img_dir))
         print(f"📂 Using existing split → train: {n_train}  val: {n_val}")
 
     # ---------------------------------------------------------------------------
@@ -155,7 +167,11 @@ def main():
         else:
             base_model = "yolo11n.pt"
 
+    # Determine training hardware accelerator
+    device = 0 if torch.cuda.is_available() else "cpu"
+    device_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
     print(f"\n🚀 Fine-tuning model: {base_model}")
+    print(f"   Target Device: {device} ({device_name})")
     print(f"   Classes ({len(CLASS_NAMES)}): {list(CLASS_NAMES.values())}\n")
     model = YOLO(base_model)
 
@@ -168,6 +184,7 @@ def main():
         epochs=150,
         imgsz=640,
         batch=4,              # safe for most GPUs; increase if VRAM allows
+        device=device,
         close_mosaic=15,      # disable mosaic in last 15 epochs for clean boxes
         name=run_name,
         exist_ok=True,

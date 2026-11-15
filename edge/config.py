@@ -23,7 +23,7 @@ class VisionConfig:
     tracker_config: str = os.getenv("TRACKER_CONFIG", str(ROOT_DIR / "bytetrack_poultry.yaml"))
     
     # Inference Tuning for Dell OptiPlex CPU/GPU
-    inference_size: int = int(os.getenv("INFERENCE_SIZE", "1088"))
+    inference_size: int = int(os.getenv("INFERENCE_SIZE", "640"))
     conf_threshold: float = float(os.getenv("CONF_THRESHOLD", "0.15"))
     iou_threshold: float = float(os.getenv("IOU_THRESHOLD", "0.45"))
     num_cpu_threads: int = int(os.getenv("CPU_THREADS", str(os.cpu_count() or 8)))

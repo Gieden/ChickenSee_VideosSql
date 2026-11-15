@@ -46,11 +46,11 @@ HEN_TO_SADDLE_TAG = {
 }
 
 SADDLE_HSV_RANGES = {
-    "Hen1 (Yellow)": ((16, 70, 70), (31, 255, 255)),
-    "Hen2 (Green)": ((43, 50, 50), (80, 255, 255)),
-    "Hen3 (Blue)": ((98, 70, 55), (135, 255, 255)),
-    "Hen4 (Bluegreen)": ((81, 55, 50), (97, 255, 255)),
-    "Hen5 (YellowGreen)": ((32, 60, 60), (42, 255, 255)),
+    "Hen1 (Yellow)": ((15, 45, 35), (36, 255, 255)),
+    "Hen2 (Green)": ((60, 45, 35), (96, 255, 255)),
+    "Hen3 (Blue)": ((96, 60, 45), (135, 255, 255)),
+    "Hen4 (Bluegreen)": ((85, 45, 35), (105, 255, 255)),
+    "Hen5 (YellowGreen)": ((35, 45, 35), (65, 255, 255)),
 }
 
 LEG_BAND_HSV_RANGES = {
@@ -133,18 +133,18 @@ def detect_saddle_color(
     if box_width <= 0 or box_height <= 0:
         return None
 
-    # Sample the dorsal / back zone (upper 15% to 68% of chicken box, centered 10% to 90% wide)
+    # Sample the dorsal / back zone (upper 10% to 80% of chicken box, centered 10% to 90% wide)
     crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.10)))
     crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.10)))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.15)))
-    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.68)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.10)))
+    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.80)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     max_cw = max(6, int(box_width * 0.90))
-    max_ch = max(6, int(box_height * 0.70))
+    max_ch = max(6, int(box_height * 0.75))
 
     best_match = None
     best_area = 0
@@ -162,10 +162,11 @@ def detect_saddle_color(
             area = stats[j, cv2.CC_STAT_AREA]
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
+            aspect = cw / max(1, ch)
             area_upper = max(60, int(box_width * box_height * 0.60))
-            if 25 <= area <= area_upper and 4 <= cw <= max_cw and 4 <= ch <= max_ch:
+            if 12 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
-                if compactness >= 0.18:
+                if compactness >= 0.14 and 0.18 <= aspect <= 5.0:
                     valid_area = max(valid_area, area)
 
         if valid_area > 0:
@@ -179,8 +180,8 @@ def detect_saddle_color(
     if not best_match:
         return None
 
-    # Ambiguity check: if runner-up is >= 65% of winner, reject
-    if second_best_area >= best_area * 0.65:
+    # Ambiguity check: if runner-up is >= 85% of winner, reject
+    if second_best_area >= best_area * 0.85:
         return None
 
     return best_match
