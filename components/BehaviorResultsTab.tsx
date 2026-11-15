@@ -161,6 +161,13 @@ function formatMetric(value: number | null, digits: number): string {
   return value === null || !Number.isFinite(value) ? '—' : value.toFixed(digits);
 }
 
+function axisTickLabel(interval: IntervalTelemetry, previous: IntervalTelemetry | null): string {
+  if (previous && previous.date === interval.date) {
+    return interval.timeSlot;
+  }
+  return `${interval.dateLabel} · ${interval.timeSlot}`;
+}
+
 export default function BehaviorResultsTab() {
   const [intervals, setIntervals] = useState<IntervalTelemetry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -1300,7 +1307,7 @@ export default function BehaviorResultsTab() {
                       fontWeight={isHovered ? '700' : '500'}
                       textAnchor="middle"
                     >
-                      {interval.intervalLabel}
+                      {axisTickLabel(interval, idx > 0 ? filteredIntervals[idx - 1] : null)}
                     </text>
                   </g>
                 );
