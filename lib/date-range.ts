@@ -57,6 +57,26 @@ export function isIsoDate(value: unknown): value is IsoDate {
   return typeof value === 'string' && parseIsoDate(value) !== null;
 }
 
+/** Normalize common date-ish inputs into a local `YYYY-MM-DD` calendar key. */
+export function normalizeIsoDate(value: string | null | undefined): IsoDate | null {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.trim().replace(/\//g, '-');
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/.exec(cleaned);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return toIsoDate(parsed);
+}
+
 /** Add (or subtract) whole calendar days without DST drift. */
 export function addDays(value: IsoDate, days: number): IsoDate {
   const base = parseIsoDate(value);

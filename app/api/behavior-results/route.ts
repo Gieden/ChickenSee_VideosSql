@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import initSqlJs from 'sql.js';
 import { createClient } from '@supabase/supabase-js';
+import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 
 export const dynamic = 'force-dynamic';
@@ -62,20 +63,14 @@ function classifyHeatStress(thi: number): 'Normal' | 'Moderate' | 'Severe' | 'Em
 }
 
 function formatDateLabel(dateStr: string): string {
-  try {
-    const [year, month, day] = dateStr.split('-');
-    const d = new Date(Number(year), Number(month) - 1, Number(day));
-    const dayNum = d.getDate();
-    const monthName = d.toLocaleString('en-US', { month: 'short' });
-    return `${dayNum} ${monthName}`;
-  } catch {
-    return dateStr;
-  }
+  const normalized = normalizeIsoDate(dateStr) ?? dateStr;
+  return formatShortDay(normalized);
 }
 
 function formatFullTimeLabel(dateStr: string, timeSlot: string): string {
-  const dateLbl = formatDateLabel(dateStr);
-  const [year] = dateStr.split('-');
+  const normalized = normalizeIsoDate(dateStr) ?? dateStr;
+  const dateLbl = formatShortDay(normalized);
+  const year = normalized.slice(0, 4);
   if (timeSlot === '06:00') {
     return `${dateLbl} ${year} · 06:00 AM – 12:00 PM`;
   } else if (timeSlot === '12:00') {
@@ -221,7 +216,7 @@ export async function GET(req: NextRequest) {
       for (const metricRow of analyticsData.metrics) {
         const [
           chunkId,
-          date,
+          rawDate,
           hourSlot,
           tempAvg,
           humidityAvg,
@@ -229,6 +224,7 @@ export async function GET(req: NextRequest) {
           thiAvg,
           sensorDataAvailable,
         ] = metricRow as [number, string, string, number, number, number, number, number];
+        const date = normalizeIsoDate(rawDate);
         const hour = Number.parseInt(hourSlot, 10);
         if (!date || !Number.isInteger(hour) || hour < 6 || hour >= 24) continue;
 
@@ -312,11 +308,15 @@ export async function GET(req: NextRequest) {
     }
 
     // Apply query filters if requested
+    const normalizedReqDate = reqDate ? normalizeIsoDate(reqDate) : null;
+    const normalizedStartDate = reqStartDate ? normalizeIsoDate(reqStartDate) : null;
+    const normalizedEndDate = reqEndDate ? normalizeIsoDate(reqEndDate) : null;
+
     let filtered = intervals;
-    if (reqDate) {
-      filtered = filtered.filter((i) => i.date === reqDate);
-    } else if (reqStartDate && reqEndDate) {
-      filtered = filtered.filter((i) => i.date >= reqStartDate && i.date <= reqEndDate);
+    if (normalizedReqDate) {
+      filtered = filtered.filter((i) => i.date === normalizedReqDate);
+    } else if (normalizedStartDate && normalizedEndDate) {
+      filtered = filtered.filter((i) => i.date >= normalizedStartDate && i.date <= normalizedEndDate);
     }
 
     const availableDates = Array.from(new Set(intervals.map((i) => i.date))).sort().reverse();
