@@ -3,7 +3,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
 export interface InactivityOptions {
-  /** Total inactivity window in milliseconds before force-logout. Default: 60 000 (1 min) */
+  /** Total inactivity window in milliseconds before force-logout. Default: 900 000 (15 min) */
   timeoutMs?: number;
   /** How many ms before logout to show the warning countdown. Default: 20 000 (20 s) */
   warningMs?: number;
@@ -33,7 +33,7 @@ const ACTIVITY_EVENTS: (keyof WindowEventMap)[] = [
 ];
 
 export function useInactivityLogout({
-  timeoutMs = 60_000,
+  timeoutMs = 15 * 60_000,
   warningMs = 20_000,
   onTimeout,
 }: InactivityOptions): InactivityState {
@@ -48,6 +48,7 @@ export function useInactivityLogout({
   const warningTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef     = useRef<ReturnType<typeof setInterval> | null>(null);
   const warningShownAt   = useRef<number>(0);
+  const warningVisibleRef = useRef(false);
 
   const clearAllTimers = useCallback(() => {
     if (logoutTimerRef.current)  clearTimeout(logoutTimerRef.current);
@@ -75,11 +76,13 @@ export function useInactivityLogout({
 
   const resetTimer = useCallback(() => {
     clearAllTimers();
+    warningVisibleRef.current = false;
     setShowWarning(false);
 
     // Schedule the warning
     const warningDelay = timeoutMs - warningMs;
     warningTimerRef.current = setTimeout(() => {
+      warningVisibleRef.current = true;
       setShowWarning(true);
       startCountdown(warningMs);
     }, warningDelay);
@@ -100,7 +103,7 @@ export function useInactivityLogout({
     const handleActivity = () => {
       // Only reset if the warning isn't already showing – once the warning
       // appears the user must explicitly click "Stay Signed In".
-      if (!showWarning) resetTimer();
+      if (!warningVisibleRef.current) resetTimer();
     };
 
     ACTIVITY_EVENTS.forEach((evt) =>

@@ -1540,14 +1540,14 @@ export default function DashboardPage() {
     }
   }
 
-  // ── Inactivity auto-logout (1 min timeout, 20 s warning) ──────────────────
+  // ── Inactivity auto-logout (15 min timeout, 20 s warning) ────────────────
   const {
     showWarning: showInactivityWarning,
     secondsLeft: inactivitySecondsLeft,
     resetTimer: resetInactivityTimer,
   } = useInactivityLogout({
-    timeoutMs: 60_000,   // 1 minute total
-    warningMs: 20_000,   // show warning with 20 s to go
+    timeoutMs: 15 * 60_000,
+    warningMs: 20_000,
     onTimeout: async () => {
       // Silent force-logout – clear cookie then redirect
       try { await fetch('/api/auth', { method: 'DELETE' }); } catch { /* ignore */ }
