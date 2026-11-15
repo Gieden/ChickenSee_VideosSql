@@ -175,7 +175,7 @@ function axisTickLabel(interval: IntervalTelemetry, previous: IntervalTelemetry 
     }
     return `${interval.dateLabel} · ${interval.timeSlot}`;
   }
-  return interval.dateLabel;
+  return `${interval.dateLabel} `;
 }
 
 export default function BehaviorResultsTab() {
