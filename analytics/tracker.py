@@ -140,15 +140,11 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
-    MIN_DETECTION_CONFIDENCE = 0.25  # High-recall confidence threshold for flock birds
+    MIN_DETECTION_CONFIDENCE = 0.20  # High-recall confidence threshold for flock birds
     MIN_EQUIPMENT_CONFIDENCE = 0.15  # Dedicated threshold for Feeder & Drinker equipment
     MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
     MIN_SADDLE_CONFIDENCE = 0.15     # Dedicated threshold for saddle boxes
     REIDENTIFICATION_MAX_GAP_FRAMES = 30
-    # Radius = max(MIN_DISTANCE_PX, frame_diagonal * RATIO). On a 2880x1620 flyover the old
-    # 0.02 ratio gave a ~650 px gate, i.e. "anywhere on the frame": every occluded detection
-    # was allowed to steal any nearby bird's ID. These values keep ~6% of the diagonal for the
-    # first 2 s (~7.5 px/frame of ground speed) and halve it after that, plus a body-size cap.
     REIDENTIFICATION_DISTANCE_RATIO = 0.06
     REIDENTIFICATION_MIN_DISTANCE_PX = 12.5
     REIDENTIFICATION_STALE_RATIO = 0.03
@@ -672,6 +668,16 @@ class ZampenYOLOTracker:
             elif class_name.startswith("Leg_Band_"):
                 band_dets.append(([x1, y1, x2, y2], class_name, confidence))
 
+        # Class-agnostic Saddle NMS: suppress duplicate / conflicting saddle detections on the same patch
+        if len(saddle_dets) > 1:
+            saddle_dets.sort(key=lambda s: s[2], reverse=True)
+            kept_saddles = []
+            for s in saddle_dets:
+                if any(equipment_boxes_overlap(s[0], ks[0], 0.35) for ks in kept_saddles):
+                    continue
+                kept_saddles.append(s)
+            saddle_dets = kept_saddles
+
         # ByteTrack Kalman filters are tuned for moving birds and may drop small 10x10 saddle
         # patches, stationary equipment, or birds below new_track_thresh. Recover raw detections
         # via the dedicated predict engine so saddle identification and equipment tracking are reliable:
@@ -735,11 +741,11 @@ class ZampenYOLOTracker:
             except Exception:
                 pass
 
-        # Suppress duplicate overlapping bird boxes (IoU > 0.60)
+        # Suppress duplicate overlapping bird boxes (IoU > 0.40)
         birds = sorted(birds, key=lambda b: b.confidence, reverse=True)
         kept_birds = []
         for b in birds:
-            if any(equipment_boxes_overlap(b.box, k.box, 0.60) for k in kept_birds):
+            if any(equipment_boxes_overlap(b.box, k.box, 0.40) for k in kept_birds):
                 continue
             kept_birds.append(b)
         birds = kept_birds
@@ -776,11 +782,13 @@ class ZampenYOLOTracker:
             for bird in birds:
                 if bird.track_id is None:
                     continue
+                if bird.class_name == "Rooster":
+                    continue  # Rooster cannot wear a hen saddle
                 x1, y1, x2, y2 = bird.box
                 bw = max(1.0, float(x2 - x1))
                 bh = max(1.0, float(y2 - y1))
-                # Check if saddle centroid is within dorsal / body region of bird box
-                if (x1 - 0.20 * bw <= scx <= x2 + 0.20 * bw) and (y1 - 0.20 * bh <= scy <= y2 + 0.20 * bh):
+                # Check if saddle centroid is within dorsal / back region of chicken box
+                if (x1 - 0.05 * bw <= scx <= x2 + 0.05 * bw) and (y1 <= scy <= y1 + 0.80 * bh):
                     dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
                     bird_saddle_candidates.setdefault(bird.track_id, []).append((sconf, hen_label, dist, sbox))
 
@@ -876,7 +884,7 @@ class ZampenYOLOTracker:
             if bird.track_id in self.track_label_cache:
                 self.track_tag_confirmed.add(bird.track_id)
                 continue
-            hen_label = detect_saddle_color(frame, bird.box)
+            hen_label = detect_saddle_color(frame, bird.box) if len(saddle_dets) == 0 else None
             if hen_label:
                 # Never let fallback HSV steal an identity that is already active on another bird
                 if self.hen_track_owners.get(hen_label) in active_hen_owners:
@@ -941,34 +949,35 @@ class ZampenYOLOTracker:
                     # If another bird currently shares this fixed_id, relocate that bird to an unused ID
                     for other in birds:
                         if other is not bird and other.track_id == fixed_id:
-                            used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5}
-                            cand = 6
+                            used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5, 6}
+                            cand = 1
                             while cand in used_ids:
                                 cand += 1
                             other.track_id = cand
                             used_ids.add(cand)
                     bird.track_id = fixed_id
             elif bird.class_name == "Chicken":
-                bird.bird_label = "Chicken"
+                # Continuous identity protection: if this track was previously confirmed as a Hen, retain it!
+                prev_lbl = self.track_last_label.get(bird.track_id)
+                if prev_lbl and prev_lbl in HEN_TO_FIXED_ID and prev_lbl not in used_labels:
+                    bird.bird_label = prev_lbl
+                    bird.track_id = HEN_TO_FIXED_ID[prev_lbl]
+                    used_labels.add(prev_lbl)
+                else:
+                    bird.bird_label = "Chicken"
 
-        # Ensure Roosters do not take Hen fixed IDs (1..5)
+        # Ensure Roosters always take ID 6 and never take Hen fixed IDs (1..5)
         for bird in birds:
             if bird.class_name == "Rooster":
                 bird.bird_label = "Rooster"
-                if bird.track_id in (1, 2, 3, 4, 5) or bird.track_id is None:
-                    display_id = None
-                    if bird.track_id in getattr(self, "_rooster_display_map", {}):
-                        display_id = self._rooster_display_map[bird.track_id]
-                    if display_id is None:
-                        used_ids = {b.track_id for b in birds if b.track_id is not None and b is not bird} | {1, 2, 3, 4, 5}
-                        cand = 6
+                for other in birds:
+                    if other is not bird and other.track_id == 6:
+                        used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5, 6}
+                        cand = 1
                         while cand in used_ids:
                             cand += 1
-                        display_id = cand
-                    bird.track_id = display_id
-                if bird.track_id is not None and bird.track_id >= 6:
-                    if hasattr(self, "_rooster_display_map"):
-                        self._rooster_display_map[bird.track_id] = bird.track_id
+                        other.track_id = cand
+                bird.track_id = 6
 
         # Stage C: a colour that was already shown by another active track in the current frame cannot be shown twice.
         active_tids = {bird.track_id for bird in birds if bird.track_id is not None}
