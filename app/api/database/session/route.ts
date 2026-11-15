@@ -1,17 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
 import { downloadStorageFile, listSyncedDatabases } from '@/lib/supabase-storage';
-import { openDatabaseFromBytes, getDatabaseTables, queryTableAllRows } from '@/lib/db-viewer';
+import {
+  openDatabaseFromBytes,
+  getDatabaseTables,
+  queryTableAllRows,
+  queryTableData,
+  calculateSensorAverages,
+  queryDownsampledSensorData,
+} from '@/lib/db-viewer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * GET /api/database/session?file=<storagePath>
+ * GET /api/database/session?file=<storagePath>&limit=100&offset=0&table=sensor_logs
  *
- * Returns ALL rows (no pagination) of every table in the requested session
- * database, so the SQLite Data Viewer modal can display the full sensor data
- * contained in that recording session.
+ * Returns detailed inspection data for a single sensors.sqlite session:
+ * - Calculated sensor averages (temperature, humidity, ammonia, sound)
+ * - Dynamic chart points visualizing telemetry over time
+ * - Real-time unaveraged tabular readings (sensor_logs, recording)
  */
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
@@ -19,32 +27,65 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const targetFile = new URL(req.url).searchParams.get('file');
+  const { searchParams } = new URL(req.url);
+  const targetFile = searchParams.get('file');
+  const limitParam = searchParams.get('limit');
+  const offsetParam = searchParams.get('offset');
+  const activeTableParam = searchParams.get('table');
+
   if (!targetFile) {
     return NextResponse.json({ error: 'Missing "file" query parameter' }, { status: 400 });
   }
 
   const databases = await listSyncedDatabases();
   const selectedDbMeta = databases.find(
-    (d) => d.storagePath === targetFile || d.pathname === targetFile,
-  );
-  if (!selectedDbMeta) {
-    return NextResponse.json({ error: `Database not found: ${targetFile}` }, { status: 404 });
-  }
+    (d) => d.storagePath === targetFile || d.pathname === targetFile || d.localPath === targetFile,
+  ) || {
+    url: '',
+    pathname: 'sensors.sqlite',
+    storagePath: targetFile,
+    size: 0,
+    uploadedAt: new Date().toISOString(),
+  };
 
   try {
     const content = await downloadStorageFile(selectedDbMeta.storagePath);
     const db = await openDatabaseFromBytes(await content.arrayBuffer());
     const tables = getDatabaseTables(db);
 
+    // 1. Calculate sensor averages & summary metadata
+    const averages = calculateSensorAverages(db);
+
+    // 2. Query downsampled telemetry points for the dynamic chart
+    const chartPoints = queryDownsampledSensorData(db, 150);
+
+    // 3. Query table data (unaveraged real-time records)
     const tableData: Record<string, { columns: string[]; values: unknown[][]; totalRows: number }> = {};
     for (const t of tables) {
-      const result = queryTableAllRows(db, t);
-      tableData[t] = {
-        columns: result.columns,
-        values: result.values as unknown[][],
-        totalRows: result.totalRows,
-      };
+      if (limitParam) {
+        // If limit is specified (e.g. paginated table view)
+        const limit = parseInt(limitParam, 10) || 50;
+        const offset = parseInt(offsetParam || '0', 10) || 0;
+        const result = queryTableData(db, t, limit, offset);
+        tableData[t] = {
+          columns: result.columns,
+          values: result.values as unknown[][],
+          totalRows: result.totalRows,
+        };
+      } else {
+        // Otherwise return all rows (capped for large tables to preserve performance)
+        const countRes = db.exec(`SELECT COUNT(*) FROM "${t.replace(/[^a-zA-Z0-9_]/g, '')}";`);
+        const totalRows = countRes.length && countRes[0].values.length ? Number(countRes[0].values[0][0]) : 0;
+        const maxFetch = 2000;
+        const result = totalRows > maxFetch
+          ? queryTableData(db, t, maxFetch, 0)
+          : queryTableAllRows(db, t);
+        tableData[t] = {
+          columns: result.columns,
+          values: result.values as unknown[][],
+          totalRows,
+        };
+      }
     }
 
     db.close();
@@ -52,6 +93,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       file: selectedDbMeta.storagePath,
       sessionLabel: selectedDbMeta.sessionLabel || null,
+      sessionFolder: selectedDbMeta.sessionFolder || null,
+      sessionTime: selectedDbMeta.sessionTime || null,
+      dateKey: selectedDbMeta.dateKey || null,
+      dateLabel: selectedDbMeta.dateLabel || null,
+      size: selectedDbMeta.size || 0,
+      averages,
+      chartPoints,
       tables: tableData,
     });
   } catch (error: any) {

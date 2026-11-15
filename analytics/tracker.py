@@ -334,6 +334,8 @@ class ZampenYOLOTracker:
 
         candidate_pairs = []
         for bird, raw_track_id in pending:
+            if raw_track_id is None:
+                continue  # No ByteTrack ID → no prior position history to re-ID against
             x1, y1, x2, y2 = bird.box
             center = ((x1 + x2) / 2, (y1 + y2) / 2)
             bird_size = math.sqrt(max(1, x2 - x1) * max(1, y2 - y1))
@@ -357,7 +359,12 @@ class ZampenYOLOTracker:
         matched_raw_ids = set()
         matched_birds = set()
         for _, display_id, raw_track_id, bird, _ in sorted(
-            candidate_pairs, key=lambda pair: pair[:3]
+            candidate_pairs,
+            key=lambda pair: (
+                float(pair[0]),
+                pair[1] if pair[1] is not None else -1,
+                pair[2] if pair[2] is not None else -1,
+            ),
         ):
             if display_id in assigned_ids or id(bird) in matched_birds or (raw_track_id is not None and raw_track_id in matched_raw_ids):
                 continue

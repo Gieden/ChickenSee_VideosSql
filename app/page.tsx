@@ -44,6 +44,7 @@ import {
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
+import SqliteViewerTab from '@/components/SqliteViewerTab';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
 type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff';
@@ -1263,13 +1264,31 @@ export default function DashboardPage() {
   const [pageOffset, setPageOffset] = useState(0);
   const pageSize = 50;
 
-  // Session detail modal state — opens when a user clicks any row in the
-  // SQLite Data Viewer table, showing all sensor data inside that session day.
+  // Date-grouped sensors.sqlite files & calculated dashboard averages
+  const [groupedDatabases, setGroupedDatabases] = useState<any[]>([]);
+  const [databaseOverview, setDatabaseOverview] = useState<{
+    totalFiles: number;
+    totalReadings: number;
+    avgTemperature: number | null;
+    avgHumidity: number | null;
+    avgAmmoniaPpm: number | null;
+    avgSoundDb: number | null;
+  } | null>(null);
+  const [databaseSearch, setDatabaseSearch] = useState('');
+
+  // Interactive session detail modal state
   const [sessionModalFile, setSessionModalFile] = useState<string | null>(null);
   const [sessionModalLabel, setSessionModalLabel] = useState<string | null>(null);
+  const [sessionModalMeta, setSessionModalMeta] = useState<any | null>(null);
+  const [sessionModalAverages, setSessionModalAverages] = useState<any | null>(null);
+  const [sessionModalChartPoints, setSessionModalChartPoints] = useState<any[]>([]);
+  const [sessionModalChartMetric, setSessionModalChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound' | 'thi'>('temp_hum');
+  const [sessionModalHoverIdx, setSessionModalHoverIdx] = useState<number | null>(null);
   const [sessionModalData, setSessionModalData] = useState<Record<string, { columns: string[]; values: unknown[][]; totalRows: number }> | null>(null);
   const [sessionModalActiveTable, setSessionModalActiveTable] = useState<string | null>(null);
   const [sessionModalSearch, setSessionModalSearch] = useState('');
+  const [sessionModalPage, setSessionModalPage] = useState(1);
+  const [sessionModalPageSize, setSessionModalPageSize] = useState(50);
   const [loadingSessionModal, setLoadingSessionModal] = useState(false);
   const [sessionModalError, setSessionModalError] = useState<string | null>(null);
 
@@ -1337,6 +1356,8 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
       setDatabases(data.databases || []);
+      setGroupedDatabases(data.groupedByDate || []);
+      setDatabaseOverview(data.overview || null);
       setCurrentDbFile(data.currentFile);
       setTables(data.tables || []);
       setTableCounts(data.tableCounts || {});
@@ -1353,16 +1374,19 @@ export default function DashboardPage() {
   }
 
   /**
-   * Open the session detail modal for a given database. Fetches ALL rows of
-   * every table in the session database (no pagination) so the user sees the
-   * complete sensor data recorded inside that day's session.
+   * Open the session detail modal for a given database. Fetches calculated
+   * sensor averages, dynamic chart points, and real-time tabular readings.
    */
-  async function openSessionModal(file: string, label?: string | null) {
+  async function openSessionModal(file: string, label?: string | null, fileMeta?: any) {
     setSessionModalFile(file);
-    setSessionModalLabel(label || null);
+    setSessionModalLabel(label || fileMeta?.sessionLabel || 'sensors.sqlite');
+    setSessionModalMeta(fileMeta || null);
+    setSessionModalAverages(fileMeta?.averages || null);
+    setSessionModalChartPoints([]);
     setSessionModalData(null);
     setSessionModalActiveTable(null);
     setSessionModalSearch('');
+    setSessionModalPage(1);
     setSessionModalError(null);
     setLoadingSessionModal(true);
     try {
@@ -1372,10 +1396,16 @@ export default function DashboardPage() {
       const data = await res.json();
       const tableData = data.tables || {};
       setSessionModalData(tableData);
-      // Default to the table with the most rows (usually sensor_logs)
-      const preferred = (Object.entries(tableData) as Array<[string, { totalRows?: number }]>)
-        .sort((a, b) => (b[1].totalRows || 0) - (a[1].totalRows || 0));
-      setSessionModalActiveTable(preferred[0]?.[0] || null);
+      if (data.averages) setSessionModalAverages(data.averages);
+      if (data.chartPoints) setSessionModalChartPoints(data.chartPoints);
+      if (data.sessionLabel) setSessionModalLabel(data.sessionLabel);
+      if (tableData['sensor_logs']) {
+        setSessionModalActiveTable('sensor_logs');
+      } else {
+        const preferred = (Object.entries(tableData) as Array<[string, { totalRows?: number }]>)
+          .sort((a, b) => (b[1].totalRows || 0) - (a[1].totalRows || 0));
+        setSessionModalActiveTable(preferred[0]?.[0] || null);
+      }
     } catch (err) {
       setSessionModalError(err instanceof Error ? err.message : 'Could not load session data.');
     } finally {
@@ -2566,699 +2596,7 @@ export default function DashboardPage() {
 
         {/* DATABASE / SQLITE DATA VIEWER TAB */}
         {activeTab === 'database' && (
-          <div className="space-y-6">
-
-            {/* Main SQLite Viewer Card */}
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              
-              {/* Header Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-orange-50/70 via-white to-white px-5 py-4 sm:px-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md shadow-orange-500/20">
-                    <Database className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-extrabold text-slate-900 tracking-tight">sensors.sqlite</h2>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-bold text-emerald-700">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Live SQLite Bridge
-                      </span>
-                      {(() => {
-                        const meta = databases.find((d) => d.storagePath === currentDbFile) || databases[0];
-                        return meta?.size ? (
-                          <span className="rounded-md bg-slate-100 border border-slate-200/80 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600">
-                            {formatBytes(meta.size)}
-                          </span>
-                        ) : null;
-                      })()}
-                    </div>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      Synchronized chicken coop environmental telemetry and paired video session records.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Header Controls: Clean Session Switcher + Refresh */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {databases.length > 1 && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Session:</label>
-                      <select
-                        value={currentDbFile || ''}
-                        onChange={(e) => fetchDatabaseData(e.target.value)}
-                        disabled={loadingDb}
-                        className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                      >
-                        {databases.map((db, idx) => {
-                          const isLatest = idx === 0;
-                          const label = db.sessionLabel
-                            ? `${db.sessionLabel} (${formatBytes(db.size)})${isLatest ? ' · Active' : ''}`
-                            : `Session ${idx + 1} (${formatBytes(db.size)})`;
-                          return (
-                            <option key={db.storagePath} value={db.storagePath}>
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset)}
-                    disabled={loadingDb}
-                    className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-3.5 w-3.5 ${loadingDb ? 'animate-spin text-orange-600' : 'text-slate-500'}`} />
-                    <span>Refresh</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Table Tab Selector Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-2.5 sm:px-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mr-1">Table:</span>
-
-                  {/* Primary Tab: sensor_logs (telemetry) */}
-                  {tables.includes('sensor_logs') && (
-                    <button
-                      type="button"
-                      onClick={() => fetchDatabaseData(currentDbFile || undefined, 'sensor_logs', 0)}
-                      className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs ${
-                        selectedTable === 'sensor_logs'
-                          ? 'bg-orange-600 text-white shadow-orange-500/20'
-                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-orange-50 hover:text-orange-700'
-                      }`}
-                    >
-                      <Activity className="h-3.5 w-3.5" />
-                      <span>Sensor Telemetry</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
-                        selectedTable === 'sensor_logs' ? 'bg-orange-700 text-orange-100' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {tableCounts['sensor_logs'] ? `${tableCounts['sensor_logs'].toLocaleString()} readings` : 'sensor_logs'}
-                      </span>
-                    </button>
-                  )}
-
-                  {/* Secondary Tab: recording (video metadata) */}
-                  {tables.includes('recording') && (
-                    <button
-                      type="button"
-                      onClick={() => fetchDatabaseData(currentDbFile || undefined, 'recording', 0)}
-                      className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs ${
-                        selectedTable === 'recording'
-                          ? 'bg-orange-600 text-white shadow-orange-500/20'
-                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-orange-50 hover:text-orange-700'
-                      }`}
-                    >
-                      <Video className="h-3.5 w-3.5" />
-                      <span>Paired Recording</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${
-                        selectedTable === 'recording' ? 'bg-orange-700 text-orange-100' : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {tableCounts['recording'] ? `${tableCounts['recording']} session` : 'recording'}
-                      </span>
-                    </button>
-                  )}
-
-                  {/* Other tables */}
-                  {tables
-                    .filter((t) => t !== 'sensor_logs' && t !== 'recording')
-                    .map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => fetchDatabaseData(currentDbFile || undefined, t, 0)}
-                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition-all shadow-xs ${
-                          selectedTable === t
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <FileCode className="h-3.5 w-3.5" />
-                        <span>{t}</span>
-                        {tableCounts[t] !== undefined && (
-                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-extrabold ${
-                            selectedTable === t ? 'bg-orange-700 text-orange-100' : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {tableCounts[t].toLocaleString()}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-                </div>
-
-                {/* Instant Table Search / Filter Box */}
-                <div className="relative min-w-[15rem]">
-                  <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={tableFilterText}
-                    onChange={(e) => setTableFilterText(e.target.value)}
-                    placeholder="Search values in table..."
-                    className="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-7 py-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  />
-                  {tableFilterText && (
-                    <button
-                      type="button"
-                      onClick={() => setTableFilterText('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Paired Recording Summary Banner (Shown when viewing 'recording' table) */}
-              {selectedTable === 'recording' && (
-                <div className="m-4 sm:m-6 rounded-2xl border border-orange-200/90 bg-gradient-to-br from-orange-50/80 via-amber-50/40 to-white p-5 shadow-xs">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-600 text-white shadow-xs">
-                          <Video className="h-4 w-4" />
-                        </span>
-                        <h4 className="text-sm font-extrabold text-slate-900">
-                          {recordingSummary?.videoFile || 'video.mp4'}
-                        </h4>
-                        <span className="rounded-full bg-orange-100 border border-orange-200 px-2.5 py-0.5 text-[10px] font-bold text-orange-800 uppercase tracking-wide">
-                          Paired Video Session
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-600">
-                        This table contains the video recording session metadata.
-                        {tables.includes('sensor_logs') && (
-                          <span className="font-medium text-orange-800">
-                            {' '}Click below to view all {tableCounts['sensor_logs'] ? tableCounts['sensor_logs'].toLocaleString() : 'thousands of'} synchronized sensor readings.
-                          </span>
-                        )}
-                      </p>
-                    </div>
-
-                    {tables.includes('sensor_logs') && (
-                      <button
-                        type="button"
-                        onClick={() => fetchDatabaseData(currentDbFile || undefined, 'sensor_logs', 0)}
-                        className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700"
-                      >
-                        <Activity className="h-4 w-4" />
-                        <span>View {tableCounts['sensor_logs'] ? tableCounts['sensor_logs'].toLocaleString() : 'All'} Sensor Telemetry Rows →</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {recordingSummary && (
-                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <div className="rounded-xl border border-orange-100 bg-white/90 p-3 shadow-2xs">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Frames</span>
-                        <p className="mt-0.5 text-base font-extrabold text-slate-900">
-                          {recordingSummary.frameCount ? recordingSummary.frameCount.toLocaleString() : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-orange-100 bg-white/90 p-3 shadow-2xs">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Duration</span>
-                        <p className="mt-0.5 text-base font-extrabold text-slate-900">
-                          {recordingSummary.durationSeconds
-                            ? `${(recordingSummary.durationSeconds / 60).toFixed(1)} mins (${recordingSummary.durationSeconds.toFixed(1)}s)`
-                            : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-orange-100 bg-white/90 p-3 shadow-2xs">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Started At</span>
-                        <p className="mt-0.5 text-xs font-bold text-slate-800 truncate" title={recordingSummary.startedAt || ''}>
-                          {recordingSummary.startedAt ? new Date(recordingSummary.startedAt).toLocaleString() : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded-xl border border-orange-100 bg-white/90 p-3 shadow-2xs">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Ended At</span>
-                        <p className="mt-0.5 text-xs font-bold text-slate-800 truncate" title={recordingSummary.endedAt || ''}>
-                          {recordingSummary.endedAt ? new Date(recordingSummary.endedAt).toLocaleString() : '—'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Table content */}
-              {loadingDb ? (
-                <div className="flex h-56 items-center justify-center p-8">
-                  <div className="flex flex-col items-center gap-3">
-                    <RefreshCw className="h-7 w-7 animate-spin text-orange-500" />
-                    <p className="text-xs font-semibold text-slate-500">Querying sensors.sqlite database...</p>
-                  </div>
-                </div>
-              ) : databaseError ? (
-                <div role="alert" className="p-6 text-sm text-red-600 bg-red-50/50 border-t border-red-100">
-                  Could not load database records: {databaseError}
-                </div>
-              ) : !queryResult || !queryResult.columns.length ? (
-                <div className="flex flex-col items-center justify-center p-12 text-center">
-                  <FileCode className="mb-4 h-12 w-12 text-slate-300" />
-                  <h4 className="text-base font-semibold text-slate-700">No data found in {selectedTable || 'database'}</h4>
-                  <p className="mt-1 text-sm text-slate-400 max-w-md">
-                    The sensors.sqlite file is connected. When new readings or recordings are logged, they will appear here automatically.
-                  </p>
-                </div>
-              ) : (() => {
-                // Apply search filter if entered
-                const q = tableFilterText.trim().toLowerCase();
-                const filteredRows = q
-                  ? queryResult.values.filter((r) =>
-                      r.some((cell) => cell !== null && String(cell).toLowerCase().includes(q))
-                    )
-                  : queryResult.values;
-
-                // Group rows by date extracted from timestamp columns
-                const capturedAtIdx = queryResult.columns.findIndex(c =>
-                  ['captured_at', 'recorded_at', 'started_at'].includes(c.toLowerCase())
-                );
-                type DbRow = { date: string; dateObj: Date | null; row: any[]; rowIndex: number };
-                const rowsWithDate: DbRow[] = filteredRows.map((row, idx) => {
-                  let dateObj: Date | null = null;
-                  let dateStr = 'Date Unknown';
-                  if (capturedAtIdx >= 0 && row[capturedAtIdx]) {
-                    try {
-                      dateObj = new Date(String(row[capturedAtIdx]));
-                      if (!isNaN(dateObj.getTime())) {
-                        const d = dateObj;
-                        const now = new Date();
-                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-                        const itemDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-                        const delta = Math.round((today - itemDay) / 86400000);
-                        const formatted = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
-                        dateStr = delta === 0 ? `Today — ${formatted}` : delta === 1 ? `Yesterday — ${formatted}` : `${d.toLocaleDateString(undefined, { weekday: 'long' })}, ${formatted}`;
-                      }
-                    } catch { /* keep */ }
-                  }
-                  return { date: dateStr, dateObj, row, rowIndex: idx };
-                });
-
-                // Group into date buckets (preserve insertion order)
-                const groupMap = new Map<string, DbRow[]>();
-                for (const r of rowsWithDate) {
-                  if (!groupMap.has(r.date)) groupMap.set(r.date, []);
-                  groupMap.get(r.date)!.push(r);
-                }
-                const groups = Array.from(groupMap.entries());
-
-                // Key columns to highlight
-                const highlightCols = [
-                  'video_file', 'video_time', 'elapsed_seconds',
-                  'temperature', 'humidity', 'ammonia_ppm', 'sound_db',
-                  'captured_at', 'recorded_at', 'started_at', 'ended_at',
-                  'duration_seconds', 'frame_count'
-                ];
-                const visibleColIdxs = queryResult.columns
-                  .map((col, idx) => ({ col: col.toLowerCase(), idx }))
-                  .filter(({ col }) => highlightCols.includes(col))
-                  .map(({ idx }) => idx);
-                const displayColIdxs = visibleColIdxs.length > 0
-                  ? visibleColIdxs
-                  : queryResult.columns.map((_, i) => i).slice(0, 8);
-
-                const currentMeta = databases.find((d) => d.storagePath === currentDbFile) || databases[0];
-
-                return (
-                  <div>
-                    {groups.length === 0 ? (
-                      <div className="p-8 text-center text-xs text-slate-500">
-                        No rows matched &ldquo;{tableFilterText}&rdquo;.
-                      </div>
-                    ) : (
-                      groups.map(([dateLabel, rows]) => (
-                        <div key={dateLabel} className="border-b border-slate-100 last:border-b-0">
-                          {/* Date group header */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 bg-slate-50/90 border-b border-slate-200/60 sm:px-6">
-                            <div className="flex items-center gap-2.5">
-                              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700">
-                                <Calendar className="h-3.5 w-3.5" />
-                              </div>
-                              <span className="text-xs font-bold text-slate-900">{dateLabel}</span>
-                              <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600 shadow-xs">
-                                {rows.length} {rows.length === 1 ? 'record' : 'records'}
-                              </span>
-                            </div>
-                            <span className="text-[11px] text-slate-400 font-medium">
-                              {selectedTable === 'recording' ? '🎥 Paired Recording' : '📡 Synchronized Sensor Logs'}
-                            </span>
-                          </div>
-
-                          {/* Rows Table */}
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-left text-xs border-collapse">
-                              <thead className="border-b border-slate-200/60 bg-slate-50/50 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                <tr>
-                                  <th className="px-4 py-2.5 text-slate-400 w-12 font-mono">#</th>
-                                  {displayColIdxs.map((ci) => (
-                                    <th key={ci} className="px-4 py-2.5 whitespace-nowrap text-slate-500">
-                                      {queryResult.columns[ci]}
-                                    </th>
-                                  ))}
-                                  <th className="px-4 py-2.5 text-right text-slate-400">Action</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100 bg-white">
-                                {rows.map(({ row, rowIndex }) => (
-                                  <tr
-                                    key={rowIndex}
-                                    onClick={() => openSessionModal(currentDbFile || '', currentMeta?.sessionLabel || 'sensors.sqlite')}
-                                    className="cursor-pointer hover:bg-orange-50/40 transition-colors group"
-                                    title="Click to view full row and session details"
-                                  >
-                                    <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{pageOffset + rowIndex + 1}</td>
-                                    {displayColIdxs.map((ci) => {
-                                      const cell = row[ci];
-                                      const colName = queryResult.columns[ci].toLowerCase();
-                                      const isTime = colName.includes('at') || colName.includes('time') || colName.includes('started') || colName.includes('ended');
-                                      const isNum = typeof cell === 'number';
-
-                                      if (cell === null || cell === undefined) {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="text-slate-300 italic">null</span>
-                                          </td>
-                                        );
-                                      }
-
-                                      // Pretty Telemetry Formatting
-                                      if (colName === 'temperature') {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 border border-amber-200/70 px-2 py-0.5 font-mono text-[11px] font-bold text-amber-800">
-                                              <Thermometer className="h-3 w-3 text-amber-600" />
-                                              {isNum ? cell.toFixed(1) : cell} °C
-                                            </span>
-                                          </td>
-                                        );
-                                      }
-
-                                      if (colName === 'humidity') {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 border border-sky-200/70 px-2 py-0.5 font-mono text-[11px] font-bold text-sky-800">
-                                              <Droplets className="h-3 w-3 text-sky-600" />
-                                              {isNum ? cell.toFixed(1) : cell} %
-                                            </span>
-                                          </td>
-                                        );
-                                      }
-
-                                      if (colName === 'ammonia_ppm') {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200/70 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
-                                              <Wind className="h-3 w-3 text-emerald-600" />
-                                              {isNum ? cell.toFixed(5) : cell} ppm
-                                            </span>
-                                          </td>
-                                        );
-                                      }
-
-                                      if (colName === 'sound_db') {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="inline-flex items-center gap-1 rounded-md bg-purple-50 border border-purple-200/70 px-2 py-0.5 font-mono text-[11px] font-bold text-purple-800">
-                                              <Radio className="h-3 w-3 text-purple-600" />
-                                              {isNum ? cell.toFixed(1) : cell} dB
-                                            </span>
-                                          </td>
-                                        );
-                                      }
-
-                                      if (colName === 'elapsed_seconds') {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap font-mono text-slate-800 font-semibold">
-                                            {isNum ? `${cell.toFixed(1)}s` : String(cell)}
-                                          </td>
-                                        );
-                                      }
-
-                                      if (isTime && !isNum) {
-                                        return (
-                                          <td key={ci} className="px-4 py-3 whitespace-nowrap">
-                                            <span className="flex items-center gap-1 text-slate-700 font-medium">
-                                              <Clock className="h-3 w-3 text-orange-500 shrink-0" />
-                                              {(() => {
-                                                try { return new Date(String(cell)).toLocaleString(); } catch { return String(cell); }
-                                              })()}
-                                            </span>
-                                          </td>
-                                        );
-                                      }
-
-                                      return (
-                                        <td key={ci} className="px-4 py-3 whitespace-nowrap max-w-xs truncate text-slate-800 font-medium" title={String(cell)}>
-                                          {isNum ? <span className="font-mono">{String(cell)}</span> : String(cell)}
-                                        </td>
-                                      );
-                                    })}
-                                    <td className="px-4 py-3 text-right">
-                                      <span className="inline-flex items-center gap-1 rounded-md bg-orange-100 group-hover:bg-orange-200 px-2.5 py-1 text-[10px] font-bold text-orange-800 transition">
-                                        <Eye className="h-3 w-3" /> View
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      ))
-                    )}
-
-                    {/* Pagination footer */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs sm:px-6">
-                      <span className="text-slate-500">
-                        Showing <span className="font-semibold text-slate-800">{filteredRows.length > 0 ? pageOffset + 1 : 0}</span> to <span className="font-semibold text-slate-800">{Math.min(pageOffset + pageSize, queryResult.totalRows)}</span> of <span className="font-semibold text-slate-800">{queryResult.totalRows.toLocaleString()}</span> rows
-                        {tableFilterText && <span className="ml-1 text-orange-600 font-medium">(filtered)</span>}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, Math.max(0, pageOffset - pageSize))}
-                          disabled={pageOffset === 0 || loadingDb}
-                          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" /><span>Previous</span>
-                        </button>
-                        <button
-                          onClick={() => fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset + pageSize)}
-                          disabled={pageOffset + pageSize >= queryResult.totalRows || loadingDb}
-                          className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
-                        >
-                          <span>Next</span><ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
-        {/* SESSION DETAIL MODAL — shows all sensor data inside the clicked session */}
-        {sessionModalFile && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-3 backdrop-blur-sm sm:p-6"
-            onClick={() => setSessionModalFile(null)}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Session sensor data"
-          >
-            <div
-             className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-             onClick={(e) => e.stopPropagation()}
-            >
-             {/* Modal header */}
-             <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-gradient-to-r from-orange-50 to-white px-5 py-4">
-               <div className="min-w-0">
-                 <div className="flex items-center gap-2">
-                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500 text-white">
-                     <Database className="h-4 w-4" />
-                   </div>
-                   <h3 className="truncate text-base font-bold text-slate-900">
-                     sensors.sqlite {sessionModalLabel ? `· ${sessionModalLabel}` : ''}
-                   </h3>
-                 </div>
-                 <p className="mt-0.5 text-xs text-slate-500">
-                   Complete session telemetry inspection across all database tables.
-                 </p>
-               </div>
-               <button
-                 onClick={() => setSessionModalFile(null)}
-                 aria-label="Close"
-                 className="shrink-0 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-               >
-                 <X className="h-4 w-4" />
-               </button>
-             </div>
-
-             {/* Table tabs + search */}
-             {sessionModalData && Object.keys(sessionModalData).length > 0 && (
-               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-2.5">
-                 <div className="flex flex-wrap gap-1.5">
-                   {Object.keys(sessionModalData).map((t) => (
-                     <button
-                       key={t}
-                       onClick={() => setSessionModalActiveTable(t)}
-                       className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                         sessionModalActiveTable === t
-                           ? 'bg-orange-500 text-white shadow-sm'
-                           : 'bg-white text-slate-600 border border-slate-200 hover:bg-orange-50 hover:text-orange-700'
-                       }`}
-                     >
-                       {t === 'sensor_logs' ? '📡 Sensor Logs' : t === 'recording' ? '🎥 Recording' : t}
-                       <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.5 text-[9px] font-bold">
-                         {sessionModalData[t].totalRows}
-                       </span>
-                     </button>
-                   ))}
-                 </div>
-                 <div className="relative">
-                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                   <input
-                     type="search"
-                     value={sessionModalSearch}
-                     onChange={(e) => setSessionModalSearch(e.target.value)}
-                     placeholder="Search rows…"
-                     className="w-48 rounded-lg border border-slate-300 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 outline-none focus:border-orange-500 sm:w-64"
-                   />
-                 </div>
-               </div>
-             )}
-
-             {/* Modal body */}
-             <div className="min-h-0 flex-1 overflow-auto">
-               {loadingSessionModal ? (
-                 <div className="flex h-48 items-center justify-center">
-                   <RefreshCw className="h-6 w-6 animate-spin text-orange-500" />
-                 </div>
-               ) : sessionModalError ? (
-                 <div role="alert" className="p-6 text-sm text-red-600">Could not load session data: {sessionModalError}</div>
-               ) : !sessionModalData || Object.keys(sessionModalData).length === 0 ? (
-                 <div className="flex flex-col items-center justify-center p-12 text-center">
-                   <FileCode className="mb-4 h-12 w-12 text-slate-300" />
-                   <h4 className="text-base font-semibold text-slate-700">No tables in this session database</h4>
-                   <p className="mt-1 text-sm text-slate-400">This recording session has no sensor data stored.</p>
-                 </div>
-               ) : (() => {
-                 const active = sessionModalActiveTable ? sessionModalData![sessionModalActiveTable] : null;
-                 if (!active) return null;
-                 const searchLower = sessionModalSearch.trim().toLowerCase();
-                 const filtered = searchLower
-                   ? active.values.filter((row) =>
-                       row.some((cell) => cell !== null && String(cell).toLowerCase().includes(searchLower)))
-                   : active.values;
-                 // Highlight the key sensor columns first, but show everything
-                 const highlightCols = ['captured_at','recorded_at','started_at','ended_at','video_file','video_time','elapsed_seconds','temperature','humidity','ammonia_ppm','sound_db','duration_seconds','frame_count'];
-                 const orderedIdxs = active.columns
-                   .map((col, idx) => ({ col: col.toLowerCase(), idx }))
-                   .sort((a, b) => {
-                     const ai = highlightCols.indexOf(a.col); const bi = highlightCols.indexOf(b.col);
-                     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
-                   })
-                   .map(({ idx }) => idx);
-                 const dateIdx = active.columns.findIndex((c) => ['captured_at','recorded_at','started_at'].includes(c.toLowerCase()));
-                 // Group filtered rows by day for readability
-                 const dayMap = new Map<string, Array<{ row: unknown[]; idx: number }>>();
-                 filtered.forEach((row, i) => {
-                   let dayLabel = 'Session Data';
-                   if (dateIdx >= 0 && row[dateIdx]) {
-                     try {
-                       const d = new Date(String(row[dateIdx]));
-                       if (!isNaN(d.getTime())) dayLabel = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-                     } catch { /* keep */ }
-                   }
-                   if (!dayMap.has(dayLabel)) dayMap.set(dayLabel, []);
-                   dayMap.get(dayLabel)!.push({ row, idx: i });
-                 });
-
-                 return (
-                   <div>
-                     {Array.from(dayMap.entries()).map(([day, rows]) => (
-                       <div key={day}>
-                         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-200 bg-slate-50/95 px-5 py-2 backdrop-blur">
-                           <div className="flex items-center gap-2">
-                             <Calendar className="h-3.5 w-3.5 text-orange-600" />
-                             <span className="text-xs font-bold text-slate-800">{day}</span>
-                           </div>
-                           <span className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                             {rows.length} {rows.length === 1 ? 'reading' : 'readings'}
-                           </span>
-                         </div>
-                         <div className="overflow-x-auto">
-                           <table className="w-full text-left text-xs border-collapse">
-                             <thead className="border-b border-slate-200/60 bg-slate-50/40 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                               <tr>
-                                 <th className="px-4 py-2 text-slate-400 w-10">#</th>
-                                 {orderedIdxs.map((ci) => (
-                                   <th key={ci} className="px-4 py-2.5 whitespace-nowrap text-slate-400">{active.columns[ci]}</th>
-                                 ))}
-                               </tr>
-                             </thead>
-                             <tbody className="divide-y divide-slate-100 bg-white">
-                               {rows.map(({ row, idx }) => (
-                                 <tr key={idx} className="hover:bg-orange-50/30 transition-colors">
-                                   <td className="px-4 py-2.5 text-slate-400 font-mono text-[11px]">{idx + 1}</td>
-                                   {orderedIdxs.map((ci) => {
-                                     const cell = row[ci];
-                                     const colName = active.columns[ci].toLowerCase();
-                                     const isTime = colName.includes('at') || colName.includes('time');
-                                     const isNum = typeof cell === 'number';
-                                     return (
-                                       <td key={ci} className="px-4 py-2.5 whitespace-nowrap max-w-[16rem] truncate" title={cell !== null ? String(cell) : 'NULL'}>
-                                         {cell === null ? (
-                                           <span className="text-slate-300 italic">null</span>
-                                         ) : isTime && !isNum ? (
-                                           <span className="flex items-center gap-1 text-slate-700 font-medium">
-                                             <Clock className="h-3 w-3 text-orange-500 shrink-0" />
-                                             {(() => { try { return new Date(String(cell)).toLocaleString(); } catch { return String(cell); } })()}
-                                           </span>
-                                         ) : isNum ? (
-                                           <span className="font-mono text-slate-800 font-semibold">{String(cell)}</span>
-                                         ) : (
-                                           <span className="text-slate-700">{String(cell)}</span>
-                                         )}
-                                       </td>
-                                     );
-                                   })}
-                                 </tr>
-                               ))}
-                             </tbody>
-                           </table>
-                         </div>
-                       </div>
-                     ))}
-                     {filtered.length === 0 && (
-                       <div className="p-10 text-center text-sm text-slate-400">
-                         No rows match “{sessionModalSearch}”.
-                       </div>
-                     )}
-                   </div>
-                 );
-               })()}
-             </div>
-
-             {/* Modal footer */}
-             <div className="flex items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs">
-               <span className="text-slate-500">
-                 {sessionModalActiveTable && sessionModalData
-                   ? <><span className="font-semibold text-slate-800">{sessionModalData[sessionModalActiveTable].totalRows}</span> total rows in <span className="font-semibold text-slate-800">{sessionModalActiveTable}</span></>
-                   : 'Loading…'}
-               </span>
-               <button
-                 onClick={() => setSessionModalFile(null)}
-                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 transition hover:bg-slate-100"
-               >
-                 Close
-               </button>
-             </div>
-            </div>
-          </div>
+          <SqliteViewerTab />
         )}
 
         {/* RESULTS TAB */}
