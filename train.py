@@ -20,27 +20,30 @@ val_img_dir   = os.path.join(dataset_dir, "val",   "images")
 val_lbl_dir   = os.path.join(dataset_dir, "val",   "labels")
 
 # ---------------------------------------------------------------------------
-# Class definitions — 14 classes from current dataset (classes.txt & notes.json)
-# Matches Label Studio YOLO export order exactly (0 through 13)
+# Class definitions — reflect the live dataset currently on disk.
+# The current export is a 9-class Label Studio schema:
+#   0 Chicken, 1 Drinker, 2 Feeder, 3 Rooster,
+#   4 Saddle_Color_Blue, 5 Saddle_Color_Red,
+#   6 Saddle_Color_White, 7 Saddle_Color_Yellow,
+#   8 Saddle_Color_YellowGreen
 # ---------------------------------------------------------------------------
-CLASS_NAMES = {
+DEFAULT_CLASS_NAMES = {
     0: "Chicken",
     1: "Drinker",
     2: "Feeder",
-    3: "Leg_Band_Blue",
-    4: "Leg_Band_Green",
-    5: "Leg_Band_Pink",
-    6: "Leg_Band_White",
-    7: "Leg_Band_Yellow",
-    8: "Rooster",
-    9: "Saddle_Color_Blue",
-    10: "Saddle_Color_Bluegreen",
-    11: "Saddle_Color_Green",
-    12: "Saddle_Color_Yellow",
-    13: "Saddle_Color_YellowGreen",
+    3: "Rooster",
+    4: "Saddle_Color_Blue",
+    5: "Saddle_Color_Red",
+    6: "Saddle_Color_White",
+    7: "Saddle_Color_Yellow",
+    8: "Saddle_Color_YellowGreen",
 }
 
-# Auto-sync with dataset/classes.txt or dataset/notes.json if present
+CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
+
+# Auto-sync with dataset/classes.txt or dataset/notes.json if present.
+# This keeps the training config aligned with the real packaged dataset instead of
+# hard-coding legacy 14-class names from an earlier export.
 classes_file = os.path.join(dataset_dir, "classes.txt")
 notes_file = os.path.join(dataset_dir, "notes.json")
 if os.path.isfile(classes_file):
