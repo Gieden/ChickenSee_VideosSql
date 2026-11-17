@@ -1,16 +1,4658 @@
 {
-  "updated_at": "2026-10-20T08:17:19.207130Z",
+  "updated_at": "2026-11-17T17:15:36.797578Z",
   "is_queueing": false,
   "active_video": null,
   "active_progress": null,
   "active_frames": null,
+  "active_detection": null,
   "summary": {
     "processing": 0,
     "queued": 0,
     "waiting": 0,
-    "completed": 0,
-    "failed": 0,
-    "cancelled": 0
+    "completed": 446,
+    "failed": 4,
+    "cancelled": 14
   },
-  "items": []
+  "items": [
+    {
+      "item_id": "job-464",
+      "video_filename": "l.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T16:57:33.122277",
+      "completed_at": "2026-11-17T17:01:03.209494"
+    },
+    {
+      "item_id": "job-463",
+      "video_filename": "nanimaho.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-17T16:08:44.660724",
+      "completed_at": "2026-11-17T16:29:04.216777"
+    },
+    {
+      "item_id": "job-462",
+      "video_filename": "maonaunta.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T08:08:27.585193",
+      "completed_at": "2026-11-17T08:10:37.889737"
+    },
+    {
+      "item_id": "job-461",
+      "video_filename": "tist.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T08:04:33.184165",
+      "completed_at": "2026-11-17T08:06:46.268727"
+    },
+    {
+      "item_id": "job-460",
+      "video_filename": "testvid.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T05:49:03.067735",
+      "completed_at": "2026-11-17T05:52:34.827273"
+    },
+    {
+      "item_id": "job-459",
+      "video_filename": "video2_fde9e214aa35.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T01:01:18.826294",
+      "completed_at": "2026-11-17T01:04:41.818337"
+    },
+    {
+      "item_id": "job-458",
+      "video_filename": "video (1).mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-17T00:35:16.206634",
+      "completed_at": "2026-11-17T00:44:20.347422"
+    },
+    {
+      "item_id": "job-457",
+      "video_filename": "nani_recheck_20261117.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-17T00:09:41.258474",
+      "completed_at": "2026-11-17T00:25:15.787907"
+    },
+    {
+      "item_id": "job-456",
+      "video_filename": "nani.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-16T23:46:33.519078",
+      "completed_at": "2026-11-17T00:07:34.310802"
+    },
+    {
+      "item_id": "job-455",
+      "video_filename": "x.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-11-16T23:45:49.202619",
+      "completed_at": "2026-11-16T23:46:21.930096"
+    },
+    {
+      "item_id": "job-454",
+      "video_filename": "maonani.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 8.9,
+      "frames": "1299 / 14530",
+      "details": "Cancelled by user.",
+      "created_at": "2026-11-16T23:38:19.426113",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-453",
+      "video_filename": "yy.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-11-16T23:38:02.564586",
+      "completed_at": "2026-11-16T23:38:13.323223"
+    },
+    {
+      "item_id": "job-452",
+      "video_filename": "t.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 10.3,
+      "frames": "1499 / 14530",
+      "details": "Cancelled by user.",
+      "created_at": "2026-11-16T23:05:04.444392",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-451",
+      "video_filename": "sulay.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-11-16T23:04:46.101792",
+      "completed_at": "2026-11-16T23:04:56.037023"
+    },
+    {
+      "item_id": "job-450",
+      "video_filename": "itoy_53c778f99eea.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "5571 / 5571",
+      "details": null,
+      "created_at": "2026-11-15T07:48:08.186032",
+      "completed_at": "2026-11-15T07:58:01.198187"
+    },
+    {
+      "item_id": "job-449",
+      "video_filename": "video2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "54001 / 54001",
+      "details": null,
+      "created_at": "2026-11-15T04:59:35.535038",
+      "completed_at": "2026-11-15T05:36:28.166552"
+    },
+    {
+      "item_id": "job-448",
+      "video_filename": "itoy.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-15T00:34:04.805197",
+      "completed_at": "2026-11-17T17:14:12.193823"
+    },
+    {
+      "item_id": "job-447",
+      "video_filename": "Untitled video.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "5571 / 5571",
+      "details": null,
+      "created_at": "2026-11-14T23:37:37.002900",
+      "completed_at": "2026-11-14T23:45:46.859360"
+    },
+    {
+      "item_id": "job-446",
+      "video_filename": "testes.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-14T23:01:32.008430",
+      "completed_at": "2026-11-14T23:24:36.154006"
+    },
+    {
+      "item_id": "job-445",
+      "video_filename": "video - Trim.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "5933 / 5933",
+      "details": null,
+      "created_at": "2026-11-10T15:54:14.963151",
+      "completed_at": "2026-11-10T16:19:55.878233"
+    },
+    {
+      "item_id": "job-444",
+      "video_filename": "testing.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-10T14:00:22.195956",
+      "completed_at": "2026-11-10T15:14:28.503445"
+    },
+    {
+      "item_id": "job-443",
+      "video_filename": "tester.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-10T12:27:28.934075",
+      "completed_at": "2026-11-10T13:31:51.565519"
+    },
+    {
+      "item_id": "job-442",
+      "video_filename": "video_1d2aa034e24b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "14530 / 14530",
+      "details": null,
+      "created_at": "2026-11-10T00:49:00.254081",
+      "completed_at": "2026-11-10T01:00:11.307988"
+    },
+    {
+      "item_id": "job-441",
+      "video_filename": "video_dc54182840d4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "54033 / 54033",
+      "details": null,
+      "created_at": "2026-11-06T03:25:21.489825",
+      "completed_at": "2026-11-06T05:09:19.288631"
+    },
+    {
+      "item_id": "job-440",
+      "video_filename": "uu.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-04T07:59:23.922877",
+      "completed_at": "2026-11-04T08:05:32.055814"
+    },
+    {
+      "item_id": "job-439",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297_e127390d9c23.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-11-04T07:54:27.256366",
+      "completed_at": "2026-11-04T07:55:00.235724"
+    },
+    {
+      "item_id": "job-438",
+      "video_filename": "tt.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-03T16:36:53.107035",
+      "completed_at": "2026-11-03T16:41:34.205632"
+    },
+    {
+      "item_id": "job-437",
+      "video_filename": "video_6bb70da2c492.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "861 / 861",
+      "details": null,
+      "created_at": "2026-11-02T15:51:20.483382",
+      "completed_at": "2026-11-02T15:55:30.014594"
+    },
+    {
+      "item_id": "job-436",
+      "video_filename": "trialss.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-02T13:37:25.578976",
+      "completed_at": "2026-11-02T13:39:52.479586"
+    },
+    {
+      "item_id": "job-435",
+      "video_filename": "kinidaw.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-02T13:33:47.105424",
+      "completed_at": "2026-11-02T13:35:54.468104"
+    },
+    {
+      "item_id": "job-434",
+      "video_filename": "kinidiay.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-02T07:17:54.592821",
+      "completed_at": "2026-11-02T07:25:17.919079"
+    },
+    {
+      "item_id": "job-433",
+      "video_filename": "sulayi.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "861 / 861",
+      "details": null,
+      "created_at": "2026-11-02T07:12:07.425126",
+      "completed_at": "2026-11-02T07:14:44.692527"
+    },
+    {
+      "item_id": "job-432",
+      "video_filename": "video_dffe7c8642b2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "861 / 861",
+      "details": null,
+      "created_at": "2026-11-02T06:04:14.879589",
+      "completed_at": "2026-11-02T06:06:38.552673"
+    },
+    {
+      "item_id": "job-431",
+      "video_filename": "kiningmama.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-02T05:54:57.193536",
+      "completed_at": "2026-11-02T06:00:40.517253"
+    },
+    {
+      "item_id": "job-430",
+      "video_filename": "sulayans.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1652 / 1652",
+      "details": null,
+      "created_at": "2026-11-02T05:44:09.999241",
+      "completed_at": "2026-11-02T05:49:53.726682"
+    },
+    {
+      "item_id": "job-429",
+      "video_filename": "chickensee-test-20261019-231047-761742_c64d51cce56e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-11-02T05:41:21.130820",
+      "completed_at": "2026-11-02T05:42:21.516945"
+    },
+    {
+      "item_id": "job-428",
+      "video_filename": "tryss.mp4",
+      "status": "FAILED",
+      "progress_percent": 0.0,
+      "frames": "0 / 1652",
+      "details": "Only ['botsort', 'bytetrack', 'deepocsort', 'fasttrack', 'ocsort', 'tracktrack'] are supported for now, but got 'agribytetrack'",
+      "created_at": "2026-11-02T05:29:12.572007",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-427",
+      "video_filename": "trys.mp4",
+      "status": "FAILED",
+      "progress_percent": 0.0,
+      "frames": "0 / 1652",
+      "details": "Only ['botsort', 'bytetrack', 'deepocsort', 'fasttrack', 'ocsort', 'tracktrack'] are supported for now, but got 'agribytetrack'",
+      "created_at": "2026-11-02T05:18:02.863866",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-426",
+      "video_filename": "sulayan.mp4",
+      "status": "FAILED",
+      "progress_percent": 0.0,
+      "frames": "0 / 1652",
+      "details": "Only ['botsort', 'bytetrack', 'deepocsort', 'fasttrack', 'ocsort', 'tracktrack'] are supported for now, but got 'agribytetrack'",
+      "created_at": "2026-11-02T05:14:25.342697",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-425",
+      "video_filename": "ss.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1652 / 1652",
+      "details": null,
+      "created_at": "2026-10-31T16:31:57.461236",
+      "completed_at": "2026-10-31T16:35:12.316476"
+    },
+    {
+      "item_id": "job-424",
+      "video_filename": "trials.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1652 / 1652",
+      "details": null,
+      "created_at": "2026-10-31T16:14:59.510705",
+      "completed_at": "2026-10-31T16:16:53.501351"
+    },
+    {
+      "item_id": "job-423",
+      "video_filename": "trial.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1652 / 1652",
+      "details": null,
+      "created_at": "2026-10-31T16:07:25.776036",
+      "completed_at": "2026-10-31T16:09:53.409648"
+    },
+    {
+      "item_id": "job-422",
+      "video_filename": "1788751142658_0_76fa3ef6fa96.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1652 / 1652",
+      "details": null,
+      "created_at": "2026-10-31T15:59:55.198750",
+      "completed_at": "2026-10-31T16:02:37.516623"
+    },
+    {
+      "item_id": "job-421",
+      "video_filename": "another.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-31T14:42:44.325773",
+      "completed_at": "2026-10-31T14:46:58.318034"
+    },
+    {
+      "item_id": "job-420",
+      "video_filename": "records.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-31T14:28:51.634318",
+      "completed_at": "2026-10-31T14:38:18.738893"
+    },
+    {
+      "item_id": "job-419",
+      "video_filename": "hays.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-31T14:11:07.430577",
+      "completed_at": "2026-10-31T14:16:31.183669"
+    },
+    {
+      "item_id": "job-418",
+      "video_filename": "tubol.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-31T13:55:17.682002",
+      "completed_at": "2026-10-31T14:01:59.618884"
+    },
+    {
+      "item_id": "job-417",
+      "video_filename": "bahuglubot.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-31T13:17:35.495883",
+      "completed_at": "2026-10-31T13:25:06.314555"
+    },
+    {
+      "item_id": "job-416",
+      "video_filename": "gutoma.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-29T12:11:37.358244",
+      "completed_at": "2026-10-29T12:20:31.727568"
+    },
+    {
+      "item_id": "job-415",
+      "video_filename": "finalbai.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-29T11:52:44.186929",
+      "completed_at": "2026-10-29T12:02:14.153833"
+    },
+    {
+      "item_id": "job-414",
+      "video_filename": "kinina.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-29T11:40:14.154165",
+      "completed_at": "2026-10-29T11:45:52.157063"
+    },
+    {
+      "item_id": "job-413",
+      "video_filename": "30.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-29T08:19:48.926816",
+      "completed_at": "2026-10-29T11:34:03.737007"
+    },
+    {
+      "item_id": "job-412",
+      "video_filename": "29.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-29T08:07:57.775826",
+      "completed_at": "2026-10-29T08:14:22.225493"
+    },
+    {
+      "item_id": "job-411",
+      "video_filename": "chickensee-test-20261027-214811-459237.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "0 / 2200",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T13:48:11.949701",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-410",
+      "video_filename": "recording2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-27T13:47:48.908054",
+      "completed_at": "2026-10-27T14:00:25.263241"
+    },
+    {
+      "item_id": "job-409",
+      "video_filename": "recording1.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "0 / 2200",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T13:46:46.863820",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-408",
+      "video_filename": "video_64fca9ff9fa1.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "0 / 861",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T13:44:42.906501",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-407",
+      "video_filename": "chickensee-test-20261026-201005-964183.mp4",
+      "status": "CANCELLED",
+      "progress_percent": null,
+      "frames": "\u2014",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T13:41:47.328248",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-406",
+      "video_filename": "video_cc8d76ba3bae.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 24.8,
+      "frames": "13399 / 54002",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T05:35:17.071724",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-405",
+      "video_filename": "jhon.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T05:24:36.133140",
+      "completed_at": "2026-10-27T05:28:22.834025"
+    },
+    {
+      "item_id": "job-404",
+      "video_filename": "dave.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-27T05:20:12.869135",
+      "completed_at": "2026-10-27T05:24:36.065353"
+    },
+    {
+      "item_id": "job-403",
+      "video_filename": "second.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T03:47:50.299430",
+      "completed_at": "2026-10-27T03:51:45.403622"
+    },
+    {
+      "item_id": "job-402",
+      "video_filename": "first.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-27T03:43:19.284254",
+      "completed_at": "2026-10-27T03:47:50.243179"
+    },
+    {
+      "item_id": "job-401",
+      "video_filename": "2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T03:31:14.124703",
+      "completed_at": "2026-10-27T03:40:27.183557"
+    },
+    {
+      "item_id": "job-400",
+      "video_filename": "1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-27T03:25:06.608887",
+      "completed_at": "2026-10-27T03:31:14.062478"
+    },
+    {
+      "item_id": "job-399",
+      "video_filename": "vidsecon.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T03:16:25.502704",
+      "completed_at": "2026-10-27T03:22:59.940736"
+    },
+    {
+      "item_id": "job-398",
+      "video_filename": "vidfirst.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-27T03:10:00.652440",
+      "completed_at": "2026-10-27T03:16:25.402488"
+    },
+    {
+      "item_id": "job-397",
+      "video_filename": "tubol4.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 1.1,
+      "frames": "50 / 4501",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T03:03:51.611353",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-396",
+      "video_filename": "tubol3.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 13.3,
+      "frames": "600 / 4500",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T03:03:12.649735",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-395",
+      "video_filename": "video_99455b0774f7.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 62.2,
+      "frames": "2800 / 4500",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-27T02:59:56.170828",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-394",
+      "video_filename": "video_cde3004118ae.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:56:31.786569",
+      "completed_at": "2026-10-27T02:59:55.594966"
+    },
+    {
+      "item_id": "job-393",
+      "video_filename": "video_65d0ab528a41.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:52:25.398237",
+      "completed_at": "2026-10-27T02:56:31.118880"
+    },
+    {
+      "item_id": "job-392",
+      "video_filename": "chickensee-test-20261027-104700-099807.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:48:21.835121",
+      "completed_at": "2026-10-27T02:52:24.684354"
+    },
+    {
+      "item_id": "job-391",
+      "video_filename": "video_8d98aa5a43e2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:44:26.443881",
+      "completed_at": "2026-10-27T02:48:21.541714"
+    },
+    {
+      "item_id": "job-390",
+      "video_filename": "video_554a1761fcd3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:38:48.805543",
+      "completed_at": "2026-10-27T02:44:25.795011"
+    },
+    {
+      "item_id": "job-389",
+      "video_filename": "video_d181481df037.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:34:25.854033",
+      "completed_at": "2026-10-27T02:38:32.220630"
+    },
+    {
+      "item_id": "job-388",
+      "video_filename": "video_9df7831c7988.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-27T02:27:56.780209",
+      "completed_at": "2026-10-27T02:34:23.844036"
+    },
+    {
+      "item_id": "job-387",
+      "video_filename": "video_9efeb3d489e5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-27T02:24:42.159547",
+      "completed_at": "2026-10-27T02:27:55.762005"
+    },
+    {
+      "item_id": "job-386",
+      "video_filename": "video_639e4dd3da4d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4538 / 4538",
+      "details": null,
+      "created_at": "2026-10-27T02:19:52.153105",
+      "completed_at": "2026-10-27T02:24:41.327290"
+    },
+    {
+      "item_id": "job-385",
+      "video_filename": "video_514a69cec187.mp4",
+      "status": "FAILED",
+      "progress_percent": null,
+      "frames": "\u2014",
+      "details": "Failed to open video file via OpenCV: C:\\Users\\DELL\\Desktop\\ChickenSee\\recordings\\rec_2026-10-24_09-00-01_679514\\video.mp4",
+      "created_at": "2026-10-24T02:42:24.341876",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-384",
+      "video_filename": "video_399268a475d4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T01:00:03.833326",
+      "completed_at": "2026-10-24T01:02:19.947801"
+    },
+    {
+      "item_id": "job-383",
+      "video_filename": "video_84947a39cf45.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:55:04.559173",
+      "completed_at": "2026-10-24T00:57:22.243536"
+    },
+    {
+      "item_id": "job-382",
+      "video_filename": "video_18bae126460b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-24T00:50:03.639469",
+      "completed_at": "2026-10-24T00:52:19.729572"
+    },
+    {
+      "item_id": "job-381",
+      "video_filename": "video_338b6f1f7ca7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:45:03.941746",
+      "completed_at": "2026-10-24T00:47:20.631110"
+    },
+    {
+      "item_id": "job-380",
+      "video_filename": "video_9a307f0fdce1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:40:04.283949",
+      "completed_at": "2026-10-24T00:42:20.837131"
+    },
+    {
+      "item_id": "job-379",
+      "video_filename": "video_6fc1073afe21.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:35:03.882391",
+      "completed_at": "2026-10-24T00:37:20.161520"
+    },
+    {
+      "item_id": "job-378",
+      "video_filename": "video_aaf3633d39fb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:30:03.745973",
+      "completed_at": "2026-10-24T00:32:20.125510"
+    },
+    {
+      "item_id": "job-377",
+      "video_filename": "video_efcba325ece6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-24T00:25:03.725529",
+      "completed_at": "2026-10-24T00:27:20.015195"
+    },
+    {
+      "item_id": "job-376",
+      "video_filename": "video_284ec385d3ad.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:20:03.599161",
+      "completed_at": "2026-10-24T00:22:19.910176"
+    },
+    {
+      "item_id": "job-375",
+      "video_filename": "video_a8677e09b95d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:15:03.948434",
+      "completed_at": "2026-10-24T00:17:19.984961"
+    },
+    {
+      "item_id": "job-374",
+      "video_filename": "video_38c18a1861fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-24T00:10:03.123107",
+      "completed_at": "2026-10-24T00:12:18.926995"
+    },
+    {
+      "item_id": "job-373",
+      "video_filename": "video_d78c375acb2a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:05:03.083714",
+      "completed_at": "2026-10-24T00:07:19.117388"
+    },
+    {
+      "item_id": "job-372",
+      "video_filename": "video_9734b733ed5d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-24T00:00:03.628329",
+      "completed_at": "2026-10-24T00:02:19.993606"
+    },
+    {
+      "item_id": "job-371",
+      "video_filename": "video_7871d225d3e9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T23:55:02.951739",
+      "completed_at": "2026-10-23T23:57:19.128546"
+    },
+    {
+      "item_id": "job-370",
+      "video_filename": "video_63f557610409.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:50:02.747309",
+      "completed_at": "2026-10-23T23:52:18.822960"
+    },
+    {
+      "item_id": "job-369",
+      "video_filename": "video_191669ba8b69.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T23:45:03.064106",
+      "completed_at": "2026-10-23T23:47:18.690793"
+    },
+    {
+      "item_id": "job-368",
+      "video_filename": "video_64546cccd12f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T23:40:03.078669",
+      "completed_at": "2026-10-23T23:42:19.461020"
+    },
+    {
+      "item_id": "job-367",
+      "video_filename": "video_9db5a3911618.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:35:03.266685",
+      "completed_at": "2026-10-23T23:37:19.188784"
+    },
+    {
+      "item_id": "job-366",
+      "video_filename": "video_a73d21842df3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T23:30:02.744739",
+      "completed_at": "2026-10-23T23:32:18.881323"
+    },
+    {
+      "item_id": "job-365",
+      "video_filename": "video_d59eed31e779.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:25:02.752261",
+      "completed_at": "2026-10-23T23:27:19.151125"
+    },
+    {
+      "item_id": "job-364",
+      "video_filename": "video_e1b151fd23a9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:20:02.587941",
+      "completed_at": "2026-10-23T23:22:18.550717"
+    },
+    {
+      "item_id": "job-363",
+      "video_filename": "video_02e345e5f7fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:15:02.497517",
+      "completed_at": "2026-10-23T23:17:18.681324"
+    },
+    {
+      "item_id": "job-362",
+      "video_filename": "video_4684dcb88ebd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T23:10:02.569966",
+      "completed_at": "2026-10-23T23:12:33.105520"
+    },
+    {
+      "item_id": "job-361",
+      "video_filename": "video_ff3e912d2c29.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T23:05:02.621016",
+      "completed_at": "2026-10-23T23:07:21.370203"
+    },
+    {
+      "item_id": "job-360",
+      "video_filename": "video_ac008d73e3ba.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4393 / 4393",
+      "details": null,
+      "created_at": "2026-10-23T08:00:03.375863",
+      "completed_at": "2026-10-23T08:02:15.191122"
+    },
+    {
+      "item_id": "job-359",
+      "video_filename": "video_c5a25ad2f0be.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:55:09.552891",
+      "completed_at": "2026-10-23T07:57:25.970206"
+    },
+    {
+      "item_id": "job-358",
+      "video_filename": "video_4a895ab63b67.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:50:09.550407",
+      "completed_at": "2026-10-23T07:52:25.467729"
+    },
+    {
+      "item_id": "job-357",
+      "video_filename": "video_7d7f5c5ceb68.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:45:09.562016",
+      "completed_at": "2026-10-23T07:47:25.785173"
+    },
+    {
+      "item_id": "job-356",
+      "video_filename": "video_3601fd410af9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:40:09.354490",
+      "completed_at": "2026-10-23T07:42:25.794928"
+    },
+    {
+      "item_id": "job-355",
+      "video_filename": "video_94055a796ea1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:35:09.313581",
+      "completed_at": "2026-10-23T07:37:25.357765"
+    },
+    {
+      "item_id": "job-354",
+      "video_filename": "video_a45fbd71b4fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T07:30:09.342144",
+      "completed_at": "2026-10-23T07:32:26.313124"
+    },
+    {
+      "item_id": "job-353",
+      "video_filename": "video_81fbf920dcf5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T07:25:09.263234",
+      "completed_at": "2026-10-23T07:27:25.392140"
+    },
+    {
+      "item_id": "job-352",
+      "video_filename": "video_e07347794a12.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T07:20:09.330443",
+      "completed_at": "2026-10-23T07:22:26.158712"
+    },
+    {
+      "item_id": "job-351",
+      "video_filename": "video_750d1c012327.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T07:15:09.171183",
+      "completed_at": "2026-10-23T07:17:25.890490"
+    },
+    {
+      "item_id": "job-350",
+      "video_filename": "video_7a9e6e137442.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:10:09.129467",
+      "completed_at": "2026-10-23T07:12:27.278527"
+    },
+    {
+      "item_id": "job-349",
+      "video_filename": "video_a44e1731a0b2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:05:09.189284",
+      "completed_at": "2026-10-23T07:07:26.650501"
+    },
+    {
+      "item_id": "job-348",
+      "video_filename": "video_03057b12f4c6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T07:00:08.825229",
+      "completed_at": "2026-10-23T07:02:24.973801"
+    },
+    {
+      "item_id": "job-347",
+      "video_filename": "video_52877c4cff67.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:55:08.964503",
+      "completed_at": "2026-10-23T06:57:25.313676"
+    },
+    {
+      "item_id": "job-346",
+      "video_filename": "video_ea16f0cb6e06.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:50:08.583659",
+      "completed_at": "2026-10-23T06:52:25.275762"
+    },
+    {
+      "item_id": "job-345",
+      "video_filename": "video_5e19c4fd77e1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T06:45:08.812267",
+      "completed_at": "2026-10-23T06:47:25.061035"
+    },
+    {
+      "item_id": "job-344",
+      "video_filename": "video_fdc8abe6e114.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:40:08.834021",
+      "completed_at": "2026-10-23T06:42:24.980900"
+    },
+    {
+      "item_id": "job-343",
+      "video_filename": "video_4ccfa85dd8d6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T06:35:08.758757",
+      "completed_at": "2026-10-23T06:37:25.215690"
+    },
+    {
+      "item_id": "job-342",
+      "video_filename": "video_f863fd31c72c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:30:08.970510",
+      "completed_at": "2026-10-23T06:32:24.997610"
+    },
+    {
+      "item_id": "job-341",
+      "video_filename": "video_ddfa93978c50.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T06:25:08.460216",
+      "completed_at": "2026-10-23T06:27:24.642537"
+    },
+    {
+      "item_id": "job-340",
+      "video_filename": "video_f9733234cc3c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4499 / 4499",
+      "details": null,
+      "created_at": "2026-10-23T06:20:08.836346",
+      "completed_at": "2026-10-23T06:22:24.602082"
+    },
+    {
+      "item_id": "job-339",
+      "video_filename": "video_374901e7edf1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T06:15:08.402486",
+      "completed_at": "2026-10-23T06:17:23.854544"
+    },
+    {
+      "item_id": "job-338",
+      "video_filename": "video_77f73c0ed6d9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:10:08.369657",
+      "completed_at": "2026-10-23T06:12:24.093033"
+    },
+    {
+      "item_id": "job-337",
+      "video_filename": "video_e5553b46d39e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:05:08.253796",
+      "completed_at": "2026-10-23T06:07:24.406490"
+    },
+    {
+      "item_id": "job-336",
+      "video_filename": "video_938532332b69.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T06:00:08.153141",
+      "completed_at": "2026-10-23T06:02:24.697465"
+    },
+    {
+      "item_id": "job-335",
+      "video_filename": "video_e3a616f84f83.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:55:08.258233",
+      "completed_at": "2026-10-23T05:57:23.716722"
+    },
+    {
+      "item_id": "job-334",
+      "video_filename": "video_7663d43b0ada.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:50:07.998228",
+      "completed_at": "2026-10-23T05:52:24.085063"
+    },
+    {
+      "item_id": "job-333",
+      "video_filename": "video_d54f97514ee2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:45:08.118593",
+      "completed_at": "2026-10-23T05:47:23.720796"
+    },
+    {
+      "item_id": "job-332",
+      "video_filename": "video_38d9dd0fac7d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:40:07.893816",
+      "completed_at": "2026-10-23T05:42:23.492941"
+    },
+    {
+      "item_id": "job-331",
+      "video_filename": "video_c97efbf33813.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:35:07.874516",
+      "completed_at": "2026-10-23T05:37:24.167169"
+    },
+    {
+      "item_id": "job-330",
+      "video_filename": "video_8417099873b5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T05:30:07.739481",
+      "completed_at": "2026-10-23T05:32:23.708211"
+    },
+    {
+      "item_id": "job-329",
+      "video_filename": "video_05e6092b20bd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:25:07.739331",
+      "completed_at": "2026-10-23T05:27:23.739389"
+    },
+    {
+      "item_id": "job-328",
+      "video_filename": "video_b6d1392d97b0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:20:07.676269",
+      "completed_at": "2026-10-23T05:22:23.954076"
+    },
+    {
+      "item_id": "job-327",
+      "video_filename": "video_aac4cadf2507.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:15:07.604757",
+      "completed_at": "2026-10-23T05:17:23.648109"
+    },
+    {
+      "item_id": "job-326",
+      "video_filename": "video_44941ffbad79.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:10:07.495886",
+      "completed_at": "2026-10-23T05:12:23.863005"
+    },
+    {
+      "item_id": "job-325",
+      "video_filename": "video_10cb4de02b58.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:05:07.515875",
+      "completed_at": "2026-10-23T05:07:24.318189"
+    },
+    {
+      "item_id": "job-324",
+      "video_filename": "video_0607e88665bd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T05:00:07.446943",
+      "completed_at": "2026-10-23T05:02:24.377541"
+    },
+    {
+      "item_id": "job-323",
+      "video_filename": "video_f137d1d69dd4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:55:07.299912",
+      "completed_at": "2026-10-23T04:57:24.817369"
+    },
+    {
+      "item_id": "job-322",
+      "video_filename": "video_53f9f50c49bd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:50:07.231911",
+      "completed_at": "2026-10-23T04:52:23.531928"
+    },
+    {
+      "item_id": "job-321",
+      "video_filename": "video_b82125684de7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:45:07.114279",
+      "completed_at": "2026-10-23T04:47:24.219456"
+    },
+    {
+      "item_id": "job-320",
+      "video_filename": "video_23b9a184ba16.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:40:06.844163",
+      "completed_at": "2026-10-23T04:42:23.518966"
+    },
+    {
+      "item_id": "job-319",
+      "video_filename": "video_e696859967c9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T04:35:06.993661",
+      "completed_at": "2026-10-23T04:37:23.701650"
+    },
+    {
+      "item_id": "job-318",
+      "video_filename": "video_28421838dd32.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:30:06.914337",
+      "completed_at": "2026-10-23T04:32:24.036676"
+    },
+    {
+      "item_id": "job-317",
+      "video_filename": "video_3f2bba0b93b4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T04:25:06.947336",
+      "completed_at": "2026-10-23T04:27:23.550637"
+    },
+    {
+      "item_id": "job-316",
+      "video_filename": "video_6519ef25886d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:20:06.797133",
+      "completed_at": "2026-10-23T04:22:23.143079"
+    },
+    {
+      "item_id": "job-315",
+      "video_filename": "video_10579e2bcf55.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:15:06.742842",
+      "completed_at": "2026-10-23T04:17:23.802404"
+    },
+    {
+      "item_id": "job-314",
+      "video_filename": "video_1d0ec46c2145.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T04:10:06.710679",
+      "completed_at": "2026-10-23T04:12:22.886902"
+    },
+    {
+      "item_id": "job-313",
+      "video_filename": "video_67d02fd675dc.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:05:06.695824",
+      "completed_at": "2026-10-23T04:07:24.328551"
+    },
+    {
+      "item_id": "job-312",
+      "video_filename": "video_96489c0e46b8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T04:00:06.449083",
+      "completed_at": "2026-10-23T04:02:22.695010"
+    },
+    {
+      "item_id": "job-311",
+      "video_filename": "video_aef5a3417a8a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:55:06.558192",
+      "completed_at": "2026-10-23T03:57:22.228833"
+    },
+    {
+      "item_id": "job-310",
+      "video_filename": "video_a58449ace88e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T03:50:06.415296",
+      "completed_at": "2026-10-23T03:52:23.025929"
+    },
+    {
+      "item_id": "job-309",
+      "video_filename": "video_9fd91e3cf5fe.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:45:06.475992",
+      "completed_at": "2026-10-23T03:47:22.416666"
+    },
+    {
+      "item_id": "job-308",
+      "video_filename": "video_7cc47dbbff83.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:40:06.458096",
+      "completed_at": "2026-10-23T03:42:22.782815"
+    },
+    {
+      "item_id": "job-307",
+      "video_filename": "video_9f2239673e31.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T03:35:06.250220",
+      "completed_at": "2026-10-23T03:37:21.821746"
+    },
+    {
+      "item_id": "job-306",
+      "video_filename": "video_364cf23f0c57.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T03:30:06.318747",
+      "completed_at": "2026-10-23T03:32:22.270890"
+    },
+    {
+      "item_id": "job-305",
+      "video_filename": "video_47a390058875.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:25:06.423563",
+      "completed_at": "2026-10-23T03:27:23.386139"
+    },
+    {
+      "item_id": "job-304",
+      "video_filename": "video_6e27ad900434.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T03:20:06.305731",
+      "completed_at": "2026-10-23T03:22:22.498727"
+    },
+    {
+      "item_id": "job-303",
+      "video_filename": "video_244bd19b4436.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T03:15:06.268171",
+      "completed_at": "2026-10-23T03:17:22.167913"
+    },
+    {
+      "item_id": "job-302",
+      "video_filename": "video_ab209fe05a47.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:10:06.110074",
+      "completed_at": "2026-10-23T03:12:22.582821"
+    },
+    {
+      "item_id": "job-301",
+      "video_filename": "video_18d206734493.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:05:06.364146",
+      "completed_at": "2026-10-23T03:07:22.135495"
+    },
+    {
+      "item_id": "job-300",
+      "video_filename": "video_166c8591723a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T03:00:06.150298",
+      "completed_at": "2026-10-23T03:02:22.427428"
+    },
+    {
+      "item_id": "job-299",
+      "video_filename": "video_ef922c42191a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:55:06.263775",
+      "completed_at": "2026-10-23T02:57:22.622493"
+    },
+    {
+      "item_id": "job-298",
+      "video_filename": "video_e4d457aa62d5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:50:05.968922",
+      "completed_at": "2026-10-23T02:52:22.054099"
+    },
+    {
+      "item_id": "job-297",
+      "video_filename": "video_7585e57f22a0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:45:05.914537",
+      "completed_at": "2026-10-23T02:47:21.772939"
+    },
+    {
+      "item_id": "job-296",
+      "video_filename": "video_31e8f027285d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T02:40:05.765949",
+      "completed_at": "2026-10-23T02:42:21.586931"
+    },
+    {
+      "item_id": "job-295",
+      "video_filename": "video_37ae6446e7ec.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T02:35:05.819322",
+      "completed_at": "2026-10-23T02:37:21.688636"
+    },
+    {
+      "item_id": "job-294",
+      "video_filename": "video_cca46df30f11.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T02:30:05.965985",
+      "completed_at": "2026-10-23T02:32:21.951285"
+    },
+    {
+      "item_id": "job-293",
+      "video_filename": "video_feda99c36b02.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T02:25:05.711767",
+      "completed_at": "2026-10-23T02:27:22.300418"
+    },
+    {
+      "item_id": "job-292",
+      "video_filename": "video_c4007d1d4e16.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:20:05.693869",
+      "completed_at": "2026-10-23T02:22:21.809668"
+    },
+    {
+      "item_id": "job-291",
+      "video_filename": "video_51ba424777a8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:15:05.855634",
+      "completed_at": "2026-10-23T02:17:21.387370"
+    },
+    {
+      "item_id": "job-290",
+      "video_filename": "video_9a667c1a8116.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-23T02:10:05.648623",
+      "completed_at": "2026-10-23T02:12:21.903284"
+    },
+    {
+      "item_id": "job-289",
+      "video_filename": "video_5fb646a10edd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T02:05:05.581973",
+      "completed_at": "2026-10-23T02:07:21.795502"
+    },
+    {
+      "item_id": "job-288",
+      "video_filename": "video_f7903f6697de.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T02:00:05.503922",
+      "completed_at": "2026-10-23T02:02:21.518171"
+    },
+    {
+      "item_id": "job-287",
+      "video_filename": "video_427afa70b7a4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:55:05.504472",
+      "completed_at": "2026-10-23T01:57:21.650712"
+    },
+    {
+      "item_id": "job-286",
+      "video_filename": "video_91c33be60ca6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:50:05.247300",
+      "completed_at": "2026-10-23T01:52:21.336152"
+    },
+    {
+      "item_id": "job-285",
+      "video_filename": "video_eeab09adde45.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T01:45:05.339105",
+      "completed_at": "2026-10-23T01:47:21.627347"
+    },
+    {
+      "item_id": "job-284",
+      "video_filename": "video_433d1140d5c4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:40:05.445979",
+      "completed_at": "2026-10-23T01:42:21.579397"
+    },
+    {
+      "item_id": "job-283",
+      "video_filename": "video_1c2037a6868c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T01:35:05.258629",
+      "completed_at": "2026-10-23T01:37:21.289332"
+    },
+    {
+      "item_id": "job-282",
+      "video_filename": "video_6d4aff38f5ff.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:30:05.274476",
+      "completed_at": "2026-10-23T01:32:21.640408"
+    },
+    {
+      "item_id": "job-281",
+      "video_filename": "video_4265740ed262.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:25:05.093720",
+      "completed_at": "2026-10-23T01:27:21.549305"
+    },
+    {
+      "item_id": "job-280",
+      "video_filename": "video_1ab5967f9a3f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:20:05.076247",
+      "completed_at": "2026-10-23T01:22:21.377143"
+    },
+    {
+      "item_id": "job-279",
+      "video_filename": "video_e29f59a709e9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:15:05.053753",
+      "completed_at": "2026-10-23T01:17:20.893148"
+    },
+    {
+      "item_id": "job-278",
+      "video_filename": "video_c6c375a1c8e6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:10:04.990135",
+      "completed_at": "2026-10-23T01:12:20.684545"
+    },
+    {
+      "item_id": "job-277",
+      "video_filename": "video_658542886537.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:05:04.913750",
+      "completed_at": "2026-10-23T01:07:20.604091"
+    },
+    {
+      "item_id": "job-276",
+      "video_filename": "video_a47092dd32cf.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T01:00:04.839878",
+      "completed_at": "2026-10-23T01:02:21.183987"
+    },
+    {
+      "item_id": "job-275",
+      "video_filename": "video_c1c151fa5011.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:55:04.736750",
+      "completed_at": "2026-10-23T00:57:21.024675"
+    },
+    {
+      "item_id": "job-274",
+      "video_filename": "video_c81d5b4bc300.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:50:04.771676",
+      "completed_at": "2026-10-23T00:52:21.466581"
+    },
+    {
+      "item_id": "job-273",
+      "video_filename": "video_198eec0901f4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:45:04.667221",
+      "completed_at": "2026-10-23T00:47:20.430221"
+    },
+    {
+      "item_id": "job-272",
+      "video_filename": "video_ccc3566e4b6b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-23T00:40:04.550423",
+      "completed_at": "2026-10-23T00:42:20.523200"
+    },
+    {
+      "item_id": "job-271",
+      "video_filename": "video_065b88d44fac.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:35:04.528875",
+      "completed_at": "2026-10-23T00:37:20.303934"
+    },
+    {
+      "item_id": "job-270",
+      "video_filename": "video_bd0acb463353.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:30:04.507489",
+      "completed_at": "2026-10-23T00:32:20.930509"
+    },
+    {
+      "item_id": "job-269",
+      "video_filename": "video_d6104e203cb4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:25:04.388351",
+      "completed_at": "2026-10-23T00:27:20.466643"
+    },
+    {
+      "item_id": "job-268",
+      "video_filename": "video_1e2b95dbac12.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:20:04.363324",
+      "completed_at": "2026-10-23T00:22:20.189074"
+    },
+    {
+      "item_id": "job-267",
+      "video_filename": "video_7454eb8c6018.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:15:04.281579",
+      "completed_at": "2026-10-23T00:17:20.653886"
+    },
+    {
+      "item_id": "job-266",
+      "video_filename": "video_45cd180bfa40.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:10:04.304947",
+      "completed_at": "2026-10-23T00:12:20.573926"
+    },
+    {
+      "item_id": "job-265",
+      "video_filename": "video_89095a12c06d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:05:04.218508",
+      "completed_at": "2026-10-23T00:07:20.456924"
+    },
+    {
+      "item_id": "job-264",
+      "video_filename": "video_6bda7d994dbd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-23T00:00:04.383033",
+      "completed_at": "2026-10-23T00:02:20.320844"
+    },
+    {
+      "item_id": "job-263",
+      "video_filename": "video_7f53d1f7032c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:55:04.357336",
+      "completed_at": "2026-10-22T23:57:20.349148"
+    },
+    {
+      "item_id": "job-262",
+      "video_filename": "video_1edc0234703f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T23:50:04.025209",
+      "completed_at": "2026-10-22T23:52:19.418304"
+    },
+    {
+      "item_id": "job-261",
+      "video_filename": "video_446ecf8714b8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:45:03.937571",
+      "completed_at": "2026-10-22T23:47:19.851477"
+    },
+    {
+      "item_id": "job-260",
+      "video_filename": "video_04ac5291781d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:40:04.232533",
+      "completed_at": "2026-10-22T23:42:20.487864"
+    },
+    {
+      "item_id": "job-259",
+      "video_filename": "video_691b0f924fa9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T23:35:05.139509",
+      "completed_at": "2026-10-22T23:37:20.658294"
+    },
+    {
+      "item_id": "job-258",
+      "video_filename": "video_3571dc7601a5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:30:03.872531",
+      "completed_at": "2026-10-22T23:32:19.516347"
+    },
+    {
+      "item_id": "job-257",
+      "video_filename": "video_77d6a9d4c7c0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:23:09.231345",
+      "completed_at": "2026-10-22T23:27:19.750856"
+    },
+    {
+      "item_id": "job-256",
+      "video_filename": "video_b877385222a4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:20:02.510180",
+      "completed_at": "2026-10-22T23:22:18.252618"
+    },
+    {
+      "item_id": "job-255",
+      "video_filename": "video_49ecbfcf861b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:15:03.503870",
+      "completed_at": "2026-10-22T23:17:19.858658"
+    },
+    {
+      "item_id": "job-254",
+      "video_filename": "video_829d64cfe5e3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T23:10:03.464714",
+      "completed_at": "2026-10-22T23:12:19.295309"
+    },
+    {
+      "item_id": "job-253",
+      "video_filename": "video_618b3167f2fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T23:05:02.910145",
+      "completed_at": "2026-10-22T23:07:22.664214"
+    },
+    {
+      "item_id": "job-252",
+      "video_filename": "video_da93375b16ec.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4402 / 4402",
+      "details": null,
+      "created_at": "2026-10-22T08:00:03.143934",
+      "completed_at": "2026-10-22T08:02:16.423552"
+    },
+    {
+      "item_id": "job-251",
+      "video_filename": "video_1b233c1432a5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:55:08.598111",
+      "completed_at": "2026-10-22T07:57:26.693401"
+    },
+    {
+      "item_id": "job-250",
+      "video_filename": "video_a1606cb94cc4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:50:08.581386",
+      "completed_at": "2026-10-22T07:52:27.003035"
+    },
+    {
+      "item_id": "job-249",
+      "video_filename": "video_e2a092668504.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T07:45:09.034730",
+      "completed_at": "2026-10-22T07:47:27.456803"
+    },
+    {
+      "item_id": "job-248",
+      "video_filename": "video_4540b357ea36.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:40:09.397869",
+      "completed_at": "2026-10-22T07:42:27.746086"
+    },
+    {
+      "item_id": "job-247",
+      "video_filename": "video_9bdb08462ec1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:35:08.295186",
+      "completed_at": "2026-10-22T07:37:26.276161"
+    },
+    {
+      "item_id": "job-246",
+      "video_filename": "video_055924bd253a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:30:09.370697",
+      "completed_at": "2026-10-22T07:32:27.912595"
+    },
+    {
+      "item_id": "job-245",
+      "video_filename": "video_1040219a3f95.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:25:08.251232",
+      "completed_at": "2026-10-22T07:27:26.373308"
+    },
+    {
+      "item_id": "job-244",
+      "video_filename": "video_8ee67b810364.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:20:08.645510",
+      "completed_at": "2026-10-22T07:22:26.079726"
+    },
+    {
+      "item_id": "job-243",
+      "video_filename": "video_2be047203fbd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:15:09.249400",
+      "completed_at": "2026-10-22T07:17:27.516715"
+    },
+    {
+      "item_id": "job-242",
+      "video_filename": "video_f403d685f8df.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:10:08.188769",
+      "completed_at": "2026-10-22T07:12:26.110060"
+    },
+    {
+      "item_id": "job-241",
+      "video_filename": "video_c4fe23d54f68.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:05:09.104796",
+      "completed_at": "2026-10-22T07:07:26.683147"
+    },
+    {
+      "item_id": "job-240",
+      "video_filename": "video_6efaeedfcafd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T07:00:08.504721",
+      "completed_at": "2026-10-22T07:02:26.511515"
+    },
+    {
+      "item_id": "job-239",
+      "video_filename": "video_5c17cd9f16f9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:55:07.900573",
+      "completed_at": "2026-10-22T06:57:26.125792"
+    },
+    {
+      "item_id": "job-238",
+      "video_filename": "video_ae2af8750f56.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T06:50:08.480912",
+      "completed_at": "2026-10-22T06:52:26.150487"
+    },
+    {
+      "item_id": "job-237",
+      "video_filename": "video_a542e8d30077.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:45:08.822635",
+      "completed_at": "2026-10-22T06:47:26.377345"
+    },
+    {
+      "item_id": "job-236",
+      "video_filename": "video_df40e63c3f15.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T06:40:07.797135",
+      "completed_at": "2026-10-22T06:42:25.863680"
+    },
+    {
+      "item_id": "job-235",
+      "video_filename": "video_9169000e4800.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T06:35:08.629906",
+      "completed_at": "2026-10-22T06:37:26.231160"
+    },
+    {
+      "item_id": "job-234",
+      "video_filename": "video_7304c587e835.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:30:07.836798",
+      "completed_at": "2026-10-22T06:32:24.848066"
+    },
+    {
+      "item_id": "job-233",
+      "video_filename": "video_4fe1c0eb0b37.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T06:25:07.493040",
+      "completed_at": "2026-10-22T06:27:25.838374"
+    },
+    {
+      "item_id": "job-232",
+      "video_filename": "video_86380b2dd4b9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:20:07.445611",
+      "completed_at": "2026-10-22T06:22:25.692141"
+    },
+    {
+      "item_id": "job-231",
+      "video_filename": "video_2172112eddff.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:15:07.369796",
+      "completed_at": "2026-10-22T06:17:25.292965"
+    },
+    {
+      "item_id": "job-230",
+      "video_filename": "video_1ba73f38b722.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T06:10:08.049248",
+      "completed_at": "2026-10-22T06:12:25.730915"
+    },
+    {
+      "item_id": "job-229",
+      "video_filename": "video_9cd979abc461.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:05:07.487816",
+      "completed_at": "2026-10-22T06:07:25.135024"
+    },
+    {
+      "item_id": "job-228",
+      "video_filename": "video_38649101a4cb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T06:00:08.033353",
+      "completed_at": "2026-10-22T06:02:26.084707"
+    },
+    {
+      "item_id": "job-227",
+      "video_filename": "video_f0b45daa127f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T05:55:08.028515",
+      "completed_at": "2026-10-22T05:57:25.294693"
+    },
+    {
+      "item_id": "job-226",
+      "video_filename": "video_5403a9177d6c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T05:50:08.148417",
+      "completed_at": "2026-10-22T05:52:24.926157"
+    },
+    {
+      "item_id": "job-225",
+      "video_filename": "video_b27d023b2368.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T05:45:06.962486",
+      "completed_at": "2026-10-22T05:47:24.288102"
+    },
+    {
+      "item_id": "job-224",
+      "video_filename": "video_0114edc3008d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T05:40:06.923740",
+      "completed_at": "2026-10-22T05:42:24.137489"
+    },
+    {
+      "item_id": "job-223",
+      "video_filename": "video_d567fd913112.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:35:07.466630",
+      "completed_at": "2026-10-22T05:37:25.012315"
+    },
+    {
+      "item_id": "job-222",
+      "video_filename": "video_20ba9c8a0c55.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:30:07.804242",
+      "completed_at": "2026-10-22T05:32:25.774271"
+    },
+    {
+      "item_id": "job-221",
+      "video_filename": "video_8f1c642b5883.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T05:25:06.838040",
+      "completed_at": "2026-10-22T05:27:24.366979"
+    },
+    {
+      "item_id": "job-220",
+      "video_filename": "video_909da232a44e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:20:06.868964",
+      "completed_at": "2026-10-22T05:22:23.537501"
+    },
+    {
+      "item_id": "job-219",
+      "video_filename": "video_a312b3173dcb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:15:07.707095",
+      "completed_at": "2026-10-22T05:17:24.115024"
+    },
+    {
+      "item_id": "job-218",
+      "video_filename": "video_80dde15ac2b5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:10:07.557935",
+      "completed_at": "2026-10-22T05:12:24.372345"
+    },
+    {
+      "item_id": "job-217",
+      "video_filename": "video_3b1a0ad010c7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:05:06.391620",
+      "completed_at": "2026-10-22T05:07:22.534368"
+    },
+    {
+      "item_id": "job-216",
+      "video_filename": "video_9a8fe1faf750.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T05:00:07.501450",
+      "completed_at": "2026-10-22T05:02:25.464842"
+    },
+    {
+      "item_id": "job-215",
+      "video_filename": "video_db9f71ed8d9b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:55:07.276716",
+      "completed_at": "2026-10-22T04:57:24.234134"
+    },
+    {
+      "item_id": "job-214",
+      "video_filename": "video_cbd576980a82.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:50:06.785050",
+      "completed_at": "2026-10-22T04:52:35.604790"
+    },
+    {
+      "item_id": "job-213",
+      "video_filename": "video_d1a85fec488a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4535 / 4535",
+      "details": null,
+      "created_at": "2026-10-22T04:45:07.235312",
+      "completed_at": "2026-10-22T04:47:25.234497"
+    },
+    {
+      "item_id": "job-212",
+      "video_filename": "video_db838426d23c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4467 / 4467",
+      "details": null,
+      "created_at": "2026-10-22T04:39:41.577424",
+      "completed_at": "2026-10-22T04:42:31.482963"
+    },
+    {
+      "item_id": "job-211",
+      "video_filename": "video_ed85b94cdf68.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:35:06.144718",
+      "completed_at": "2026-10-22T04:37:24.197414"
+    },
+    {
+      "item_id": "job-210",
+      "video_filename": "video_9cf09aab5625.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T04:30:06.377640",
+      "completed_at": "2026-10-22T04:32:24.402824"
+    },
+    {
+      "item_id": "job-209",
+      "video_filename": "video_4d6655200992.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:25:06.921830",
+      "completed_at": "2026-10-22T04:27:24.824874"
+    },
+    {
+      "item_id": "job-208",
+      "video_filename": "video_6afc875b7f4f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:20:05.959344",
+      "completed_at": "2026-10-22T04:22:24.342375"
+    },
+    {
+      "item_id": "job-207",
+      "video_filename": "video_ff9db5f2ccf4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:15:06.855423",
+      "completed_at": "2026-10-22T04:17:25.061529"
+    },
+    {
+      "item_id": "job-206",
+      "video_filename": "video_9945aff933ca.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:10:06.713638",
+      "completed_at": "2026-10-22T04:12:24.181125"
+    },
+    {
+      "item_id": "job-205",
+      "video_filename": "video_eec53e7f9682.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T04:05:06.321345",
+      "completed_at": "2026-10-22T04:07:23.937868"
+    },
+    {
+      "item_id": "job-204",
+      "video_filename": "video_c38ff20394e9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T04:00:06.692382",
+      "completed_at": "2026-10-22T04:02:25.010776"
+    },
+    {
+      "item_id": "job-203",
+      "video_filename": "video_9ea33ebbaac3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T03:55:06.572602",
+      "completed_at": "2026-10-22T03:57:24.485265"
+    },
+    {
+      "item_id": "job-202",
+      "video_filename": "video_e62088d67fab.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:50:06.552004",
+      "completed_at": "2026-10-22T03:52:24.521488"
+    },
+    {
+      "item_id": "job-201",
+      "video_filename": "video_bfe2af7625b4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:45:05.874227",
+      "completed_at": "2026-10-22T03:47:23.901616"
+    },
+    {
+      "item_id": "job-200",
+      "video_filename": "video_e6200dec5bc3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T03:40:06.454150",
+      "completed_at": "2026-10-22T03:42:24.309240"
+    },
+    {
+      "item_id": "job-199",
+      "video_filename": "video_8406e6416357.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T03:35:06.352601",
+      "completed_at": "2026-10-22T03:37:24.001492"
+    },
+    {
+      "item_id": "job-198",
+      "video_filename": "video_1af4fc445720.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:30:06.008756",
+      "completed_at": "2026-10-22T03:32:23.703348"
+    },
+    {
+      "item_id": "job-197",
+      "video_filename": "video_74c2127186f4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T03:25:05.597996",
+      "completed_at": "2026-10-22T03:27:22.890719"
+    },
+    {
+      "item_id": "job-196",
+      "video_filename": "video_19305fe92f33.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:20:06.197233",
+      "completed_at": "2026-10-22T03:22:22.834694"
+    },
+    {
+      "item_id": "job-195",
+      "video_filename": "video_5ecc79416ab8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:15:06.208123",
+      "completed_at": "2026-10-22T03:17:23.198988"
+    },
+    {
+      "item_id": "job-194",
+      "video_filename": "video_6f23693046a8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T03:10:06.137335",
+      "completed_at": "2026-10-22T03:12:23.675222"
+    },
+    {
+      "item_id": "job-193",
+      "video_filename": "video_ac90ab7c6e7c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T03:05:05.882559",
+      "completed_at": "2026-10-22T03:07:23.555618"
+    },
+    {
+      "item_id": "job-192",
+      "video_filename": "video_c5bb55bc2dab.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T03:00:05.465914",
+      "completed_at": "2026-10-22T03:02:23.133823"
+    },
+    {
+      "item_id": "job-191",
+      "video_filename": "video_af99114b6755.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:55:06.078066",
+      "completed_at": "2026-10-22T02:57:24.190717"
+    },
+    {
+      "item_id": "job-190",
+      "video_filename": "video_a8446e6a6283.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:50:05.007955",
+      "completed_at": "2026-10-22T02:52:22.932581"
+    },
+    {
+      "item_id": "job-189",
+      "video_filename": "video_44ce286035cd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:45:05.900309",
+      "completed_at": "2026-10-22T02:47:23.972861"
+    },
+    {
+      "item_id": "job-188",
+      "video_filename": "video_2d00cf58d6b9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:40:05.802659",
+      "completed_at": "2026-10-22T02:42:25.188237"
+    },
+    {
+      "item_id": "job-187",
+      "video_filename": "video_cb63c9ea83ca.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:35:05.327514",
+      "completed_at": "2026-10-22T02:37:23.279523"
+    },
+    {
+      "item_id": "job-186",
+      "video_filename": "video_91f69aeaff2e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:30:04.750522",
+      "completed_at": "2026-10-22T02:32:22.482460"
+    },
+    {
+      "item_id": "job-185",
+      "video_filename": "video_4ee1a11af901.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:25:05.082591",
+      "completed_at": "2026-10-22T02:27:23.515729"
+    },
+    {
+      "item_id": "job-184",
+      "video_filename": "video_6c56cf754bfa.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:20:05.587121",
+      "completed_at": "2026-10-22T02:22:24.351234"
+    },
+    {
+      "item_id": "job-183",
+      "video_filename": "video_9d20037e73e8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:15:05.073358",
+      "completed_at": "2026-10-22T02:17:23.452219"
+    },
+    {
+      "item_id": "job-182",
+      "video_filename": "video_f483ab2abeea.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T02:10:05.373649",
+      "completed_at": "2026-10-22T02:12:23.580578"
+    },
+    {
+      "item_id": "job-181",
+      "video_filename": "video_90cb35266e18.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:05:04.709645",
+      "completed_at": "2026-10-22T02:07:23.786171"
+    },
+    {
+      "item_id": "job-180",
+      "video_filename": "video_e46abb1b6a72.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T02:00:05.215910",
+      "completed_at": "2026-10-22T02:02:23.764438"
+    },
+    {
+      "item_id": "job-179",
+      "video_filename": "video_d72c80469727.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:55:05.056089",
+      "completed_at": "2026-10-22T01:57:22.753237"
+    },
+    {
+      "item_id": "job-178",
+      "video_filename": "video_51e801abb7ff.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:50:05.094715",
+      "completed_at": "2026-10-22T01:52:22.231279"
+    },
+    {
+      "item_id": "job-177",
+      "video_filename": "video_c99202e5c51a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:45:05.181605",
+      "completed_at": "2026-10-22T01:47:22.765285"
+    },
+    {
+      "item_id": "job-176",
+      "video_filename": "video_d74a525766f7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T01:40:04.384010",
+      "completed_at": "2026-10-22T01:42:21.808231"
+    },
+    {
+      "item_id": "job-175",
+      "video_filename": "video_9a31701ba738.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:35:04.847623",
+      "completed_at": "2026-10-22T01:37:21.128198"
+    },
+    {
+      "item_id": "job-174",
+      "video_filename": "video_e6da22021fb2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:30:04.031567",
+      "completed_at": "2026-10-22T01:32:21.748941"
+    },
+    {
+      "item_id": "job-173",
+      "video_filename": "video_66dacccd59bf.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T01:25:05.053797",
+      "completed_at": "2026-10-22T01:27:22.890305"
+    },
+    {
+      "item_id": "job-172",
+      "video_filename": "video_03f7f54a360e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T01:20:04.171338",
+      "completed_at": "2026-10-22T01:22:21.583056"
+    },
+    {
+      "item_id": "job-171",
+      "video_filename": "video_6285d9a7ea5c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:15:04.966863",
+      "completed_at": "2026-10-22T01:17:22.869432"
+    },
+    {
+      "item_id": "job-170",
+      "video_filename": "video_4cf154c55983.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T01:10:04.712315",
+      "completed_at": "2026-10-22T01:12:22.372159"
+    },
+    {
+      "item_id": "job-169",
+      "video_filename": "video_af0e06aa2f4d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T01:05:04.600018",
+      "completed_at": "2026-10-22T01:07:22.298416"
+    },
+    {
+      "item_id": "job-168",
+      "video_filename": "video_6f12b6a89a63.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-22T01:00:04.430014",
+      "completed_at": "2026-10-22T01:02:21.699855"
+    },
+    {
+      "item_id": "job-167",
+      "video_filename": "video_2776bea4cc1f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T00:55:04.544562",
+      "completed_at": "2026-10-22T00:57:22.038288"
+    },
+    {
+      "item_id": "job-166",
+      "video_filename": "video_c83e02280a0c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-22T00:50:04.375487",
+      "completed_at": "2026-10-22T00:52:22.148422"
+    },
+    {
+      "item_id": "job-165",
+      "video_filename": "video_0bf0cb2c04a0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:45:04.160742",
+      "completed_at": "2026-10-22T00:47:22.650619"
+    },
+    {
+      "item_id": "job-164",
+      "video_filename": "video_ec8f04fb3d05.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:40:04.386821",
+      "completed_at": "2026-10-22T00:42:23.594615"
+    },
+    {
+      "item_id": "job-163",
+      "video_filename": "video_a0a759439155.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:35:04.245830",
+      "completed_at": "2026-10-22T00:37:22.255510"
+    },
+    {
+      "item_id": "job-162",
+      "video_filename": "video_302d5bcb2e42.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:30:03.694322",
+      "completed_at": "2026-10-22T00:32:21.144768"
+    },
+    {
+      "item_id": "job-161",
+      "video_filename": "video_ac3f52ea00f5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:25:04.198232",
+      "completed_at": "2026-10-22T00:27:22.206542"
+    },
+    {
+      "item_id": "job-160",
+      "video_filename": "video_071486b586db.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:20:04.084151",
+      "completed_at": "2026-10-22T00:22:22.018352"
+    },
+    {
+      "item_id": "job-159",
+      "video_filename": "video_fe805af69a89.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:15:03.222487",
+      "completed_at": "2026-10-22T00:17:20.527566"
+    },
+    {
+      "item_id": "job-158",
+      "video_filename": "video_8b7e04190881.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:10:03.726965",
+      "completed_at": "2026-10-22T00:12:21.340238"
+    },
+    {
+      "item_id": "job-157",
+      "video_filename": "video_e3d5f8728d88.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:05:03.615592",
+      "completed_at": "2026-10-22T00:07:21.840628"
+    },
+    {
+      "item_id": "job-156",
+      "video_filename": "video_4a49bfb1415c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-22T00:00:02.734816",
+      "completed_at": "2026-10-22T00:02:21.320691"
+    },
+    {
+      "item_id": "job-155",
+      "video_filename": "video_ad58d7ff6412.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T23:55:03.397772",
+      "completed_at": "2026-10-21T23:57:21.566700"
+    },
+    {
+      "item_id": "job-154",
+      "video_filename": "video_65395783d8d4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T23:50:03.501306",
+      "completed_at": "2026-10-21T23:52:21.993420"
+    },
+    {
+      "item_id": "job-153",
+      "video_filename": "video_73df8c228419.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T23:45:03.062072",
+      "completed_at": "2026-10-21T23:47:20.914603"
+    },
+    {
+      "item_id": "job-152",
+      "video_filename": "video_135d8b9ca896.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:40:03.403195",
+      "completed_at": "2026-10-21T23:42:21.411521"
+    },
+    {
+      "item_id": "job-151",
+      "video_filename": "video_546b79849b7e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:35:03.173702",
+      "completed_at": "2026-10-21T23:37:21.052893"
+    },
+    {
+      "item_id": "job-150",
+      "video_filename": "video_e8b79186c3c1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:30:03.164527",
+      "completed_at": "2026-10-21T23:32:21.446395"
+    },
+    {
+      "item_id": "job-149",
+      "video_filename": "video_874fc392b08c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:25:02.889196",
+      "completed_at": "2026-10-21T23:27:20.163037"
+    },
+    {
+      "item_id": "job-148",
+      "video_filename": "video_35942400cccf.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T23:20:02.700180",
+      "completed_at": "2026-10-21T23:22:20.284557"
+    },
+    {
+      "item_id": "job-147",
+      "video_filename": "video_4ee1ddbcd65a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T23:15:03.053475",
+      "completed_at": "2026-10-21T23:17:20.063501"
+    },
+    {
+      "item_id": "job-146",
+      "video_filename": "video_f09db8c957da.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:10:02.954142",
+      "completed_at": "2026-10-21T23:12:20.213539"
+    },
+    {
+      "item_id": "job-145",
+      "video_filename": "video_1857d72016c3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T23:05:02.977734",
+      "completed_at": "2026-10-21T23:07:20.635866"
+    },
+    {
+      "item_id": "job-144",
+      "video_filename": "video_8b4248ff15b6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4416 / 4416",
+      "details": null,
+      "created_at": "2026-10-21T08:00:02.580667",
+      "completed_at": "2026-10-21T08:02:15.070702"
+    },
+    {
+      "item_id": "job-143",
+      "video_filename": "video_8e9cfdba0cd1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:55:08.313596",
+      "completed_at": "2026-10-21T07:57:24.388558"
+    },
+    {
+      "item_id": "job-142",
+      "video_filename": "video_f28fe33655a8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T07:50:07.989754",
+      "completed_at": "2026-10-21T07:52:23.173109"
+    },
+    {
+      "item_id": "job-141",
+      "video_filename": "video_e40e1871a56a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:45:08.367205",
+      "completed_at": "2026-10-21T07:47:25.015036"
+    },
+    {
+      "item_id": "job-140",
+      "video_filename": "video_167767233ad1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:40:08.478598",
+      "completed_at": "2026-10-21T07:42:24.846249"
+    },
+    {
+      "item_id": "job-139",
+      "video_filename": "video_a35f4f7b9f02.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T07:35:07.718646",
+      "completed_at": "2026-10-21T07:37:24.470202"
+    },
+    {
+      "item_id": "job-138",
+      "video_filename": "video_05249da55a61.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T07:30:08.184737",
+      "completed_at": "2026-10-21T07:32:23.935942"
+    },
+    {
+      "item_id": "job-137",
+      "video_filename": "video_7b4166d59dac.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:25:08.239884",
+      "completed_at": "2026-10-21T07:27:24.078959"
+    },
+    {
+      "item_id": "job-136",
+      "video_filename": "video_5cdf9a973b36.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:20:08.131884",
+      "completed_at": "2026-10-21T07:22:23.227087"
+    },
+    {
+      "item_id": "job-135",
+      "video_filename": "video_e9f10e2f7007.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:15:08.099617",
+      "completed_at": "2026-10-21T07:17:23.330134"
+    },
+    {
+      "item_id": "job-134",
+      "video_filename": "video_9063ca1dd562.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:10:08.012181",
+      "completed_at": "2026-10-21T07:12:23.234745"
+    },
+    {
+      "item_id": "job-133",
+      "video_filename": "video_8546ccde70e8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:05:07.870827",
+      "completed_at": "2026-10-21T07:07:23.048013"
+    },
+    {
+      "item_id": "job-132",
+      "video_filename": "video_cf2cd0c0d4fa.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T07:00:07.549064",
+      "completed_at": "2026-10-21T07:02:23.322519"
+    },
+    {
+      "item_id": "job-131",
+      "video_filename": "video_777e8b352711.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T06:55:07.817428",
+      "completed_at": "2026-10-21T06:57:23.194987"
+    },
+    {
+      "item_id": "job-130",
+      "video_filename": "video_36b63249d613.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:50:07.831591",
+      "completed_at": "2026-10-21T06:52:23.511422"
+    },
+    {
+      "item_id": "job-129",
+      "video_filename": "video_5a3df6ab3032.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:45:07.273654",
+      "completed_at": "2026-10-21T06:47:22.446779"
+    },
+    {
+      "item_id": "job-128",
+      "video_filename": "video_5b15c1e86b33.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:40:07.831671",
+      "completed_at": "2026-10-21T06:42:23.364349"
+    },
+    {
+      "item_id": "job-127",
+      "video_filename": "video_0cc5eb1be1be.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T06:35:07.227317",
+      "completed_at": "2026-10-21T06:37:22.205677"
+    },
+    {
+      "item_id": "job-126",
+      "video_filename": "video_56d444ce81db.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:30:07.398397",
+      "completed_at": "2026-10-21T06:32:22.667274"
+    },
+    {
+      "item_id": "job-125",
+      "video_filename": "video_eace83255119.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:25:07.349773",
+      "completed_at": "2026-10-21T06:27:22.901482"
+    },
+    {
+      "item_id": "job-124",
+      "video_filename": "video_98ca0d62f99d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T06:20:06.968653",
+      "completed_at": "2026-10-21T06:22:22.032957"
+    },
+    {
+      "item_id": "job-123",
+      "video_filename": "video_866d83ce77d2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T06:15:07.300028",
+      "completed_at": "2026-10-21T06:17:22.632783"
+    },
+    {
+      "item_id": "job-122",
+      "video_filename": "video_3064155a5dc2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T06:10:07.213920",
+      "completed_at": "2026-10-21T06:12:23.000826"
+    },
+    {
+      "item_id": "job-121",
+      "video_filename": "video_65f93f90b25d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T06:05:07.682486",
+      "completed_at": "2026-10-21T06:07:23.251853"
+    },
+    {
+      "item_id": "job-120",
+      "video_filename": "video_54a20349f9b9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T06:00:07.110168",
+      "completed_at": "2026-10-21T06:02:22.291652"
+    },
+    {
+      "item_id": "job-119",
+      "video_filename": "video_2ff9a91e54d6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T05:55:07.023220",
+      "completed_at": "2026-10-21T05:57:22.475610"
+    },
+    {
+      "item_id": "job-118",
+      "video_filename": "video_472d6536e25f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:50:07.026104",
+      "completed_at": "2026-10-21T05:52:22.001686"
+    },
+    {
+      "item_id": "job-117",
+      "video_filename": "video_62561edc0ce6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:45:06.784000",
+      "completed_at": "2026-10-21T05:47:22.373227"
+    },
+    {
+      "item_id": "job-116",
+      "video_filename": "video_3d65387b7273.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:40:06.829751",
+      "completed_at": "2026-10-21T05:42:23.037584"
+    },
+    {
+      "item_id": "job-115",
+      "video_filename": "video_9ad69015ec7f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:35:06.798162",
+      "completed_at": "2026-10-21T05:37:22.635527"
+    },
+    {
+      "item_id": "job-114",
+      "video_filename": "video_2929dc5585a6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T05:30:06.894154",
+      "completed_at": "2026-10-21T05:32:22.871156"
+    },
+    {
+      "item_id": "job-113",
+      "video_filename": "video_d131e28e90da.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:25:06.754241",
+      "completed_at": "2026-10-21T05:27:22.739070"
+    },
+    {
+      "item_id": "job-112",
+      "video_filename": "video_0f482a8ac834.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T05:20:06.356120",
+      "completed_at": "2026-10-21T05:22:21.986576"
+    },
+    {
+      "item_id": "job-111",
+      "video_filename": "video_8c1608bb55e7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T05:15:06.695113",
+      "completed_at": "2026-10-21T05:17:22.178338"
+    },
+    {
+      "item_id": "job-110",
+      "video_filename": "video_e9fc7f15a7a2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:10:06.671370",
+      "completed_at": "2026-10-21T05:12:22.937779"
+    },
+    {
+      "item_id": "job-109",
+      "video_filename": "video_394955b0ca57.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T05:05:06.594727",
+      "completed_at": "2026-10-21T05:07:22.316861"
+    },
+    {
+      "item_id": "job-108",
+      "video_filename": "video_ccb47979b7b2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T05:00:06.241465",
+      "completed_at": "2026-10-21T05:02:22.353067"
+    },
+    {
+      "item_id": "job-107",
+      "video_filename": "video_9496a6559b83.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T04:55:05.816637",
+      "completed_at": "2026-10-21T04:57:22.254450"
+    },
+    {
+      "item_id": "job-106",
+      "video_filename": "video_c5cafa3ea6ea.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:50:06.168624",
+      "completed_at": "2026-10-21T04:52:24.474254"
+    },
+    {
+      "item_id": "job-105",
+      "video_filename": "video_c6f8243d6235.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:45:06.158600",
+      "completed_at": "2026-10-21T04:47:20.961728"
+    },
+    {
+      "item_id": "job-104",
+      "video_filename": "video_a28769fcf204.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:38:08.861982",
+      "completed_at": "2026-10-21T04:42:36.701199"
+    },
+    {
+      "item_id": "job-103",
+      "video_filename": "video_8ad7d29fdbbb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:33:38.395530",
+      "completed_at": "2026-10-21T04:37:21.682660"
+    },
+    {
+      "item_id": "job-102",
+      "video_filename": "video_23ecc69b8594.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:30:05.869379",
+      "completed_at": "2026-10-21T04:32:20.255451"
+    },
+    {
+      "item_id": "job-101",
+      "video_filename": "video_bb42b1be6169.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:25:05.804307",
+      "completed_at": "2026-10-21T04:27:20.202103"
+    },
+    {
+      "item_id": "job-100",
+      "video_filename": "video_89cfd9629b0c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:18:18.378905",
+      "completed_at": "2026-10-21T04:22:20.296368"
+    },
+    {
+      "item_id": "job-99",
+      "video_filename": "video_cdd0c727ab38.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:15:05.356730",
+      "completed_at": "2026-10-21T04:17:19.888962"
+    },
+    {
+      "item_id": "job-98",
+      "video_filename": "video_26fed94759a6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T04:10:05.621987",
+      "completed_at": "2026-10-21T04:12:19.965536"
+    },
+    {
+      "item_id": "job-97",
+      "video_filename": "video_ac94ca37a04d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T04:03:23.917772",
+      "completed_at": "2026-10-21T04:07:20.216167"
+    },
+    {
+      "item_id": "job-96",
+      "video_filename": "video_b53a7572f37e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:57:27.640307",
+      "completed_at": "2026-10-21T04:02:20.679090"
+    },
+    {
+      "item_id": "job-95",
+      "video_filename": "video_7593b6ec797e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:53:06.991198",
+      "completed_at": "2026-10-21T03:57:19.884740"
+    },
+    {
+      "item_id": "job-94",
+      "video_filename": "video_b389c49ed8fc.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:48:47.004665",
+      "completed_at": "2026-10-21T03:52:20.409093"
+    },
+    {
+      "item_id": "job-93",
+      "video_filename": "video_3afec47cfdc9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T03:42:32.605386",
+      "completed_at": "2026-10-21T03:47:20.395220"
+    },
+    {
+      "item_id": "job-92",
+      "video_filename": "video_e25a1793778a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:37:20.474987",
+      "completed_at": "2026-10-21T03:42:20.583618"
+    },
+    {
+      "item_id": "job-91",
+      "video_filename": "video_fd0e69df53e6.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:33:26.740113",
+      "completed_at": "2026-10-21T03:37:20.345414"
+    },
+    {
+      "item_id": "job-90",
+      "video_filename": "video_2e3d93921a7c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:27:45.025974",
+      "completed_at": "2026-10-21T03:32:20.230136"
+    },
+    {
+      "item_id": "job-89",
+      "video_filename": "video_a6b329e2629b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:22:27.262981",
+      "completed_at": "2026-10-21T03:27:19.835319"
+    },
+    {
+      "item_id": "job-88",
+      "video_filename": "video_a2d661b06f59.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:17:39.936660",
+      "completed_at": "2026-10-21T03:22:20.117727"
+    },
+    {
+      "item_id": "job-87",
+      "video_filename": "video_c8ed50064ad3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T03:12:33.834874",
+      "completed_at": "2026-10-21T03:17:19.991407"
+    },
+    {
+      "item_id": "job-86",
+      "video_filename": "video_91c9a491f213.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:07:38.184807",
+      "completed_at": "2026-10-21T03:12:20.085673"
+    },
+    {
+      "item_id": "job-85",
+      "video_filename": "video_7ff9accd8c17.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:03:23.021158",
+      "completed_at": "2026-10-21T03:07:20.017510"
+    },
+    {
+      "item_id": "job-84",
+      "video_filename": "video_a69ee22a17a8.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T03:00:04.881644",
+      "completed_at": "2026-10-21T03:02:19.679975"
+    },
+    {
+      "item_id": "job-83",
+      "video_filename": "video_5716073fa279.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:53:03.668468",
+      "completed_at": "2026-10-21T02:57:19.059361"
+    },
+    {
+      "item_id": "job-82",
+      "video_filename": "video_8d8009abaf16.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:48:18.282444",
+      "completed_at": "2026-10-21T02:52:19.637526"
+    },
+    {
+      "item_id": "job-81",
+      "video_filename": "video_b0dc6bcc3f51.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:42:50.257970",
+      "completed_at": "2026-10-21T02:47:19.854051"
+    },
+    {
+      "item_id": "job-80",
+      "video_filename": "video_298416ad1cfe.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T02:38:33.274972",
+      "completed_at": "2026-10-21T02:42:20.389823"
+    },
+    {
+      "item_id": "job-79",
+      "video_filename": "video_3152cb59abf4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:33:15.304562",
+      "completed_at": "2026-10-21T02:37:21.038605"
+    },
+    {
+      "item_id": "job-78",
+      "video_filename": "video_18d5a7adcafd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:27:24.913033",
+      "completed_at": "2026-10-21T02:32:19.618747"
+    },
+    {
+      "item_id": "job-77",
+      "video_filename": "video_adfc76bdf422.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:24:16.862678",
+      "completed_at": "2026-10-21T02:27:20.106743"
+    },
+    {
+      "item_id": "job-76",
+      "video_filename": "video_f2360a0251ee.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:20:04.203187",
+      "completed_at": "2026-10-21T02:22:20.204714"
+    },
+    {
+      "item_id": "job-75",
+      "video_filename": "video_603596c6be9d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T02:15:04.169684",
+      "completed_at": "2026-10-21T02:17:19.851894"
+    },
+    {
+      "item_id": "job-74",
+      "video_filename": "video_efe7688a5b25.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:10:03.903776",
+      "completed_at": "2026-10-21T02:12:19.347789"
+    },
+    {
+      "item_id": "job-73",
+      "video_filename": "video_d27cef379ced.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T02:05:04.120845",
+      "completed_at": "2026-10-21T02:07:19.374061"
+    },
+    {
+      "item_id": "job-72",
+      "video_filename": "video_77c48da58181.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T02:00:04.109601",
+      "completed_at": "2026-10-21T02:02:20.220608"
+    },
+    {
+      "item_id": "job-71",
+      "video_filename": "video_920a8e31a475.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:55:03.805148",
+      "completed_at": "2026-10-21T01:57:20.051056"
+    },
+    {
+      "item_id": "job-70",
+      "video_filename": "video_8b95ca476336.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T01:50:04.027499",
+      "completed_at": "2026-10-21T01:52:19.164121"
+    },
+    {
+      "item_id": "job-69",
+      "video_filename": "video_042cd1ebab0d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T01:43:30.426618",
+      "completed_at": "2026-10-21T01:47:19.421656"
+    },
+    {
+      "item_id": "job-68",
+      "video_filename": "video_fb032ad78436.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:39:11.180743",
+      "completed_at": "2026-10-21T01:42:19.169950"
+    },
+    {
+      "item_id": "job-67",
+      "video_filename": "video_90a41fbd85a3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T01:35:03.842866",
+      "completed_at": "2026-10-21T01:37:19.850092"
+    },
+    {
+      "item_id": "job-66",
+      "video_filename": "video_8f093c12d1ec.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T01:30:03.764293",
+      "completed_at": "2026-10-21T01:32:19.409283"
+    },
+    {
+      "item_id": "job-65",
+      "video_filename": "video_1822a60d634e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:25:03.937515",
+      "completed_at": "2026-10-21T01:27:19.729223"
+    },
+    {
+      "item_id": "job-64",
+      "video_filename": "video_2663977579a5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4502 / 4502",
+      "details": null,
+      "created_at": "2026-10-21T01:20:03.682017",
+      "completed_at": "2026-10-21T01:22:18.892759"
+    },
+    {
+      "item_id": "job-63",
+      "video_filename": "video_bc93c88003cb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:15:04.040242",
+      "completed_at": "2026-10-21T01:17:19.662574"
+    },
+    {
+      "item_id": "job-62",
+      "video_filename": "video_2ae6ffd2a354.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:10:04.304408",
+      "completed_at": "2026-10-21T01:12:19.794874"
+    },
+    {
+      "item_id": "job-61",
+      "video_filename": "video_e82736f2b2aa.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T01:05:03.446610",
+      "completed_at": "2026-10-21T01:07:18.695312"
+    },
+    {
+      "item_id": "job-60",
+      "video_filename": "video_d2df7f19cc18.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T01:00:03.460268",
+      "completed_at": "2026-10-21T01:02:18.172943"
+    },
+    {
+      "item_id": "job-59",
+      "video_filename": "video_0cfd0db3c96a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:53:29.462598",
+      "completed_at": "2026-10-21T00:57:25.740787"
+    },
+    {
+      "item_id": "job-58",
+      "video_filename": "video_a3903a08290f.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:50:03.333826",
+      "completed_at": "2026-10-21T00:52:19.087099"
+    },
+    {
+      "item_id": "job-57",
+      "video_filename": "video_b2613f1cab48.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:45:03.722491",
+      "completed_at": "2026-10-21T00:47:18.945225"
+    },
+    {
+      "item_id": "job-56",
+      "video_filename": "video_ab63a591015d.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T00:40:03.317355",
+      "completed_at": "2026-10-21T00:42:19.367815"
+    },
+    {
+      "item_id": "job-55",
+      "video_filename": "video_65081f2bbb05.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:35:03.115040",
+      "completed_at": "2026-10-21T00:37:17.942580"
+    },
+    {
+      "item_id": "job-54",
+      "video_filename": "video_93f12328d255.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:30:03.081632",
+      "completed_at": "2026-10-21T00:32:17.546647"
+    },
+    {
+      "item_id": "job-53",
+      "video_filename": "video_b31c24df563e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:25:03.030393",
+      "completed_at": "2026-10-21T00:27:18.068885"
+    },
+    {
+      "item_id": "job-52",
+      "video_filename": "video_d57ce9dd68e0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:20:03.060814",
+      "completed_at": "2026-10-21T00:22:18.262886"
+    },
+    {
+      "item_id": "job-51",
+      "video_filename": "video_b775fa96fb6e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T00:15:02.853448",
+      "completed_at": "2026-10-21T00:17:18.396917"
+    },
+    {
+      "item_id": "job-50",
+      "video_filename": "video_37cdb075dc10.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:10:03.004077",
+      "completed_at": "2026-10-21T00:12:18.251262"
+    },
+    {
+      "item_id": "job-49",
+      "video_filename": "video_bf7a812c36c7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-21T00:05:03.523296",
+      "completed_at": "2026-10-21T00:07:18.531188"
+    },
+    {
+      "item_id": "job-48",
+      "video_filename": "video_11c057d88147.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-21T00:00:02.928556",
+      "completed_at": "2026-10-21T00:02:17.876337"
+    },
+    {
+      "item_id": "job-47",
+      "video_filename": "video_c22b65041560.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:55:02.770754",
+      "completed_at": "2026-10-20T23:57:18.189798"
+    },
+    {
+      "item_id": "job-46",
+      "video_filename": "video_c14496c77c67.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:50:02.928574",
+      "completed_at": "2026-10-20T23:52:18.363827"
+    },
+    {
+      "item_id": "job-45",
+      "video_filename": "video_4b5e526937e3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:45:02.683339",
+      "completed_at": "2026-10-20T23:47:17.710597"
+    },
+    {
+      "item_id": "job-44",
+      "video_filename": "video_189e6e06d1d5.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:40:02.501678",
+      "completed_at": "2026-10-20T23:42:18.029086"
+    },
+    {
+      "item_id": "job-43",
+      "video_filename": "video_e523bf0eaec9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:35:02.555877",
+      "completed_at": "2026-10-20T23:37:18.129150"
+    },
+    {
+      "item_id": "job-42",
+      "video_filename": "video_c5df5abb4bee.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:30:02.523426",
+      "completed_at": "2026-10-20T23:32:18.052668"
+    },
+    {
+      "item_id": "job-41",
+      "video_filename": "video_4e6d778e2bbc.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-20T23:25:02.451747",
+      "completed_at": "2026-10-20T23:27:18.121010"
+    },
+    {
+      "item_id": "job-40",
+      "video_filename": "video_85199e05b150.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:20:02.410853",
+      "completed_at": "2026-10-20T23:22:18.242658"
+    },
+    {
+      "item_id": "job-39",
+      "video_filename": "video_a4da159925c0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-20T23:15:02.415534",
+      "completed_at": "2026-10-20T23:17:18.105020"
+    },
+    {
+      "item_id": "job-38",
+      "video_filename": "video_8dc92a436d4b.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4500 / 4500",
+      "details": null,
+      "created_at": "2026-10-20T23:10:02.301092",
+      "completed_at": "2026-10-20T23:12:18.128152"
+    },
+    {
+      "item_id": "job-37",
+      "video_filename": "video_8f88c1093e9c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T23:05:02.174294",
+      "completed_at": "2026-10-20T23:07:21.554934"
+    },
+    {
+      "item_id": "job-36",
+      "video_filename": "sample_video.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9011 / 9011",
+      "details": null,
+      "created_at": "2026-10-20T06:58:18.598235",
+      "completed_at": "2026-10-20T07:08:42.894458"
+    },
+    {
+      "item_id": "job-35",
+      "video_filename": "video.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "4501 / 4501",
+      "details": null,
+      "created_at": "2026-10-20T05:12:54.183577",
+      "completed_at": "2026-10-20T05:25:24.232699"
+    },
+    {
+      "item_id": "job-34",
+      "video_filename": "chickensee-test-20261020-003305-839188_4cafd47d67aa.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-20T05:10:42.282158",
+      "completed_at": "2026-10-20T05:12:54.115976"
+    },
+    {
+      "item_id": "job-33",
+      "video_filename": "chickensee-test-20261019-235825-717849_f6a6379c6e4a.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-20T05:07:55.018161",
+      "completed_at": "2026-10-20T05:10:42.203754"
+    },
+    {
+      "item_id": "job-32",
+      "video_filename": "chickensee-test-20261019-231911-552629_0dfcd2fc47a2.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-20T05:07:45.437821",
+      "completed_at": "2026-10-20T05:07:54.933729"
+    },
+    {
+      "item_id": "job-31",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297_aa7f1ee0fc37.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-20T05:07:34.980038",
+      "completed_at": "2026-10-20T05:07:45.286751"
+    },
+    {
+      "item_id": "job-30",
+      "video_filename": "chickensee-test-20261020-003058-771050_34897f7577bb.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "817 / 817",
+      "details": null,
+      "created_at": "2026-10-20T05:07:01.347977",
+      "completed_at": "2026-10-20T05:07:34.834092"
+    },
+    {
+      "item_id": "job-29",
+      "video_filename": "1786430727108_0_97552f0283fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1478 / 1478",
+      "details": null,
+      "created_at": "2026-10-20T05:05:50.738389",
+      "completed_at": "2026-10-20T05:07:01.270084"
+    },
+    {
+      "item_id": "job-28",
+      "video_filename": "chickensee-test-20261019-231747-490373_9a2b31d34bcc.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-20T05:05:27.646911",
+      "completed_at": "2026-10-20T05:05:50.643385"
+    },
+    {
+      "item_id": "job-27",
+      "video_filename": "chickensee-test-20261019-231047-761742_55b2be852f3e.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-20T05:04:49.712767",
+      "completed_at": "2026-10-20T05:05:27.573358"
+    },
+    {
+      "item_id": "job-26",
+      "video_filename": "recording_01a2c54134a9.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-20T03:06:33.674795",
+      "completed_at": "2026-10-20T03:11:00.211153"
+    },
+    {
+      "item_id": "job-25",
+      "video_filename": "recording_557cb97eee7b.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "0 / 2200",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-20T03:06:26.853184",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-24",
+      "video_filename": "recording.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "0 / 2200",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-20T03:06:20.240296",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-23",
+      "video_filename": "rec_2026 - 10-20_10-00-00_000000.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 19.8,
+      "frames": "4300 / 21720",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-20T02:59:22.142957",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-22",
+      "video_filename": "chickensee-test-20261020-003305-839188.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-19T16:33:06.075115",
+      "completed_at": "2026-10-19T16:37:48.199588"
+    },
+    {
+      "item_id": "job-21",
+      "video_filename": "chickensee-test-20261020-003058-771050.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "817 / 817",
+      "details": null,
+      "created_at": "2026-10-19T16:30:59.013972",
+      "completed_at": "2026-10-19T16:32:24.440828"
+    },
+    {
+      "item_id": "job-20",
+      "video_filename": "chickensee-test-20261019-235825-717849.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-19T15:58:25.915467",
+      "completed_at": "2026-10-19T15:59:48.010002"
+    },
+    {
+      "item_id": "job-19",
+      "video_filename": "chickensee-test-20261019-231911-552629.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-19T15:19:11.730073",
+      "completed_at": "2026-10-19T15:19:18.427648"
+    },
+    {
+      "item_id": "job-18",
+      "video_filename": "chickensee-test-20261019-231747-490373.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-19T15:17:47.629317",
+      "completed_at": "2026-10-19T15:17:57.210986"
+    },
+    {
+      "item_id": "job-17",
+      "video_filename": "chickensee-test-20261019-231047-761742.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-19T15:10:47.913117",
+      "completed_at": "2026-10-19T15:10:57.877347"
+    },
+    {
+      "item_id": "job-16",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297_d7d740e7717c.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-18T07:40:41.164693",
+      "completed_at": "2026-10-18T07:40:51.704654"
+    },
+    {
+      "item_id": "job-15",
+      "video_filename": "vid1_00f2d24c0365.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "21720 / 21720",
+      "details": null,
+      "created_at": "2026-10-17T14:31:52.473673",
+      "completed_at": "2026-10-17T14:42:13.011469"
+    },
+    {
+      "item_id": "job-14",
+      "video_filename": "f7918c6a-c4f7-4b01-80da-9ffd2a865eb4.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "317 / 317",
+      "details": null,
+      "created_at": "2026-10-16T13:00:03.820520",
+      "completed_at": "2026-10-16T13:00:35.323961"
+    },
+    {
+      "item_id": "job-13",
+      "video_filename": "17864314785811786431031142_0_4d5188b14863.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "817 / 817",
+      "details": null,
+      "created_at": "2026-10-16T07:38:39.777479",
+      "completed_at": "2026-10-16T07:39:07.697230"
+    },
+    {
+      "item_id": "job-12",
+      "video_filename": "17851124658861785112438868_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "277 / 277",
+      "details": null,
+      "created_at": "2026-10-15T15:54:39.623410",
+      "completed_at": "2026-10-15T15:54:47.327222"
+    },
+    {
+      "item_id": "job-11",
+      "video_filename": "lv_0_20261006140110.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-10-15T14:48:21.550895",
+      "completed_at": "2026-10-18T08:28:23.043773"
+    },
+    {
+      "item_id": "job-10",
+      "video_filename": "2f2a498e-ad56-428e-8bd6-776e5e2011f3.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "55 / 55",
+      "details": null,
+      "created_at": "2026-10-15T14:46:39.541430",
+      "completed_at": "2026-10-17T14:16:58.436962"
+    },
+    {
+      "item_id": "job-9",
+      "video_filename": "1786430727108_0_f9a3d945a2db.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1478 / 1478",
+      "details": null,
+      "created_at": "2026-10-15T14:34:24.870486",
+      "completed_at": "2026-10-17T14:20:46.222943"
+    },
+    {
+      "item_id": "job-8",
+      "video_filename": "48f95267-a3be-45a8-aea3-cccc8c413297.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "122 / 122",
+      "details": null,
+      "created_at": "2026-10-15T13:39:31.040924",
+      "completed_at": "2026-10-15T13:39:37.451620"
+    },
+    {
+      "item_id": "job-7",
+      "video_filename": "20260914_110756_tp00013.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 13.4,
+      "frames": "2400 / 17880",
+      "details": "Cancelled by user.",
+      "created_at": "2026-10-15T13:14:07.794574",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-6",
+      "video_filename": "1788751142658_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1652",
+      "details": null,
+      "created_at": "2026-10-15T13:11:06.474402",
+      "completed_at": "2026-10-15T13:14:07.525380"
+    },
+    {
+      "item_id": "job-5",
+      "video_filename": "chickensee-test-20261015-210612-302629.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 277",
+      "details": null,
+      "created_at": "2026-10-15T13:10:36.803523",
+      "completed_at": "2026-10-15T13:11:06.346724"
+    },
+    {
+      "item_id": "job-4",
+      "video_filename": "vid1.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 21720",
+      "details": null,
+      "created_at": "2026-10-15T08:23:24.322279",
+      "completed_at": "2026-10-15T13:10:36.647357"
+    },
+    {
+      "item_id": "job-3",
+      "video_filename": "17864314785811786431031142_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 817",
+      "details": null,
+      "created_at": "2026-10-15T08:23:04.309431",
+      "completed_at": "2026-10-15T08:23:24.262722"
+    },
+    {
+      "item_id": "job-2",
+      "video_filename": "1786430727108_0_1228230ce4fd.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1478",
+      "details": null,
+      "created_at": "2026-10-15T08:22:29.136919",
+      "completed_at": "2026-10-15T08:23:04.251214"
+    },
+    {
+      "item_id": "job-1",
+      "video_filename": "1786430727108_0.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "None / 1478",
+      "details": null,
+      "created_at": "2026-10-15T08:21:53.707735",
+      "completed_at": "2026-10-15T08:22:29.081378"
+    }
+  ]
 }

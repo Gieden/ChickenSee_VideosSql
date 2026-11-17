@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
 import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
+import { openDatabaseFromBytes } from '@/lib/db-viewer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -112,7 +115,7 @@ async function getLocalQueueResponse() {
   if (process.env.VERCEL) return null;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1200);
+  const timeout = setTimeout(() => controller.abort(), 3500);
   try {
     const localRes = await fetch('http://127.0.0.1:8000/queue?limit=500', {
       signal: controller.signal,
@@ -172,6 +175,114 @@ async function getLocalQueueResponse() {
   }
 }
 
+async function getDirectLocalDbQueueResponse() {
+  if (process.env.VERCEL) return null;
+  const dbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
+  if (!fs.existsSync(dbPath)) return null;
+
+  let db: any = null;
+  try {
+    const buf = fs.readFileSync(dbPath);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    db = await openDatabaseFromBytes(ab);
+    const execRes = db.exec(`
+      SELECT id, video_filename, video_path, status, progress_frames, total_frames, error_message, created_at, completed_at
+      FROM processing_jobs
+      ORDER BY id DESC
+      LIMIT 500
+    `);
+    const rows: any[] = [];
+    if (execRes.length > 0 && execRes[0].values) {
+      const cols = execRes[0].columns;
+      for (const valRow of execRes[0].values) {
+        const obj: Record<string, any> = {};
+        cols.forEach((col: string, i: number) => { obj[col] = valRow[i]; });
+        rows.push(obj);
+      }
+    }
+
+    const maxCompletedId = rows.reduce((maxId, r) => (
+      String(r.status || '').toUpperCase() === 'COMPLETED' && r.id > maxId ? r.id : maxId
+    ), 0);
+
+    const mappedItems = rows.map((row) => {
+      let st = String(row.status || 'COMPLETED').toUpperCase();
+      // If an older job was left in PROCESSING while newer jobs already completed, mark it COMPLETED/CANCELLED
+      if (st === 'PROCESSING' && row.id < maxCompletedId) {
+        st = row.total_frames && row.progress_frames >= row.total_frames ? 'COMPLETED' : 'CANCELLED';
+      }
+      const totalF = Number(row.total_frames) || 0;
+      const progF = st === 'COMPLETED' && totalF > 0 ? totalF : (Number(row.progress_frames) || 0);
+      const pct = st === 'COMPLETED'
+        ? 100
+        : totalF > 0
+          ? Number(((progF / totalF) * 100).toFixed(1))
+          : null;
+      const toIso = (val: any) => {
+        if (!val) return null;
+        const s = String(val).trim();
+        return s.includes('T') ? s : s.replace(' ', 'T');
+      };
+      return {
+        item_id: `job-${row.id}`,
+        job_id: row.id,
+        video_filename: row.video_filename,
+        status: st,
+        progress_percent: pct,
+        frames: totalF > 0 ? `${progF} / ${totalF}` : '—',
+        details: row.error_message || null,
+        created_at: toIso(row.created_at),
+        completed_at: toIso(row.completed_at),
+      };
+    });
+
+    const active = mappedItems.find((item) => item.status === 'PROCESSING') || null;
+    let activeDetection: any = null;
+    if (active) {
+      const detPath = path.join('C:', 'Users', 'Kairi', 'Documents', 'ChickenSee_Local_Storage', 'results', 'detection_status.json');
+      if (fs.existsSync(detPath)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(detPath, 'utf-8'));
+          if (parsed && parsed.job_id === active.job_id) {
+            activeDetection = parsed;
+          }
+        } catch {}
+      }
+    }
+
+    const summary = {
+      processing: mappedItems.filter((i) => i.status === 'PROCESSING').length,
+      queued: mappedItems.filter((i) => i.status === 'QUEUED').length,
+      waiting: mappedItems.filter((i) => i.status === 'WAITING').length,
+      completed: mappedItems.filter((i) => i.status === 'COMPLETED').length,
+      failed: mappedItems.filter((i) => i.status === 'FAILED').length,
+      cancelled: mappedItems.filter((i) => i.status === 'CANCELLED').length,
+    };
+
+    const isQueueing = summary.processing + summary.queued + summary.waiting > 0;
+    return NextResponse.json({
+      source: 'local-sqlite',
+      updated_at: new Date().toISOString(),
+      source_stale: false,
+      source_age_seconds: 0,
+      is_queueing: isQueueing,
+      active_video: active?.video_filename || null,
+      active_progress: active?.progress_percent ?? null,
+      active_frames: active?.frames ?? null,
+      active_detection: activeDetection,
+      summary,
+      items: mappedItems,
+    }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+  } catch (err) {
+    console.error('Direct SQLite queue check failed:', err);
+    return null;
+  } finally {
+    if (db) {
+      try { db.close(); } catch {}
+    }
+  }
+}
+
 export async function GET(req: NextRequest) {
   const token = req.cookies.get(AUTH_COOKIE_NAME)?.value;
   if (!verifySessionToken(token)) {
@@ -180,6 +291,9 @@ export async function GET(req: NextRequest) {
 
   const localQueue = await getLocalQueueResponse();
   if (localQueue) return localQueue;
+
+  const directDbQueue = await getDirectLocalDbQueueResponse();
+  if (directDbQueue) return directDbQueue;
 
   // The queue has a fixed storage path, so fetch it directly instead of relying on listing.
   try {
@@ -201,14 +315,35 @@ export async function GET(req: NextRequest) {
     try {
       const recoveredHistory = await recoverCompletedHistory(items);
       items.push(...recoveredHistory);
-      const completedItems = items.filter(
-        (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
-      ).length;
-      summary.completed = Math.max(summary.completed, completedItems);
     } catch (error) {
       console.error('Failed to recover queue history from synchronized analysis reports:', error);
       historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
     }
+
+    // Demote stale PROCESSING ghost items if newer jobs have already completed
+    const latestCompletedMs = items.reduce((latest, it) => {
+      if (String(it.status || '').toUpperCase() !== 'COMPLETED') return latest;
+      const ms = Date.parse(String(it.completed_at || it.created_at || ''));
+      return Number.isFinite(ms) && ms > latest ? ms : latest;
+    }, 0);
+    for (const item of items) {
+      if (String(item.status || '').toUpperCase() === 'PROCESSING') {
+        const createdMs = Date.parse(String(item.created_at || ''));
+        if (Number.isFinite(createdMs) && latestCompletedMs > createdMs + 60_000) {
+          item.status = 'COMPLETED';
+          item.progress_percent = 100;
+          item.completed_at = item.completed_at || item.created_at;
+        }
+      }
+    }
+
+    const completedItems = items.filter(
+      (item) => String(item.status || '').toUpperCase() === 'COMPLETED',
+    ).length;
+    summary.completed = Math.max(summary.completed, completedItems);
+    summary.processing = items.filter(
+      (item) => String(item.status || '').toUpperCase() === 'PROCESSING',
+    ).length;
     const activeAndPendingItems = items.filter((item) =>
       ['PROCESSING', 'QUEUED', 'WAITING'].includes(String(item.status || '').toUpperCase()),
     );

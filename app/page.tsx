@@ -821,9 +821,18 @@ function DetectionQueueList({
         active.push(item);
       } else {
         history.push(item);
-        const label = getQueueItemDateLabel(item);
-        counts.set(label, (counts.get(label) || 0) + 1);
       }
+    }
+
+    history.sort((a, b) => {
+      const tB = Date.parse(String(b.completed_at || b.queued_at || b.created_at || '')) || 0;
+      const tA = Date.parse(String(a.completed_at || a.queued_at || a.created_at || '')) || 0;
+      return tB - tA;
+    });
+
+    for (const item of history) {
+      const label = getQueueItemDateLabel(item);
+      counts.set(label, (counts.get(label) || 0) + 1);
     }
 
     const datesList = Array.from(counts.keys());
@@ -1428,7 +1437,7 @@ export default function DashboardPage() {
     queueRequestInFlight.current = true;
     try {
       setLoadingQueue(true);
-      const res = await fetch('/api/queue');
+      const res = await fetch('/api/queue', { cache: 'no-store' });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -1459,11 +1468,10 @@ export default function DashboardPage() {
   }, [fetchQueueStatus, fetchResults]);
 
   useEffect(() => {
-    // When actively queueing videos, poll responsive 3s interval.
-    // When queue is idle, poll every 10s on queue tab, 25s on other tabs.
+    // Poll responsive 2s-4s interval on queue tab for real-time updates.
     const pollInterval = activeTab === 'queue'
-      ? (queueStatus?.is_queueing ? 3_000 : 10_000)
-      : (queueStatus?.is_queueing ? 6_000 : 25_000);
+      ? (queueStatus?.is_queueing ? 2_000 : 4_000)
+      : (queueStatus?.is_queueing ? 4_000 : 8_000);
     const queueTimer = setInterval(() => { fetchQueueStatus(); }, pollInterval);
     return () => clearInterval(queueTimer);
   }, [activeTab, fetchQueueStatus, queueStatus?.is_queueing]);

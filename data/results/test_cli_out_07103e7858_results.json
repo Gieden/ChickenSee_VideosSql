@@ -1,0 +1,66 @@
+{
+  "job_id": 39,
+  "source_video": "test_cli_out.mp4",
+  "source_path": "C:\\Users\\Kairi\\Documents\\ChickenSee_Videos(sql)\\agent\\data\\test_cli_out.mp4",
+  "detected_video": "C:\\Users\\Kairi\\Documents\\ChickenSee_Local_Storage\\videos\\test_cli_out_detected.mp4",
+  "processed_at": "2026-10-27T01:07:07.946742",
+  "window": {
+    "start": "2026-10-27T01:07:00.333505",
+    "end": "2026-10-27T01:07:02.279519"
+  },
+  "chunks": [
+    {
+      "date_slot": "2026-10-27",
+      "hour_slot": "01:00",
+      "chunk_index": 1,
+      "chunk_start": "2026-10-27T01:07:00.333505",
+      "chunk_end": "2026-10-27T01:07:02.279519",
+      "temp_avg_c": null,
+      "temp_min_c": null,
+      "temp_max_c": null,
+      "humidity_avg_pct": null,
+      "humidity_min_pct": null,
+      "humidity_max_pct": null,
+      "ammonia_ppm_avg": null,
+      "ammonia_ppm_max": null,
+      "lux_avg": null,
+      "thi_avg": null,
+      "heat_stress_level": "Unavailable",
+      "sensor_data_available": false,
+      "unique_birds_tracked": 1,
+      "avg_birds_in_frame": 0.2,
+      "flock_mobility_px_s": 92.1,
+      "feeding_time_total_s": 0.0,
+      "feeding_bouts": 0,
+      "reduced_eating_events": 0,
+      "reduced_eating_index": 0.0,
+      "drinking_time_total_s": 0.0,
+      "drinking_bouts": 0,
+      "drinking_frequency_per_bird": 0.0,
+      "inactivity_time_total_s": 0.1,
+      "inactivity_pct": 11.8,
+      "lethargic_birds_flagged": 0,
+      "feather_pecking_events": 0,
+      "agitation_score": 0.0
+    }
+  ],
+  "bird_records": [
+    [
+      {
+        "track_id": 143,
+        "bird_label": "Chicken",
+        "bird_type": "hen",
+        "feeding_s": 0.0,
+        "feeding_bouts": 0,
+        "reduced_eating_flag": 0,
+        "drinking_s": 0.0,
+        "drinking_bouts": 0,
+        "inactivity_s": 0.1,
+        "is_lethargic": 0,
+        "pecking_aggressor_count": 0,
+        "pecking_victim_count": 0,
+        "avg_velocity_px_s": 92.1
+      }
+    ]
+  ]
+}

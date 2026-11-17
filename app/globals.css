@@ -121,8 +121,26 @@ body {
 
 .portal-shell button.text-white,
 .portal-shell button .text-white,
-.portal-shell .bg-gradient-to-tr .text-white {
+.portal-shell .bg-gradient-to-tr .text-white,
+.portal-shell .chart-dark-tooltip,
+.portal-shell .chart-dark-tooltip p,
+.portal-shell .chart-dark-tooltip span,
+.portal-shell .chart-dark-tooltip div,
+.portal-shell .chart-dark-tooltip strong,
+.portal-shell .chart-dark-tooltip b {
   color: #ffffff !important;
+}
+
+.portal-shell .chart-dark-tooltip .tooltip-label {
+  color: #cbd5e1 !important;
+}
+
+.portal-shell .chart-dark-tooltip .tooltip-val {
+  color: #ffffff !important;
+}
+
+.portal-shell .chart-dark-tooltip [class*="border-slate-"] {
+  border-color: rgba(71, 85, 105, 0.6) !important;
 }
 
 .portal-shell [class*="text-emerald-300"],

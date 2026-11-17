@@ -91,6 +91,8 @@ interface DateGroupedSessions {
   fileCount: number;
   totalReadings: number;
   files: SessionFileMeta[];
+  unifiedFile?: SessionFileMeta;
+  isUnified?: boolean;
 }
 
 interface DatabaseOverview {
@@ -112,8 +114,12 @@ function formatBytes(bytes: number): string {
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null || seconds === undefined || isNaN(seconds)) return '—';
-  const mins = Math.floor(seconds / 60);
+  const hours = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
+  if (hours > 0) {
+    return `${hours}h ${mins > 0 ? `${mins}m` : '00m'}`.trim();
+  }
   if (mins === 0) return `${secs}s`;
   return `${mins}m ${secs > 0 ? `${secs}s` : ''}`.trim();
 }
@@ -153,6 +159,7 @@ export default function SqliteViewerTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [expandedDateGroups, setExpandedDateGroups] = useState<Record<string, boolean>>({});
 
   // Interactive Detail Modal State
   const [selectedSession, setSelectedSession] = useState<SessionFileMeta | null>(null);
@@ -438,6 +445,144 @@ export default function SqliteViewerTab() {
     };
   }, [modalChartPoints]);
 
+  const renderFileCard = (file: SessionFileMeta, fileIdx: number) => {
+    const avg = file.averages;
+    const readingCount = avg?.totalReadings || 0;
+    return (
+      <div
+        key={file.storagePath || fileIdx}
+        onClick={() => handleOpenDetailModal(file)}
+        className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-5 shadow-xs transition-all duration-200 hover:border-orange-300 hover:shadow-md hover:shadow-orange-500/5"
+      >
+        {/* Instance Header */}
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3.5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="rounded-md bg-orange-600 px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs">
+                sensors.sqlite
+              </span>
+              <span className="text-xs font-extrabold text-slate-800">
+                {file.sessionTime || file.sessionLabel || `Session ${fileIdx + 1}`}
+              </span>
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
+                {formatBytes(file.size)}
+              </span>
+            </div>
+
+            <p className="mt-1 text-[11px] font-mono text-slate-400 truncate" title={file.sessionFolder || file.storagePath}>
+              📁 {file.sessionFolder || file.storagePath}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenDetailModal(file);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 shadow-2xs transition group-hover:bg-orange-600 group-hover:text-white group-hover:border-orange-600"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            <span>Inspect</span>
+          </button>
+        </div>
+
+        {/* Calculated Sensor Averages (Dashboard Aggregation) */}
+        <div className="mt-3.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {/* Average Temperature */}
+          <div className="rounded-xl bg-amber-50/50 border border-amber-100 p-2.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
+              <Thermometer className="h-3 w-3" /> Avg Temp
+            </span>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-base font-extrabold text-slate-900">
+                {avg?.avgTemperature !== null ? `${avg.avgTemperature.toFixed(1)}°C` : '—'}
+              </span>
+              {avg?.minTemperature !== null && (
+                <span className="text-[9px] font-mono text-slate-400">
+                  {avg.minTemperature}°–{avg.maxTemperature}°
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Average Humidity */}
+          <div className="rounded-xl bg-sky-50/50 border border-sky-100 p-2.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
+              <Droplets className="h-3 w-3" /> Avg Humidity
+            </span>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-base font-extrabold text-slate-900">
+                {avg?.avgHumidity !== null ? `${avg.avgHumidity.toFixed(1)}%` : '—'}
+              </span>
+              {avg?.minHumidity !== null && (
+                <span className="text-[9px] font-mono text-slate-400">
+                  {avg.minHumidity}%–{avg.maxHumidity}%
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Average Ammonia */}
+          <div className="rounded-xl bg-emerald-50/50 border border-emerald-100 p-2.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+              <Wind className="h-3 w-3" /> Avg Ammonia
+            </span>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-sm font-extrabold text-slate-900 font-mono truncate" title={`${avg?.avgAmmoniaPpm} ppm`}>
+                {avg?.avgAmmoniaPpm !== null ? `${avg.avgAmmoniaPpm.toFixed(5)}` : '—'}
+              </span>
+              <span className="text-[9px] font-semibold text-slate-400">ppm</span>
+            </div>
+          </div>
+
+          {/* Average Sound */}
+          <div className="rounded-xl bg-purple-50/50 border border-purple-100 p-2.5">
+            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1">
+              <Radio className="h-3 w-3" /> Avg Sound
+            </span>
+            <div className="mt-1 flex items-baseline justify-between">
+              <span className="text-base font-extrabold text-slate-900">
+                {avg?.avgSoundDb !== null ? `${avg.avgSoundDb.toFixed(1)} dB` : '—'}
+              </span>
+              {avg?.minSoundDb !== null && (
+                <span className="text-[9px] font-mono text-slate-400">
+                  {avg.minSoundDb}–{avg.maxSoundDb}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Card Footer: Metadata & Inspect Prompt */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-500 border-t border-slate-100/80">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1 font-semibold text-slate-700">
+              <Activity className="h-3 w-3 text-orange-500" />
+              {readingCount.toLocaleString()} readings
+            </span>
+            {avg?.durationSeconds && (
+              <span className="flex items-center gap-1 text-slate-500">
+                <Clock className="h-3 w-3 text-slate-400" />
+                {formatDuration(avg.durationSeconds)}
+              </span>
+            )}
+            {avg?.videoFile && (
+              <span className="flex items-center gap-1 text-slate-500 truncate max-w-[10rem]">
+                <Video className="h-3 w-3 text-slate-400" />
+                {avg.videoFile}
+              </span>
+            )}
+          </div>
+
+          <span className="text-xs font-bold text-orange-600 group-hover:translate-x-0.5 transition-transform">
+            Inspect Telemetry &amp; Chart →
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       {/* ── MAIN DASHBOARD CONTAINER ── */}
@@ -665,146 +810,170 @@ export default function SqliteViewerTab() {
                   </span>
                 </div>
 
-                {/* Grid of sensors.sqlite instances generated on this date */}
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  {group.files.map((file, fileIdx) => {
-                    const avg = file.averages;
-                    const readingCount = avg?.totalReadings || 0;
-                    return (
-                      <div
-                        key={file.storagePath || fileIdx}
-                        onClick={() => handleOpenDetailModal(file)}
-                        className="group relative cursor-pointer rounded-2xl border border-slate-200 bg-white p-5 shadow-xs transition-all duration-200 hover:border-orange-300 hover:shadow-md hover:shadow-orange-500/5"
-                      >
-                        {/* Instance Header */}
-                        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-3.5">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-md bg-orange-600 px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs">
-                                sensors.sqlite
-                              </span>
-                              <span className="text-xs font-extrabold text-slate-800">
-                                {file.sessionTime || file.sessionLabel || `Session ${fileIdx + 1}`}
-                              </span>
-                              <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
-                                {formatBytes(file.size)}
-                              </span>
-                            </div>
-
-                            <p className="mt-1 text-[11px] font-mono text-slate-400 truncate" title={file.sessionFolder || file.storagePath}>
-                              📁 {file.sessionFolder || file.storagePath}
-                            </p>
+                {/* Unified Day Card vs Grid of individual instances */}
+                {group.unifiedFile ? (
+                  <div className="space-y-4">
+                    {/* Unified Session Card (Shown as ONE Item with Averaged Sensor Data) */}
+                    <div
+                      onClick={() => handleOpenDetailModal(group.unifiedFile!)}
+                      className="group relative cursor-pointer rounded-2xl border-2 border-orange-200/90 bg-gradient-to-br from-orange-50/30 via-white to-white p-5 shadow-xs transition-all duration-200 hover:border-orange-400 hover:shadow-md hover:shadow-orange-500/10"
+                    >
+                      {/* Instance Header */}
+                      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-orange-100/80 pb-3.5">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-orange-600 px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs">
+                              sensors.sqlite
+                            </span>
+                            <span className="text-xs font-extrabold text-slate-900">
+                              {group.unifiedFile.sessionTime || '7:00 AM – 5:00 PM'}
+                            </span>
+                            <span className="rounded-full bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-extrabold text-emerald-800 flex items-center gap-1">
+                              <Sparkles className="h-3 w-3 text-emerald-600" />
+                              {group.files.length > 1 ? `${group.files.length} Folders Unified (Averaged)` : 'Unified Telemetry'}
+                            </span>
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
+                              {formatBytes(group.unifiedFile.size)}
+                            </span>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenDetailModal(file);
-                            }}
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700 shadow-2xs transition group-hover:bg-orange-600 group-hover:text-white group-hover:border-orange-600"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            <span>Inspect</span>
-                          </button>
+                          <p className="mt-1 text-[11px] font-mono text-slate-500 truncate" title={group.unifiedFile.sessionFolder || 'Paired recording folders'}>
+                            📁 {group.unifiedFile.sessionFolder || 'Paired recording folders'}
+                          </p>
                         </div>
 
-                        {/* Calculated Sensor Averages (Dashboard Aggregation) */}
-                        <div className="mt-3.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-                          {/* Average Temperature */}
-                          <div className="rounded-xl bg-amber-50/50 border border-amber-100 p-2.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
-                              <Thermometer className="h-3 w-3" /> Avg Temp
-                            </span>
-                            <div className="mt-1 flex items-baseline justify-between">
-                              <span className="text-base font-extrabold text-slate-900">
-                                {avg?.avgTemperature !== null ? `${avg.avgTemperature.toFixed(1)}°C` : '—'}
-                              </span>
-                              {avg?.minTemperature !== null && (
-                                <span className="text-[9px] font-mono text-slate-400">
-                                  {avg.minTemperature}°–{avg.maxTemperature}°
-                                </span>
-                              )}
-                            </div>
-                          </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetailModal(group.unifiedFile!);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-orange-300 bg-orange-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-xs transition group-hover:bg-orange-600 hover:shadow-md"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          <span>{group.files.length > 1 ? 'Inspect Full Day' : 'Inspect'}</span>
+                        </button>
+                      </div>
 
-                          {/* Average Humidity */}
-                          <div className="rounded-xl bg-sky-50/50 border border-sky-100 p-2.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
-                              <Droplets className="h-3 w-3" /> Avg Humidity
+                      {/* Calculated Sensor Averages (Dashboard Aggregation) */}
+                      <div className="mt-3.5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                        {/* Average Temperature */}
+                        <div className="rounded-xl bg-amber-50/70 border border-amber-200/80 p-2.5 shadow-2xs">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 flex items-center gap-1">
+                            <Thermometer className="h-3 w-3" /> Avg Temp
+                          </span>
+                          <div className="mt-1 flex items-baseline justify-between">
+                            <span className="text-base font-extrabold text-slate-900">
+                              {group.unifiedFile.averages.avgTemperature !== null ? `${group.unifiedFile.averages.avgTemperature.toFixed(1)}°C` : '—'}
                             </span>
-                            <div className="mt-1 flex items-baseline justify-between">
-                              <span className="text-base font-extrabold text-slate-900">
-                                {avg?.avgHumidity !== null ? `${avg.avgHumidity.toFixed(1)}%` : '—'}
-                              </span>
-                              {avg?.minHumidity !== null && (
-                                <span className="text-[9px] font-mono text-slate-400">
-                                  {avg.minHumidity}%–{avg.maxHumidity}%
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Average Ammonia */}
-                          <div className="rounded-xl bg-emerald-50/50 border border-emerald-100 p-2.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
-                              <Wind className="h-3 w-3" /> Avg Ammonia
-                            </span>
-                            <div className="mt-1 flex items-baseline justify-between">
-                              <span className="text-sm font-extrabold text-slate-900 font-mono truncate" title={`${avg?.avgAmmoniaPpm} ppm`}>
-                                {avg?.avgAmmoniaPpm !== null ? `${avg.avgAmmoniaPpm.toFixed(5)}` : '—'}
-                              </span>
-                              <span className="text-[9px] font-semibold text-slate-400">ppm</span>
-                            </div>
-                          </div>
-
-                          {/* Average Sound */}
-                          <div className="rounded-xl bg-purple-50/50 border border-purple-100 p-2.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1">
-                              <Radio className="h-3 w-3" /> Avg Sound
-                            </span>
-                            <div className="mt-1 flex items-baseline justify-between">
-                              <span className="text-base font-extrabold text-slate-900">
-                                {avg?.avgSoundDb !== null ? `${avg.avgSoundDb.toFixed(1)} dB` : '—'}
-                              </span>
-                              {avg?.minSoundDb !== null && (
-                                <span className="text-[9px] font-mono text-slate-400">
-                                  {avg.minSoundDb}–{avg.maxSoundDb}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Card Footer: Metadata & Inspect Prompt */}
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-500 border-t border-slate-100/80">
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1 font-semibold text-slate-700">
-                              <Activity className="h-3 w-3 text-orange-500" />
-                              {readingCount.toLocaleString()} readings
-                            </span>
-                            {avg?.durationSeconds && (
-                              <span className="flex items-center gap-1 text-slate-500">
-                                <Clock className="h-3 w-3 text-slate-400" />
-                                {formatDuration(avg.durationSeconds)}
-                              </span>
-                            )}
-                            {avg?.videoFile && (
-                              <span className="flex items-center gap-1 text-slate-500 truncate max-w-[10rem]">
-                                <Video className="h-3 w-3 text-slate-400" />
-                                {avg.videoFile}
+                            {group.unifiedFile.averages.minTemperature !== null && (
+                              <span className="text-[9px] font-mono text-slate-500">
+                                {group.unifiedFile.averages.minTemperature}°–{group.unifiedFile.averages.maxTemperature}°
                               </span>
                             )}
                           </div>
+                        </div>
 
+                        {/* Average Humidity */}
+                        <div className="rounded-xl bg-sky-50/70 border border-sky-200/80 p-2.5 shadow-2xs">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
+                            <Droplets className="h-3 w-3" /> Avg Humidity
+                          </span>
+                          <div className="mt-1 flex items-baseline justify-between">
+                            <span className="text-base font-extrabold text-slate-900">
+                              {group.unifiedFile.averages.avgHumidity !== null ? `${group.unifiedFile.averages.avgHumidity.toFixed(1)}%` : '—'}
+                            </span>
+                            {group.unifiedFile.averages.minHumidity !== null && (
+                              <span className="text-[9px] font-mono text-slate-500">
+                                {group.unifiedFile.averages.minHumidity}%–{group.unifiedFile.averages.maxHumidity}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Average Ammonia */}
+                        <div className="rounded-xl bg-emerald-50/70 border border-emerald-200/80 p-2.5 shadow-2xs">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 flex items-center gap-1">
+                            <Wind className="h-3 w-3" /> Avg Ammonia
+                          </span>
+                          <div className="mt-1 flex items-baseline justify-between">
+                            <span className="text-sm font-extrabold text-slate-900 font-mono truncate" title={`${group.unifiedFile.averages.avgAmmoniaPpm} ppm`}>
+                              {group.unifiedFile.averages.avgAmmoniaPpm !== null ? `${group.unifiedFile.averages.avgAmmoniaPpm.toFixed(5)}` : '—'}
+                            </span>
+                            <span className="text-[9px] font-semibold text-slate-500">ppm</span>
+                          </div>
+                        </div>
+
+                        {/* Average Sound */}
+                        <div className="rounded-xl bg-purple-50/70 border border-purple-200/80 p-2.5 shadow-2xs">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1">
+                            <Radio className="h-3 w-3" /> Avg Sound
+                          </span>
+                          <div className="mt-1 flex items-baseline justify-between">
+                            <span className="text-base font-extrabold text-slate-900">
+                              {group.unifiedFile.averages.avgSoundDb !== null ? `${group.unifiedFile.averages.avgSoundDb.toFixed(1)} dB` : '—'}
+                            </span>
+                            {group.unifiedFile.averages.minSoundDb !== null && (
+                              <span className="text-[9px] font-mono text-slate-500">
+                                {group.unifiedFile.averages.minSoundDb}–{group.unifiedFile.averages.maxSoundDb}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Card Footer: Metadata & Inspect Prompt */}
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-slate-500 border-t border-orange-100/70">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="flex items-center gap-1 font-semibold text-slate-700">
+                            <Activity className="h-3 w-3 text-emerald-600" />
+                            {(group.unifiedFile.averages.totalReadings || 0).toLocaleString()} readings
+                          </span>
+                          <span className="flex items-center gap-1 text-slate-600">
+                            <Clock className="h-3 w-3 text-blue-500" />
+                            {formatDuration(group.unifiedFile.averages.durationSeconds)}
+                          </span>
+                          <span className="flex items-center gap-1 text-slate-600">
+                            <Video className="h-3 w-3 text-orange-500" />
+                            {group.files.length} paired {group.files.length === 1 ? 'video' : 'videos'} ({group.unifiedFile.sessionTime})
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {group.files.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedDateGroups((prev) => ({
+                                  ...prev,
+                                  [group.dateKey]: !prev[group.dateKey],
+                                }));
+                              }}
+                              className="text-xs font-semibold text-orange-600 hover:text-orange-700 underline underline-offset-2"
+                            >
+                              {expandedDateGroups[group.dateKey] ? `Hide ${group.files.length} hourly folders` : `View ${group.files.length} individual hourly folders`}
+                            </button>
+                          )}
                           <span className="text-xs font-bold text-orange-600 group-hover:translate-x-0.5 transition-transform">
                             Inspect Telemetry &amp; Chart →
                           </span>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+
+                    {/* Optional Expanded Individual Hourly Sessions */}
+                    {expandedDateGroups[group.dateKey] && (
+                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 pt-2">
+                        {group.files.map((file, fileIdx) => renderFileCard(file, fileIdx))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {group.files.map((file, fileIdx) => renderFileCard(file, fileIdx))}
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -832,7 +1001,11 @@ export default function SqliteViewerTab() {
                     <Database className="h-5 w-5" />
                   </div>
                   <h3 className="text-lg font-extrabold text-slate-900 tracking-tight">
-                    sensors.sqlite <span className="text-orange-600">·</span> {selectedSession.sessionLabel || selectedSession.sessionTime}
+                    sensors.sqlite <span className="text-orange-600">·</span>{' '}
+                    {selectedSession.dateLabel || selectedSession.sessionLabel || selectedSession.sessionTime}
+                    {selectedSession.sessionFolder?.includes('Folders') || selectedSession.storagePath.includes('unified')
+                      ? ' (All Day · Unified)'
+                      : ''}
                   </h3>
                   <span className="rounded-full bg-slate-100 border border-slate-200 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
                     {formatBytes(selectedSession.size)}
@@ -879,7 +1052,7 @@ export default function SqliteViewerTab() {
                     onChange={(event) => handleHourSelection(event.target.value)}
                     className="min-w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   >
-                    <option value="all">All hours</option>
+                    <option value="all">All hours ({selectedSession.sessionTime || '7:00 AM – 5:00 PM'})</option>
                     {modalHourOptions.map((option) => (
                       <option key={option.key} value={option.key}>
                         {option.label} ({option.totalReadings.toLocaleString()} readings)

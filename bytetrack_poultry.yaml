@@ -20,7 +20,7 @@
 tracker_type: agribytetrack
 track_high_thresh: 0.45   # First association: confident, fully-visible detections
 track_low_thresh: 0.15    # Keep everything the detector saw (matches CONF_THRESHOLD)
-new_track_thresh: 0.55    # Confidence required before a brand-new ID may be created
-track_buffer: 60          # ~4 s @ 15 FPS of parked identity for occlusion / re-ID recovery
+new_track_thresh: 0.60    # Confidence required before a brand-new ID may be created
+track_buffer: 90          # ~6 s @ 15 FPS of parked identity for occlusion / walking recovery
 match_thresh: 0.60        # Max association cost (1 - fused IoU) for first-stage matching
 fuse_score: true          # Fuse detection confidence into the association cost

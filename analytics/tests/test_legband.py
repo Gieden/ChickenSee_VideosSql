@@ -317,7 +317,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker._assign_display_ids([distant], (360, 640, 3))
         self.assertEqual(distant.track_id, 2)
 
-        tracker.processed_frame_count += 31
+        tracker.processed_frame_count += tracker.REIDENTIFICATION_MAX_GAP_FRAMES + 1
         expired = bird(4000, 500, 300)
         tracker._assign_display_ids([expired], (360, 640, 3))
         self.assertEqual(expired.track_id, 3)
@@ -470,6 +470,104 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual(birdA_f1.track_id, 7)
         self.assertNotEqual(birdB_f1.bird_label, "Hen1 (Yellow)")
         self.assertEqual(tracker.hen_track_owners["Hen1 (Yellow)"], 1)
+
+    def test_walking_hen_maintains_saddle_identity_when_saddle_occluded_and_track_id_shifts(self):
+        from types import SimpleNamespace
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.track_tag_confirmed = set()
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 5
+        tracker.short_id_map = {}
+        tracker._next_short_id = 1
+        tracker.short_track_positions = {}
+        tracker.short_track_sizes = {}
+        tracker.track_last_label = {}
+        tracker.label_owner = {}
+        tracker.hen_track_owners = {}
+        tracker.hen_owner_conf = {}
+        tracker.hen_owner_last_frame = {}
+        tracker.track_saddle_conf = {}
+        tracker._unidentified_id_map = {}
+        tracker.class_map = {
+            0: "Chicken",
+            1: "Drinker",
+            2: "Feeder",
+            3: "Rooster",
+            4: "Saddle_Color_Blue",
+            5: "Saddle_Color_Red",
+            6: "Saddle_Color_White",
+            7: "Saddle_Color_Yellow",
+            8: "Saddle_Color_YellowGreen",
+        }
+        tracker.conf = 0.25
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.track_conf = 0.15
+        tracker.MIN_DETECTION_CONFIDENCE = 0.25
+        tracker.MIN_SADDLE_CONFIDENCE = 0.15
+        tracker.REIDENTIFICATION_MAX_GAP_FRAMES = 90
+        tracker.REIDENTIFICATION_DISTANCE_RATIO = 0.22
+        tracker.REIDENTIFICATION_MIN_DISTANCE_PX = 30.0
+        tracker.REIDENTIFICATION_STALE_RATIO = 0.15
+        tracker.REIDENTIFICATION_STALE_AFTER_FRAMES = 45
+        tracker.REIDENTIFICATION_SIZE_TOLERANCE = 0.75
+        tracker.LABEL_REUSE_COOLDOWN_FRAMES = 90
+
+        class FakeTensor:
+            def __init__(self, values):
+                self.values = np.asarray(values)
+            def cpu(self): return self
+            def numpy(self): return self.values
+            def int(self): return FakeTensor(self.values.astype(int))
+            def tolist(self): return self.values.tolist()
+
+        class FakeBoxes:
+            def __init__(self, xyxy, conf, cls, tid):
+                self.xyxy = FakeTensor(xyxy)
+                self.conf = FakeTensor(conf)
+                self.cls = FakeTensor(cls)
+                self.id = FakeTensor(tid) if tid is not None else None
+            def __len__(self):
+                return len(self.xyxy.values)
+
+        res_frame5 = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[[100, 200, 160, 280], [115, 220, 145, 250]],
+            conf=[0.85, 0.85],
+            cls=[0, 8],  # Chicken, Saddle_Color_YellowGreen
+            tid=[10, -1],
+        ))
+
+        res_frame6 = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[[105, 270, 165, 350]],
+            conf=[0.83],
+            cls=[0],  # Chicken only, saddle occluded!
+            tid=[15],  # Raw ByteTrack ID shifted
+        ))
+
+        test_frames = [res_frame5, res_frame6]
+        tracker.model = type("MockModel", (), {
+            "names": tracker.class_map,
+            "track": lambda *args, **kwargs: [test_frames[tracker.processed_frame_count - 6]]
+        })()
+
+        blank = np.zeros((640, 640, 3), dtype=np.uint8)
+        out5 = tracker.process_frame(blank, 5)
+        self.assertEqual(len(out5.birds), 1)
+        self.assertEqual(out5.birds[0].bird_label, "Hen5 (YellowGreen)")
+        self.assertEqual(out5.birds[0].track_id, 5)
+
+        # In Frame 6, walking hen must retain Hen5 (YellowGreen) and track_id 5!
+        out6 = tracker.process_frame(blank, 6)
+        self.assertEqual(len(out6.birds), 1)
+        self.assertEqual(out6.birds[0].bird_label, "Hen5 (YellowGreen)")
+        self.assertEqual(out6.birds[0].track_id, 5)
 
 
 if __name__ == "__main__":

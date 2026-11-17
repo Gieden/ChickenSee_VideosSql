@@ -752,20 +752,24 @@ class ZampenAnalyticsWorker:
         try:
             from local_store import read_detection_status_json, update_queue_status_json
             is_proc = status_str == "PROCESSING"
+            is_comp = status_str == "COMPLETED"
             detection_status = read_detection_status_json()
             active_detection = (
                 detection_status
                 if is_proc and detection_status and detection_status.get("job_id") == job_id
                 else None
             )
+            now_iso = datetime.datetime.utcnow().isoformat() + "Z"
             update_queue_status_json({
-                "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
+                "updated_at": now_iso,
                 "job_id": job_id,
                 "video_filename": filename,
                 "source_item_id": f"file-{hashlib.sha256(os.path.normcase(os.path.abspath(video_path)).encode('utf-8')).hexdigest()[:20]}",
                 "status": status_str,
-                "progress_percent": round(pct, 1) if (is_proc and pct is not None) else None,
-                "frames": f"{frame_idx} / {total_frames}" if is_proc else "—",
+                "progress_percent": 100.0 if is_comp else (round(pct, 1) if (is_proc and pct is not None) else None),
+                "frames": f"{total_frames} / {total_frames}" if (is_comp and total_frames) else (f"{frame_idx} / {total_frames}" if is_proc else "—"),
+                "created_at": now_iso if is_proc else None,
+                "completed_at": now_iso if is_comp else None,
                 "active_detection": active_detection,
             })
         except Exception as error:

@@ -74,7 +74,7 @@ class AgriByteTracker(BYTETracker):
                 for di, det in enumerate(detections):
                     dx1, dy1, dx2, dy2 = det.xyxy
                     det_h = max(1.0, float(dy2) - float(dy1))
-                    size_ok[di] = abs(det_h - track_h) / track_h <= 0.35
+                    size_ok[di] = abs(det_h - track_h) / track_h <= 0.55
                     if predicted_apex is not None:
                         apex_iou[di] = box_iou(
                             predicted_apex,

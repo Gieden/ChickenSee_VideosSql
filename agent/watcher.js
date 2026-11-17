@@ -445,7 +445,25 @@ function startWatcher() {
       log('READY', 'Initial scan complete. Watching for new or updated files...');
     });
 
+  // Periodic real-time heartbeat: Windows fs.watch can miss atomic os.replace()
+  // from ignored .tmp files onto queue_status.json and live_detection.jpg.
+  const realtimeInterval = setInterval(async () => {
+    try {
+      await fetch('http://127.0.0.1:8000/queue?limit=500', {
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => {});
+    } catch {}
+    const resultsDir = path.resolve(LOCAL_STORAGE_ROOT, 'results');
+    for (const filename of ['queue_status.json', 'live_detection.jpg']) {
+      const candidatePath = path.join(resultsDir, filename);
+      if (shouldSync(candidatePath)) {
+        enqueueUpload(candidatePath);
+      }
+    }
+  }, 3000);
+
   process.on('SIGINT', () => {
+    clearInterval(realtimeInterval);
     log('SHUTDOWN', 'Stopping watcher gracefully...');
     watcher.close().then(() => {
       saveState();

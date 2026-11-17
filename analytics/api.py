@@ -327,7 +327,7 @@ def get_detection_queue(limit: int = Query(default=500, le=500)):
             JobStatus.CANCELLED.value,
         )
     ]
-    history_items.sort(key=lambda item: item["created_at"] or "", reverse=True)
+    history_items.sort(key=lambda item: item.get("completed_at") or item.get("created_at") or "", reverse=True)
     all_items = active_items + pending_items + history_items
     items = all_items[:limit]
     summary = {

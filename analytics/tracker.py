@@ -136,12 +136,12 @@ class ZampenYOLOTracker:
     MIN_EQUIPMENT_CONFIDENCE = 0.15  # Dedicated threshold for Feeder & Drinker equipment
     MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
     MIN_SADDLE_CONFIDENCE = 0.15     # Dedicated threshold for saddle boxes
-    REIDENTIFICATION_MAX_GAP_FRAMES = 30
-    REIDENTIFICATION_DISTANCE_RATIO = 0.06
-    REIDENTIFICATION_MIN_DISTANCE_PX = 12.5
-    REIDENTIFICATION_STALE_RATIO = 0.03
-    REIDENTIFICATION_STALE_AFTER_FRAMES = 30
-    REIDENTIFICATION_SIZE_TOLERANCE = 0.60
+    REIDENTIFICATION_MAX_GAP_FRAMES = 90
+    REIDENTIFICATION_DISTANCE_RATIO = 0.22
+    REIDENTIFICATION_MIN_DISTANCE_PX = 30.0
+    REIDENTIFICATION_STALE_RATIO = 0.15
+    REIDENTIFICATION_STALE_AFTER_FRAMES = 45
+    REIDENTIFICATION_SIZE_TOLERANCE = 0.75
     # A colour identity may not be reused by another track within this many frames
     # (prevents two adjacent birds from swapping Hen1/Hen3 when their boxes overlap).
     LABEL_REUSE_COOLDOWN_FRAMES = 90
@@ -901,9 +901,21 @@ class ZampenYOLOTracker:
             elif self.processed_frame_count > 2 and sconf >= 0.25:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
+                self.track_label_votes[win_tid] = deque([hen_label] * 15, maxlen=15)
             elif sconf >= 0.15 and len(votes) >= 3 and votes.count(hen_label) >= 3:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
+
+            if win_tid in getattr(self, "track_tag_confirmed", set()) and hen_label in HEN_TO_FIXED_ID:
+                fixed_id = HEN_TO_FIXED_ID[hen_label]
+                self.track_label_cache[fixed_id] = hen_label
+                self.track_tag_confirmed.add(fixed_id)
+                self.track_label_votes[fixed_id] = deque([hen_label] * 15, maxlen=15)
+                self.hen_track_owners[hen_label] = fixed_id
+                self.hen_owner_conf[hen_label] = max(self.hen_owner_conf.get(hen_label, 0.0), sconf)
+                self.hen_owner_last_frame[hen_label] = current_frame
+                if getattr(best_bird, "raw_track_id", None) is not None:
+                    self.short_id_map[best_bird.raw_track_id] = fixed_id
 
         # Fallback saddle check for unconfirmed chickens
         if not hasattr(self, "track_tag_confirmed"):
@@ -1048,6 +1060,71 @@ class ZampenYOLOTracker:
                 else:
                     bird.bird_label = "Chicken"
 
+        # ------------------------------------------------------------------
+        # Confirmed Hen Identity Inheritance for Walking / Occluded Birds
+        # When a confirmed hen (e.g. H5 YellowGreen) is active in the flock but its
+        # ByteTrack track drops or branches while walking without a saddle visible
+        # in this single frame, transfer the confirmed hen identity to the nearest
+        # unassigned chicken so it never reverts to Chicken (Unidentified).
+        # ------------------------------------------------------------------
+        unassigned_confirmed_hens = []
+        confirmed_tags = getattr(self, "track_tag_confirmed", set())
+        for hen_lbl, fixed_id in HEN_TO_FIXED_ID.items():
+            if hen_lbl in used_labels:
+                continue
+            if fixed_id not in confirmed_tags and hen_lbl not in confirmed_tags:
+                continue
+            last_frame = self.hen_owner_last_frame.get(hen_lbl, 0)
+            if last_frame > 0 and (current_frame - last_frame) <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
+                pos_info = self.short_track_positions.get(fixed_id)
+                hen_pos = pos_info[0] if pos_info is not None else None
+                unassigned_confirmed_hens.append((hen_lbl, fixed_id, last_frame, hen_pos))
+
+        if unassigned_confirmed_hens:
+            unassigned_chickens = [
+                b for b in birds
+                if b.class_name == "Chicken" and b.bird_label == "Chicken"
+            ]
+            if unassigned_chickens:
+                inheritance_candidates = []
+                frame_diagonal = math.hypot(frame.shape[0], frame.shape[1])
+                max_inherit_dist = max(50.0, frame_diagonal * 0.40)
+                for hen_lbl, fixed_id, last_frame, hen_pos in unassigned_confirmed_hens:
+                    for chk in unassigned_chickens:
+                        cx = (chk.box[0] + chk.box[2]) / 2.0
+                        cy = (chk.box[1] + chk.box[3]) / 2.0
+                        dist = math.hypot(cx - hen_pos[0], cy - hen_pos[1]) if hen_pos is not None else 0.0
+                        if hen_pos is None or dist <= max_inherit_dist:
+                            inheritance_candidates.append((dist, hen_lbl, fixed_id, chk))
+
+                inheritance_candidates.sort(key=lambda item: item[0])
+                matched_chickens = set()
+                for dist, hen_lbl, fixed_id, chk in inheritance_candidates:
+                    if hen_lbl in used_labels or id(chk) in matched_chickens:
+                        continue
+                    chk.bird_label = hen_lbl
+                    old_id = chk.track_id
+                    chk.track_id = fixed_id
+                    used_labels.add(hen_lbl)
+                    matched_chickens.add(id(chk))
+                    if old_id != fixed_id:
+                        self.track_label_cache.pop(old_id, None)
+                        self.track_label_votes.pop(old_id, None)
+                        self.track_tag_confirmed.discard(old_id)
+                    if getattr(chk, "raw_track_id", None) is not None:
+                        for prev_raw, prev_disp in list(self.short_id_map.items()):
+                            if prev_disp == fixed_id and prev_raw != chk.raw_track_id:
+                                self.short_id_map.pop(prev_raw, None)
+                        self.short_id_map[chk.raw_track_id] = fixed_id
+                    self.track_label_cache[fixed_id] = hen_lbl
+                    self.track_tag_confirmed.add(fixed_id)
+                    self.hen_track_owners[hen_lbl] = fixed_id
+                    self.hen_owner_last_frame[hen_lbl] = current_frame
+                    self.short_track_positions[fixed_id] = (
+                        ((chk.box[0] + chk.box[2]) / 2.0, (chk.box[1] + chk.box[3]) / 2.0),
+                        current_frame,
+                    )
+
         # Ensure Roosters always take ID 6 and never take Hen fixed IDs (1..5)
         for bird in birds:
             if bird.class_name == "Rooster":
@@ -1100,7 +1177,7 @@ class ZampenYOLOTracker:
         stale = [
             tid for tid in list(self.track_last_label)
             if tid not in active_tids
-            and self.processed_frame_count - self.track_label_last_seen.get(tid, 0) > 45
+            and self.processed_frame_count - self.track_label_last_seen.get(tid, 0) > self.REIDENTIFICATION_MAX_GAP_FRAMES
         ]
         for tid in stale:
             label = self.track_last_label.pop(tid, None)

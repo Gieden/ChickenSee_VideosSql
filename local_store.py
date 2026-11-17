@@ -255,15 +255,33 @@ def update_queue_status_json(payload: dict) -> Path:
                 )
                 previous_status = items[item_index].get("status") if item_index is not None else None
                 item = items[item_index] if item_index is not None else {"item_id": item_id}
+                created_at = item.get("created_at") or payload.get("created_at") or payload.get("updated_at")
+                completed_at = payload.get("completed_at") if status == "COMPLETED" else item.get("completed_at")
+                if status == "COMPLETED" and not completed_at:
+                    completed_at = payload.get("updated_at")
+                progress_val = payload.get("progress_percent")
+                if status == "COMPLETED" and progress_val is None:
+                    progress_val = 100.0
+                frames_val = payload.get("frames")
+                if not frames_val or (status == "COMPLETED" and frames_val == "—"):
+                    frames_val = item.get("frames", "—")
                 item.update({
                     "item_id": item_id,
                     "video_filename": video_filename,
                     "status": status,
-                    "progress_percent": payload.get("progress_percent"),
-                    "frames": payload.get("frames", "—"),
+                    "progress_percent": progress_val,
+                    "frames": frames_val,
+                    "created_at": created_at,
+                    "completed_at": completed_at,
                 })
                 if item_index is None:
                     items.insert(0, item)
+                elif status == "PROCESSING" and item_index > 0:
+                    items.insert(0, items.pop(item_index))
+                # Ensure no stale ghost item remains in PROCESSING when a newer job is active or finished
+                for other in items:
+                    if other.get("item_id") != item_id and other.get("status") == "PROCESSING":
+                        other["status"] = "COMPLETED" if other.get("progress_percent") == 100 else "CANCELLED"
                 if previous_status != status:
                     if previous_status:
                         previous_key = previous_status.lower()
