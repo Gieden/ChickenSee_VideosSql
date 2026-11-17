@@ -384,34 +384,56 @@ class BehaviorAnalysisEngine:
         total_social_isolation = sum(s.social_isolation_events for s in self.bird_states.values())
         agitation_score = round(self.feather_pecking_events / max(1, unique_birds), 2)
 
-        # Per-bird breakdown records with the 4 exact behaviors
+        # Per-bird breakdown records with the 4 exact behaviors and ethology thresholds
+        monitored_s = max(1.0, self.current_chunk_elapsed_s)
+        feed_thresh = getattr(self.cfg, "feeding_activity_threshold_pct", 0.3)
+        drink_thresh = getattr(self.cfg, "drinking_activity_threshold_pct", 0.2)
+        iso_thresh = getattr(self.cfg, "social_isolation_threshold_pct", 29.5)
+        loco_thresh = getattr(self.cfg, "reduced_locomotor_threshold_pct", 78.0)
+
         bird_records = []
         for s in self.bird_states.values():
+            feeding_pct = round((s.feeding_time_s / monitored_s) * 100.0, 2)
+            drinking_pct = round((s.drinking_time_s / monitored_s) * 100.0, 2)
+            isolation_pct = round((s.total_isolation_s / monitored_s) * 100.0, 2)
+            locomotor_inactivity_pct = round((s.total_inactivity_s / monitored_s) * 100.0, 2)
+
+            flag_reduced_feeding = 1 if (s.reduced_feeding_events > 0 or feeding_pct <= feed_thresh) else 0
+            flag_reduced_drinking = 1 if (s.reduced_drinking_events > 0 or drinking_pct <= drink_thresh) else 0
+            flag_social_isolation = 1 if (s.is_isolated_flag or s.social_isolation_events > 0 or isolation_pct > iso_thresh) else 0
+            flag_reduced_locomotor = 1 if (s.is_lethargic_flag or s.prolonged_low_activity_events > 0 or locomotor_inactivity_pct > loco_thresh) else 0
+
             bird_records.append({
                 "track_id": s.track_id,
                 "bird_label": s.label,
                 "bird_type": s.bird_type,
-                # 1. Reduced feeding behavior
+                # 1. Feeding Activity (Threshold: At or below 0.3%)
+                "feeding_activity_pct": feeding_pct,
                 "reduced_feeding_events": s.reduced_feeding_events,
-                "reduced_feeding_flag": 1 if s.reduced_feeding_events > 0 else 0,
+                "reduced_feeding_flag": flag_reduced_feeding,
                 "feeding_s": round(s.feeding_time_s, 1),
                 "feeding_bouts": s.feeding_bouts,
-                # 2. Reduced drinking behavior
+                # 2. Drinking Activity (Threshold: At or below 0.2%)
+                "drinking_activity_pct": drinking_pct,
                 "reduced_drinking_events": s.reduced_drinking_events,
-                "reduced_drinking_flag": 1 if s.reduced_drinking_events > 0 else 0,
+                "reduced_drinking_flag": flag_reduced_drinking,
                 "drinking_s": round(s.drinking_time_s, 1),
                 "drinking_bouts": s.drinking_bouts,
-                # 3. Prolonged low activity
-                "prolonged_low_activity_events": s.prolonged_low_activity_events,
-                "is_prolonged_low_activity": 1 if s.prolonged_low_activity_events > 0 else 0,
-                "inactivity_s": round(s.total_inactivity_s, 1),
-                "is_lethargic": 1 if (s.is_lethargic_flag or s.prolonged_low_activity_events > 0) else 0,
-                # 4. Social isolation
+                # 3. Social Isolation (Threshold: Above 29.5%)
+                "social_isolation_pct": isolation_pct,
                 "social_isolation_events": s.social_isolation_events,
-                "is_socially_isolated": 1 if (s.is_isolated_flag or s.social_isolation_events > 0) else 0,
+                "is_socially_isolated": flag_social_isolation,
                 "isolation_s": round(s.total_isolation_s, 1),
+                # 4. Reduced Locomotor Activity (Threshold: Above 78%)
+                "reduced_locomotor_pct": locomotor_inactivity_pct,
+                "reduced_locomotor_events": s.prolonged_low_activity_events,
+                "is_reduced_locomotor": flag_reduced_locomotor,
+                "prolonged_low_activity_events": s.prolonged_low_activity_events,
+                "is_prolonged_low_activity": flag_reduced_locomotor,
+                "inactivity_s": round(s.total_inactivity_s, 1),
+                "is_lethargic": flag_reduced_locomotor,
                 # Legacy compatibility aliases
-                "reduced_eating_flag": 1 if s.reduced_feeding_events > 0 else 0,
+                "reduced_eating_flag": flag_reduced_feeding,
                 "pecking_aggressor_count": s.social_isolation_events if s.social_isolation_events > 0 else s.pecking_aggressor_count,
                 "pecking_victim_count": s.pecking_victim_count,
                 "avg_velocity_px_s": round(s.velocity_px_s, 2),

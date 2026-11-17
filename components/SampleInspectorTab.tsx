@@ -62,7 +62,7 @@ interface BirdBehaviorEvent {
   birdName: string;
   timestamp: string;
   elapsedSeconds: number;
-  behavior: 'Reduced Feeding' | 'Reduced Drinking' | 'Feather Pecking' | 'Lethargy / Inactivity';
+  behavior: 'Feeding Activity' | 'Drinking Activity' | 'Social Isolation' | 'Reduced Locomotor Activity';
   details: string;
 }
 
@@ -84,7 +84,8 @@ interface SampleAnalysisResult {
     uniqueBirds: number;
     reducedFeedingCount: number;
     reducedDrinkingCount: number;
-    featherPeckingCount: number;
+    socialIsolationCount: number;
+    featherPeckingCount: number; // backward-compat alias
     inactivityCount: number;
     dominantBehavior: {
       name: string;
@@ -425,7 +426,7 @@ export default function SampleInspectorTab() {
       // ── 6. Synthesise behaviour events (sensor data already parsed above) ────
       const birdsList = ['Rooster', 'Hen1 (Yellow)', 'Hen2 (Blue)', 'Hen3 (Red)', 'Hen4 (White)', 'Hen5 (YellowGreen)'];
       const behaviorTypes: BirdBehaviorEvent['behavior'][] = [
-        'Feather Pecking', 'Reduced Feeding', 'Reduced Drinking', 'Lethargy / Inactivity',
+        'Feeding Activity', 'Drinking Activity', 'Social Isolation', 'Reduced Locomotor Activity',
       ];
       const synthesizedEvents: BirdBehaviorEvent[] = [];
       const numEvents = Math.max(6, Math.min(18, Math.round(durationSec / 10)));
@@ -436,23 +437,23 @@ export default function SampleInspectorTab() {
         const m = Math.floor(sec / 60).toString().padStart(2, '0');
         const s = (sec % 60).toString().padStart(2, '0');
         let details = '';
-        if (beh === 'Feather Pecking') details = `${bird} exhibited aggressive pecking bout near the feeder.`;
-        else if (beh === 'Reduced Feeding') details = `${bird} approached feeder but refrained from feeding bout.`;
-        else if (beh === 'Reduced Drinking') details = `${bird} spent 0 seconds at nipple drinker during interval.`;
-        else details = `${bird} remained stationary with mobility < 5 px/s for > 15 seconds.`;
+        if (beh === 'Feeding Activity') details = `${bird} feeding activity at or below 0.3% threshold (feeder deficit).`;
+        else if (beh === 'Drinking Activity') details = `${bird} drinking activity at or below 0.2% threshold (waterer deficit).`;
+        else if (beh === 'Social Isolation') details = `${bird} nearest-neighbor distance exceeded flock isolation threshold (> 29.5%).`;
+        else details = `${bird} stationary duration exceeded low-motion threshold (> 78% locomotor reduction).`;
         synthesizedEvents.push({ birdName: bird, timestamp: `00:${m}:${s}`, elapsedSeconds: sec, behavior: beh, details });
       }
 
-      const peckingCount = synthesizedEvents.filter((e) => e.behavior === 'Feather Pecking').length;
-      const feedingCount = synthesizedEvents.filter((e) => e.behavior === 'Reduced Feeding').length;
-      const drinkingCount = synthesizedEvents.filter((e) => e.behavior === 'Reduced Drinking').length;
-      const inactivityCount = synthesizedEvents.filter((e) => e.behavior === 'Lethargy / Inactivity').length;
+      const feedingCount = synthesizedEvents.filter((e) => e.behavior === 'Feeding Activity').length;
+      const drinkingCount = synthesizedEvents.filter((e) => e.behavior === 'Drinking Activity').length;
+      const isolationCount = synthesizedEvents.filter((e) => e.behavior === 'Social Isolation').length;
+      const inactivityCount = synthesizedEvents.filter((e) => e.behavior === 'Reduced Locomotor Activity').length;
       const totalEvents = synthesizedEvents.length;
       const counts = [
-        { name: 'Feather Pecking', count: peckingCount, desc: 'Aggressive pecking interactions flagged between birds near the feeding lane.' },
-        { name: 'Reduced Feeding', count: feedingCount, desc: 'Subdued eating frequency observed across individual bird tracking segments.' },
-        { name: 'Reduced Drinking', count: drinkingCount, desc: 'Decreased water consumption intervals detected relative to baseline metrics.' },
-        { name: 'Lethargy / Inactivity', count: inactivityCount, desc: 'Prolonged stationary behavior flagged with lower than normal mobility.' },
+        { name: 'Feeding Activity', count: feedingCount, desc: 'Proportion of time spent feeding ≤ 0.3% flags marked feeding deficit.' },
+        { name: 'Drinking Activity', count: drinkingCount, desc: 'Proportion of time spent drinking ≤ 0.2% flags dehydration / water deficit.' },
+        { name: 'Social Isolation', count: isolationCount, desc: 'Spatial segregation from nearest flock mates > 29.5% flags social withdrawal.' },
+        { name: 'Reduced Locomotor Activity', count: inactivityCount, desc: 'Inactivity or low velocity duration > 78% flags lethargy and heat stupor.' },
       ].sort((a, b) => b.count - a.count);
       const topBeh = counts[0];
       const dominant = {
@@ -493,7 +494,8 @@ export default function SampleInspectorTab() {
           uniqueBirds: 6,
           reducedFeedingCount: feedingCount,
           reducedDrinkingCount: drinkingCount,
-          featherPeckingCount: peckingCount,
+          socialIsolationCount: isolationCount,
+          featherPeckingCount: isolationCount,
           inactivityCount: inactivityCount,
           dominantBehavior: dominant,
           avgTemp,
@@ -1153,64 +1155,84 @@ export default function SampleInspectorTab() {
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Reduced Feeding */}
+              {/* Feeding Activity */}
               <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                <h5 className="text-xs font-bold text-slate-800">Reduced Feeding</h5>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-800">Feeding Activity</h5>
+                  <span className="rounded bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold text-orange-700 border border-orange-200">
+                    ≤ 0.3%
+                  </span>
+                </div>
                 <div className="mt-2 flex items-baseline gap-1.5">
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">{analysisResult.stats.reducedFeedingCount}</span>
-                  <span className="text-xs font-bold text-orange-500">events</span>
+                  <span className="text-xs font-bold text-orange-500">deficits</span>
                 </div>
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
                   <TrendingDown className="h-3.5 w-3.5" />
-                  <span>monitored intervals</span>
+                  <span>feeder interaction</span>
                 </p>
               </div>
 
-              {/* Reduced Drinking */}
+              {/* Drinking Activity */}
               <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                <h5 className="text-xs font-bold text-slate-800">Reduced Drinking</h5>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-800">Drinking Activity</h5>
+                  <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                    ≤ 0.2%
+                  </span>
+                </div>
                 <div className="mt-2 flex items-baseline gap-1.5">
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">{analysisResult.stats.reducedDrinkingCount}</span>
-                  <span className="text-xs font-bold text-orange-500">events</span>
+                  <span className="text-xs font-bold text-blue-500">deficits</span>
                 </div>
-                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-500">
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-sky-600">
                   <TrendingUp className="h-3.5 w-3.5" />
                   <span>water line tracking</span>
                 </p>
               </div>
 
-              {/* Feather Pecking */}
+              {/* Social Isolation */}
               <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                <h5 className="text-xs font-bold text-slate-800">Feather Pecking</h5>
-                <div className="mt-2 flex items-baseline gap-1.5">
-                  <span className="text-2xl sm:text-3xl font-black text-slate-900">{analysisResult.stats.featherPeckingCount}</span>
-                  <span className="text-xs font-bold text-orange-500">events</span>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-800">Social Isolation</h5>
+                  <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                    &gt; 29.5%
+                  </span>
                 </div>
-                <p className={`mt-1 flex items-center gap-1 text-[11px] font-semibold ${analysisResult.stats.featherPeckingCount > 3 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {analysisResult.stats.featherPeckingCount > 3 ? (
+                <div className="mt-2 flex items-baseline gap-1.5">
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">{analysisResult.stats.socialIsolationCount}</span>
+                  <span className="text-xs font-bold text-emerald-600">events</span>
+                </div>
+                <p className={`mt-1 flex items-center gap-1 text-[11px] font-semibold ${analysisResult.stats.socialIsolationCount > 2 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {analysisResult.stats.socialIsolationCount > 2 ? (
                     <>
                       <TrendingUp className="h-3.5 w-3.5" />
-                      <span>elevated interaction</span>
+                      <span>elevated segregation</span>
                     </>
                   ) : (
                     <>
                       <TrendingDown className="h-3.5 w-3.5" />
-                      <span>baseline level</span>
+                      <span>cohesive flock distance</span>
                     </>
                   )}
                 </p>
               </div>
 
-              {/* Inactivity */}
+              {/* Reduced Locomotor Activity */}
               <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
-                <h5 className="text-xs font-bold text-slate-800">Inactivity / Lethargy</h5>
+                <div className="flex items-center justify-between">
+                  <h5 className="text-xs font-bold text-slate-800">Reduced Locomotor</h5>
+                  <span className="rounded bg-purple-50 px-1.5 py-0.5 text-[10px] font-bold text-purple-700 border border-purple-200">
+                    &gt; 78%
+                  </span>
+                </div>
                 <div className="mt-2 flex items-baseline gap-1.5">
                   <span className="text-2xl sm:text-3xl font-black text-slate-900">{analysisResult.stats.inactivityCount}</span>
-                  <span className="text-xs font-bold text-orange-500">events</span>
+                  <span className="text-xs font-bold text-purple-500">lethargy</span>
                 </div>
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-slate-500">
                   <Activity className="h-3.5 w-3.5" />
-                  <span>stationary bounds</span>
+                  <span>sustained low mobility</span>
                 </p>
               </div>
             </div>
@@ -1359,13 +1381,13 @@ export default function SampleInspectorTab() {
                         <td className="px-4 py-3 font-semibold text-slate-900">{ev.birdName}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-bold ${
-                            ev.behavior === 'Feather Pecking'
-                              ? 'bg-rose-100 text-rose-700'
-                              : ev.behavior === 'Reduced Feeding'
+                            ev.behavior === 'Feeding Activity'
                               ? 'bg-amber-100 text-amber-800'
-                              : ev.behavior === 'Reduced Drinking'
+                              : ev.behavior === 'Drinking Activity'
                               ? 'bg-sky-100 text-sky-800'
-                              : 'bg-slate-100 text-slate-700'
+                              : ev.behavior === 'Social Isolation'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-purple-100 text-purple-800'
                           }`}>
                             {ev.behavior}
                           </span>

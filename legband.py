@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence, Tuple
 
 import cv2
 import numpy as np
@@ -65,19 +65,23 @@ def animal_display_label(label: str, tracking_id: Optional[int] = None) -> str:
 
 
 SADDLE_HSV_RANGES = {
-    "Hen1 (Yellow)": ((15, 45, 35), (34, 255, 255)),
-    "Hen2 (Blue)": ((96, 60, 45), (135, 255, 255)),
+    "Hen1 (Yellow)": ((16, 75, 75), (34, 255, 255)),
+    "Hen2 (Blue)": ((96, 80, 65), (135, 255, 255)),
     "Hen3 (Red)": ((0, 60, 60), (12, 255, 255)),
-    "Hen4 (White)": ((0, 0, 150), (180, 40, 255)),
-    "Hen5 (YellowGreen)": ((35, 45, 35), (65, 255, 255)),
+    "Hen4 (White)": ((0, 0, 165), (180, 35, 255)),
+    "Hen5 (YellowGreen)": ((35, 50, 40), (68, 255, 255)),
+}
+
+SADDLE_HSV_SECONDARY_RANGES = {
+    "Hen3 (Red)": ((155, 55, 55), (180, 255, 255)),
 }
 
 LEG_BAND_HSV_RANGES = {
-    "Hen1 (Yellow)": ((16, 65, 65), (34, 255, 255)),
-    "Hen2 (Blue)": ((95, 75, 55), (135, 255, 255)),
-    "Hen3 (Red)": ((0, 60, 65), (12, 255, 255)),
-    "Hen4 (White)": ((0, 0, 150), (180, 45, 255)),
-    "Hen5 (YellowGreen)": ((35, 60, 60), (65, 255, 255)),
+    "Hen1 (Yellow)": ((16, 70, 70), (34, 255, 255)),
+    "Hen2 (Blue)": ((95, 70, 50), (135, 255, 255)),
+    "Hen3 (Red)": ((0, 60, 60), (12, 255, 255)),
+    "Hen4 (White)": ((0, 0, 160), (180, 40, 255)),
+    "Hen5 (YellowGreen)": ((35, 55, 50), (65, 255, 255)),
 }
 
 BAND_CLASS_TO_HEN = {
@@ -140,29 +144,45 @@ def detect_saddle_color(
     if box_width <= 0 or box_height <= 0:
         return None
 
-    # Sample the dorsal / back zone (upper 10% to 80% of chicken box, centered 10% to 90% wide)
-    crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.10)))
-    crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.10)))
+    # Sample the dorsal / back zone (upper 10% to 78% of chicken box, centered 12% to 88% wide)
+    crop_x1 = max(0, min(frame_width, x1 + int(box_width * 0.12)))
+    crop_x2 = max(0, min(frame_width, x2 - int(box_width * 0.12)))
     crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.10)))
-    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.80)))
+    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.78)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    max_cw = max(6, int(box_width * 0.90))
-    max_ch = max(6, int(box_height * 0.75))
+    max_cw = max(6, int(box_width * 0.88))
+    max_ch = max(6, int(box_height * 0.72))
+    area_upper = max(1200, int(box_width * box_height * 0.70))
 
-    best_match = None
-    best_area = 0
-    second_best_area = 0
+    # Step 1: Chromatic evaluation (Yellow, Blue, Red, YellowGreen)
+    best_chroma_label = None
+    best_chroma_area = 0
+    second_chroma_area = 0
 
-    for label, (lower, upper) in SADDLE_HSV_RANGES.items():
+    chromatic_items = [
+        (lbl, ranges) for lbl, ranges in SADDLE_HSV_RANGES.items()
+        if lbl != "Hen4 (White)"
+    ]
+
+    for label, (lower, upper) in chromatic_items:
         mask = cv2.inRange(
             hsv,
             np.asarray(lower, dtype=np.uint8),
             np.asarray(upper, dtype=np.uint8),
         )
+        if label in SADDLE_HSV_SECONDARY_RANGES:
+            s_low, s_up = SADDLE_HSV_SECONDARY_RANGES[label]
+            m_sec = cv2.inRange(
+                hsv,
+                np.asarray(s_low, dtype=np.uint8),
+                np.asarray(s_up, dtype=np.uint8),
+            )
+            mask = cv2.bitwise_or(mask, m_sec)
+
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
         valid_area = 0
         for j in range(1, num_labels):
@@ -170,28 +190,49 @@ def detect_saddle_color(
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
             aspect = cw / max(1, ch)
-            area_upper = max(60, int(box_width * box_height * 0.60))
-            if 12 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+            if 20 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
                 if compactness >= 0.14 and 0.18 <= aspect <= 5.0:
                     valid_area = max(valid_area, area)
 
         if valid_area > 0:
-            if valid_area > best_area:
-                second_best_area = best_area
-                best_area = valid_area
-                best_match = label
-            elif valid_area > second_best_area:
-                second_best_area = valid_area
+            if valid_area > best_chroma_area:
+                second_chroma_area = best_chroma_area
+                best_chroma_area = valid_area
+                best_chroma_label = label
+            elif valid_area > second_chroma_area:
+                second_chroma_area = valid_area
 
-    if not best_match:
-        return None
+    if best_chroma_label and best_chroma_area >= 25:
+        if second_chroma_area < best_chroma_area * 0.85:
+            return best_chroma_label
 
-    # Ambiguity check: if runner-up is >= 85% of winner, reject
-    if second_best_area >= best_area * 0.85:
-        return None
+    # Step 2: Neutral White evaluation (only if no saturated color saddle was detected)
+    white_spec = SADDLE_HSV_RANGES.get("Hen4 (White)")
+    if white_spec:
+        lower, upper = white_spec
+        mask_white = cv2.inRange(
+            hsv,
+            np.asarray(lower, dtype=np.uint8),
+            np.asarray(upper, dtype=np.uint8),
+        )
 
-    return best_match
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask_white)
+        best_white_area = 0
+        for j in range(1, num_labels):
+            area = stats[j, cv2.CC_STAT_AREA]
+            cw = stats[j, cv2.CC_STAT_WIDTH]
+            ch = stats[j, cv2.CC_STAT_HEIGHT]
+            aspect = cw / max(1, ch)
+            if 35 <= area <= area_upper and 3 <= cw <= max_cw and 3 <= ch <= max_ch:
+                compactness = area / max(1, cw * ch)
+                if compactness >= 0.16 and 0.20 <= aspect <= 4.5:
+                    best_white_area = max(best_white_area, area)
+
+        if best_white_area >= 35:
+            return "Hen4 (White)"
+
+    return None
 
 
 def detect_leg_band_color(
@@ -237,6 +278,14 @@ def detect_leg_band_color(
             np.asarray(lower, dtype=np.uint8),
             np.asarray(upper, dtype=np.uint8),
         )
+        if label in SADDLE_HSV_SECONDARY_RANGES:
+            s_low, s_up = SADDLE_HSV_SECONDARY_RANGES[label]
+            m_sec = cv2.inRange(
+                hsv,
+                np.asarray(s_low, dtype=np.uint8),
+                np.asarray(s_up, dtype=np.uint8),
+            )
+            mask = cv2.bitwise_or(mask, m_sec)
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
         valid_area = 0
         for j in range(1, num_labels):

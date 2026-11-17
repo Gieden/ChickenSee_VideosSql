@@ -72,6 +72,8 @@ export interface IntervalTelemetry {
       reducedDrinking: number;
       prolongedInactivity: number;
       featherPecking: number;
+      socialIsolation?: number;
+      reducedLocomotor?: number;
     }
   >;
 }
@@ -329,26 +331,26 @@ export default function BehaviorResultsTab() {
       let redFeed = 0;
       let redDrink = 0;
       let inact = 0;
-      let pecking = 0;
+      let isolation = 0;
       filteredIntervals.forEach((interval) => {
         const counts = interval.behaviorsByBird[p.id];
         if (!counts) return;
         redFeed += counts.reducedFeeding;
         redDrink += counts.reducedDrinking;
-        inact += counts.prolongedInactivity;
-        pecking += counts.featherPecking;
+        inact += counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+        isolation += counts.socialIsolation ?? counts.featherPecking ?? 0;
       });
 
-      const total = redFeed + redDrink + inact + pecking;
+      const total = redFeed + redDrink + inact + isolation;
       const dominant = total === 0
         ? 'No observed behavior events'
-        : redFeed >= redDrink && redFeed >= inact && redFeed >= pecking
-          ? 'Reduced feeding behavior'
-          : redDrink >= inact && redDrink >= pecking
-            ? 'Reduced drinking behavior'
-            : inact >= pecking
-              ? 'Prolonged low activity'
-              : 'Feather pecking';
+        : redFeed >= redDrink && redFeed >= inact && redFeed >= isolation
+          ? 'Feeding Activity (≤ 0.3%)'
+          : redDrink >= inact && redDrink >= isolation
+            ? 'Drinking Activity (≤ 0.2%)'
+            : inact >= isolation
+              ? 'Reduced Locomotor Activity (> 78%)'
+              : 'Social Isolation (> 29.5%)';
 
       return {
         ...p,
@@ -356,12 +358,14 @@ export default function BehaviorResultsTab() {
           reducedFeeding: redFeed,
           reducedDrinking: redDrink,
           prolongedInactivity: inact,
-          featherPecking: pecking,
+          featherPecking: isolation,
+          socialIsolation: isolation,
+          reducedLocomotor: inact,
         },
         dominantBehavior: dominant,
         summaryText: isRealData
           ? total > 0
-            ? `${total} total observed events. ${dominant} is most frequent (${Math.max(redFeed, redDrink, inact, pecking)} events).`
+            ? `${total} total observed events. ${dominant} is most frequent (${Math.max(redFeed, redDrink, inact, isolation)} events).`
             : 'No behavior events were recorded for this profile in the selected results.'
           : 'Behavior results are unavailable.',
       };
@@ -406,25 +410,27 @@ export default function BehaviorResultsTab() {
   const birdAggregates = useMemo(() => {
     let feeding = 0;
     let drinking = 0;
-    let inactivity = 0;
-    let pecking = 0;
+    let locomotor = 0;
+    let isolation = 0;
 
     filteredIntervals.forEach((interval) => {
       const counts = interval.behaviorsByBird[selectedBirdId];
       if (counts) {
         feeding += counts.reducedFeeding;
         drinking += counts.reducedDrinking;
-        inactivity += counts.prolongedInactivity;
-        pecking += counts.featherPecking;
+        locomotor += counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+        isolation += counts.socialIsolation ?? counts.featherPecking ?? 0;
       }
     });
 
     return {
       feeding,
       drinking,
-      inactivity,
-      pecking,
-      total: feeding + drinking + inactivity + pecking,
+      inactivity: locomotor,
+      locomotor,
+      pecking: isolation,
+      isolation,
+      total: feeding + drinking + locomotor + isolation,
     };
   }, [filteredIntervals, selectedBirdId]);
 
@@ -516,10 +522,10 @@ export default function BehaviorResultsTab() {
       'Date',
       'Time_Slot',
       'Profile',
-      'Reduced_Feeding_Events',
-      'Reduced_Drinking_Events',
-      'Prolonged_Inactivity_Events',
-      'Feather_Pecking_Events',
+      'Feeding_Activity_Deficit_Events',
+      'Drinking_Activity_Deficit_Events',
+      'Social_Isolation_Events',
+      'Reduced_Locomotor_Events',
       'Temperature_C',
       'Humidity_Pct',
       'Ammonia_PPM',
@@ -536,6 +542,8 @@ export default function BehaviorResultsTab() {
         prolongedInactivity: 0,
         featherPecking: 0,
       };
+      const locomotor = beh.reducedLocomotor ?? beh.prolongedInactivity ?? 0;
+      const isolation = beh.socialIsolation ?? beh.featherPecking ?? 0;
       const suggestion = getStressSuggestion({
         birdName: selectedBird.name,
         thiCategory: i.heatStress,
@@ -551,8 +559,8 @@ export default function BehaviorResultsTab() {
         `"${selectedBird.name} (${selectedBird.tagColorName})"`,
         beh.reducedFeeding,
         beh.reducedDrinking,
-        beh.prolongedInactivity,
-        beh.featherPecking,
+        isolation,
+        locomotor,
         i.tempC ?? '',
         i.humidityPct ?? '',
         i.ammoniaPpm ?? '',
@@ -919,23 +927,25 @@ export default function BehaviorResultsTab() {
           {dynamicProfiles.map((chicken) => {
             const isSelected = selectedBirdId === chicken.id;
             const beh = chicken.behaviorDistribution;
+            const locomotor = beh.reducedLocomotor ?? beh.prolongedInactivity ?? 0;
+            const isolation = beh.socialIsolation ?? beh.featherPecking ?? 0;
             const totalEvents =
               beh.reducedFeeding +
               beh.reducedDrinking +
-              beh.prolongedInactivity +
-              beh.featherPecking;
+              locomotor +
+              isolation;
             const dominantCount = Math.max(
               beh.reducedFeeding,
               beh.reducedDrinking,
-              beh.prolongedInactivity,
-              beh.featherPecking
+              locomotor,
+              isolation
             );
 
             // Calculate percentage shares for mini stacked bar
             const pFeed = totalEvents > 0 ? (beh.reducedFeeding / totalEvents) * 100 : 0;
             const pDrink = totalEvents > 0 ? (beh.reducedDrinking / totalEvents) * 100 : 0;
-            const pInact = totalEvents > 0 ? (beh.prolongedInactivity / totalEvents) * 100 : 0;
-            const pPecking = totalEvents > 0 ? (beh.featherPecking / totalEvents) * 100 : 0;
+            const pIsolation = totalEvents > 0 ? (isolation / totalEvents) * 100 : 0;
+            const pLocomotor = totalEvents > 0 ? (locomotor / totalEvents) * 100 : 0;
 
             const isWhiteTag = chicken.tagColorHex.toLowerCase() === '#ffffff';
 
@@ -1011,28 +1021,28 @@ export default function BehaviorResultsTab() {
                             <div
                               style={{ width: `${pFeed}%` }}
                               className="bg-amber-500 transition-all duration-300"
-                              title={`Reduced feeding: ${beh.reducedFeeding} (${pFeed.toFixed(0)}%)`}
+                              title={`Feeding Activity (≤0.3%): ${beh.reducedFeeding} (${pFeed.toFixed(0)}%)`}
                             />
                           )}
                           {pDrink > 0 && (
                             <div
                               style={{ width: `${pDrink}%` }}
                               className="bg-sky-500 transition-all duration-300"
-                              title={`Reduced drinking: ${beh.reducedDrinking} (${pDrink.toFixed(0)}%)`}
+                              title={`Drinking Activity (≤0.2%): ${beh.reducedDrinking} (${pDrink.toFixed(0)}%)`}
                             />
                           )}
-                          {pInact > 0 && (
+                          {pIsolation > 0 && (
                             <div
-                              style={{ width: `${pInact}%` }}
-                              className="bg-purple-500 transition-all duration-300"
-                              title={`Inactivity: ${beh.prolongedInactivity} (${pInact.toFixed(0)}%)`}
-                            />
-                          )}
-                          {pPecking > 0 && (
-                            <div
-                              style={{ width: `${pPecking}%` }}
+                              style={{ width: `${pIsolation}%` }}
                               className="bg-emerald-500 transition-all duration-300"
-                              title={`Feather pecking: ${beh.featherPecking} (${pPecking.toFixed(0)}%)`}
+                              title={`Social Isolation (>29.5%): ${isolation} (${pIsolation.toFixed(0)}%)`}
+                            />
+                          )}
+                          {pLocomotor > 0 && (
+                            <div
+                              style={{ width: `${pLocomotor}%` }}
+                              className="bg-purple-500 transition-all duration-300"
+                              title={`Reduced Locomotor (>78%): ${locomotor} (${pLocomotor.toFixed(0)}%)`}
                             />
                           )}
                         </div>
@@ -1105,10 +1115,10 @@ export default function BehaviorResultsTab() {
             <>
               <span className="font-semibold text-slate-900">{selectedBird.name} Observed Behavior Profile:</span>{' '}
               Results from the selected recorded intervals:{' '}
-              Reduced feeding behavior: <span className="font-semibold text-orange-600">{birdAggregates.feeding}</span> events;{' '}
-              reduced drinking behavior: <span className="font-semibold text-blue-600">{birdAggregates.drinking}</span> events;{' '}
-              prolonged low activity: <span className="font-semibold text-slate-800">{birdAggregates.inactivity}</span> events;{' '}
-              and feather pecking: <span className="font-semibold text-rose-600">{birdAggregates.pecking}</span> events.{' '}
+              Feeding Activity: <span className="font-semibold text-orange-600">{birdAggregates.feeding}</span> deficit events (≤0.3%);{' '}
+              Drinking Activity: <span className="font-semibold text-blue-600">{birdAggregates.drinking}</span> deficit events (≤0.2%);{' '}
+              Social Isolation: <span className="font-semibold text-emerald-600">{birdAggregates.isolation}</span> events (&gt;29.5%);{' '}
+              and Reduced Locomotor Activity: <span className="font-semibold text-purple-600">{birdAggregates.locomotor}</span> events (&gt;78%).{' '}
               Environmental measurements are shown only when recorded.
             </>
           ) : (
@@ -1117,6 +1127,109 @@ export default function BehaviorResultsTab() {
             </>
           )}
         </p>
+
+        {/* ──────────────────────── ETHOLOGICAL BEHAVIORAL INDICATORS & THRESHOLDS MATRIX ──────────────────────── */}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-sm space-y-3">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-orange-500" />
+              <h4 className="text-xs sm:text-sm font-bold text-slate-900 uppercase tracking-wide">
+                Ethological Behavioral Indicators &amp; Decision Thresholds
+              </h4>
+            </div>
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-600 border border-slate-200">
+              <Check className="h-3 w-3 text-emerald-600" /> Standard Layer Chicken Ethogram
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/80 text-[11px] font-bold text-slate-600">
+                  <th className="py-2.5 px-3.5">Behavioral Indicator</th>
+                  <th className="py-2.5 px-3.5">Threshold (%)</th>
+                  <th className="py-2.5 px-3.5">Condition</th>
+                  <th className="py-2.5 px-3.5">Evaluation &amp; Criteria</th>
+                  <th className="py-2.5 px-3.5">{selectedBird.name} Observed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                <tr className="hover:bg-orange-50/20 transition-colors">
+                  <td className="py-2.5 px-3.5 font-bold text-slate-900 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[#f97316]" />
+                    Feeding Activity
+                  </td>
+                  <td className="py-2.5 px-3.5 font-mono font-bold text-orange-700">0.3 %</td>
+                  <td className="py-2.5 px-3.5">
+                    <span className="inline-flex items-center rounded-md bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700 border border-orange-200">
+                      At or below
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3.5 text-slate-600">
+                    Proportion of time spent feeding ≤ 0.3% indicates severe feeding deficit
+                  </td>
+                  <td className="py-2.5 px-3.5 font-semibold text-slate-800">
+                    {birdAggregates.feeding} event{birdAggregates.feeding === 1 ? '' : 's'} flagged
+                  </td>
+                </tr>
+                <tr className="hover:bg-blue-50/20 transition-colors">
+                  <td className="py-2.5 px-3.5 font-bold text-slate-900 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[#3b82f6]" />
+                    Drinking Activity
+                  </td>
+                  <td className="py-2.5 px-3.5 font-mono font-bold text-blue-700">0.2 %</td>
+                  <td className="py-2.5 px-3.5">
+                    <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 border border-blue-200">
+                      At or below
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3.5 text-slate-600">
+                    Proportion of time spent drinking ≤ 0.2% indicates dehydration risk
+                  </td>
+                  <td className="py-2.5 px-3.5 font-semibold text-slate-800">
+                    {birdAggregates.drinking} event{birdAggregates.drinking === 1 ? '' : 's'} flagged
+                  </td>
+                </tr>
+                <tr className="hover:bg-emerald-50/20 transition-colors">
+                  <td className="py-2.5 px-3.5 font-bold text-slate-900 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[#10b981]" />
+                    Social Isolation
+                  </td>
+                  <td className="py-2.5 px-3.5 font-mono font-bold text-emerald-700">29.5 %</td>
+                  <td className="py-2.5 px-3.5">
+                    <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200">
+                      Above
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3.5 text-slate-600">
+                    Spatial segregation from nearest flock mates &gt; 29.5% indicates social withdrawal
+                  </td>
+                  <td className="py-2.5 px-3.5 font-semibold text-slate-800">
+                    {birdAggregates.isolation} event{birdAggregates.isolation === 1 ? '' : 's'} flagged
+                  </td>
+                </tr>
+                <tr className="hover:bg-purple-50/20 transition-colors">
+                  <td className="py-2.5 px-3.5 font-bold text-slate-900 flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-sm bg-[#a855f7]" />
+                    Reduced Locomotor Activity
+                  </td>
+                  <td className="py-2.5 px-3.5 font-mono font-bold text-purple-700">78 %</td>
+                  <td className="py-2.5 px-3.5">
+                    <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700 border border-purple-200">
+                      Above
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3.5 text-slate-600">
+                    Inactivity / low velocity duration &gt; 78% indicates lethargy and heat stupor
+                  </td>
+                  <td className="py-2.5 px-3.5 font-semibold text-slate-800">
+                    {birdAggregates.locomotor} event{birdAggregates.locomotor === 1 ? '' : 's'} flagged
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         {/* ──────────────────────── 3. DUAL-AXIS COMBINED GRAPH (MATCHING ATTACHED IMAGE) ──────────────────────── */}
         <div className="mt-6 rounded-2xl border border-slate-100 bg-[#fafbfc] p-4 sm:p-6">
@@ -1245,10 +1358,15 @@ export default function BehaviorResultsTab() {
                 };
                 const baseY = chartConfig.behToY(0);
 
-                const b1H = Math.max(0, baseY - chartConfig.behToY(counts.reducedFeeding));
-                const b2H = Math.max(0, baseY - chartConfig.behToY(counts.reducedDrinking));
-                const b3H = Math.max(0, baseY - chartConfig.behToY(counts.prolongedInactivity));
-                const b4H = Math.max(0, baseY - chartConfig.behToY(counts.featherPecking));
+                const countFeed = counts.reducedFeeding;
+                const countDrink = counts.reducedDrinking;
+                const countIso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+                const countLoco = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+
+                const b1H = Math.max(0, baseY - chartConfig.behToY(countFeed));
+                const b2H = Math.max(0, baseY - chartConfig.behToY(countDrink));
+                const b3H = Math.max(0, baseY - chartConfig.behToY(countIso));
+                const b4H = Math.max(0, baseY - chartConfig.behToY(countLoco));
 
                 const b1X = cx - chartConfig.groupW / 2;
                 const b2X = b1X + chartConfig.barW + 2;
@@ -1278,7 +1396,7 @@ export default function BehaviorResultsTab() {
                       />
                     )}
 
-                    {/* Bar 1: Reduced Feeding (orange) */}
+                    {/* Bar 1: Feeding Activity (orange) */}
                     {b1H > 0 && (
                       <rect
                         x={b1X}
@@ -1290,7 +1408,7 @@ export default function BehaviorResultsTab() {
                       />
                     )}
 
-                    {/* Bar 2: Reduced Drinking (blue) */}
+                    {/* Bar 2: Drinking Activity (blue) */}
                     {b2H > 0 && (
                       <rect
                         x={b2X}
@@ -1302,26 +1420,26 @@ export default function BehaviorResultsTab() {
                       />
                     )}
 
-                    {/* Bar 3: Prolonged Low Activity (purple) */}
+                    {/* Bar 3: Social Isolation (emerald) */}
                     {b3H > 0 && (
                       <rect
                         x={b3X}
                         y={baseY - b3H}
                         width={chartConfig.barW}
                         height={b3H}
-                        fill="#a855f7"
+                        fill="#10b981"
                         rx="1.5"
                       />
                     )}
 
-                    {/* Bar 4: Feather Pecking (teal/emerald) */}
+                    {/* Bar 4: Reduced Locomotor Activity (purple) */}
                     {b4H > 0 && (
                       <rect
                         x={b4X}
                         y={baseY - b4H}
                         width={chartConfig.barW}
                         height={b4H}
-                        fill="#10b981"
+                        fill="#a855f7"
                         rx="1.5"
                       />
                     )}
@@ -1397,6 +1515,8 @@ export default function BehaviorResultsTab() {
               prolongedInactivity: 0,
               featherPecking: 0,
             };
+            const countIso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+            const countLoco = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
             const showTimeLabels = isSingleDayView(dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd);
             return (
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 px-3 py-2.5 text-xs text-slate-700">
@@ -1409,8 +1529,8 @@ export default function BehaviorResultsTab() {
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
                   <span>Feeding <strong>{counts.reducedFeeding}</strong></span>
                   <span>Drinking <strong>{counts.reducedDrinking}</strong></span>
-                  <span>Low activity <strong>{counts.prolongedInactivity}</strong></span>
-                  <span>Feather pecking <strong>{counts.featherPecking}</strong></span>
+                  <span>Social Isolation <strong>{countIso}</strong></span>
+                  <span>Reduced Locomotor <strong>{countLoco}</strong></span>
                   <span>Temp <strong>{formatMetric(interval.tempC, 1)}°C</strong></span>
                   <span>Humidity <strong>{formatMetric(interval.humidityPct, 0)}%</strong></span>
                 </div>
@@ -1431,19 +1551,19 @@ export default function BehaviorResultsTab() {
               <div className="flex flex-wrap items-center gap-4">
                 <span className="flex items-center gap-1.5 font-medium text-slate-700">
                   <span className="h-2.5 w-2.5 rounded-sm bg-[#f97316]" />
-                  Reduced feeding behavior
+                  Feeding Activity (≤ 0.3%)
                 </span>
                 <span className="flex items-center gap-1.5 font-medium text-slate-700">
                   <span className="h-2.5 w-2.5 rounded-sm bg-[#3b82f6]" />
-                  Reduced drinking behavior
-                </span>
-                <span className="flex items-center gap-1.5 font-medium text-slate-700">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-[#a855f7]" />
-                  Prolonged low activity
+                  Drinking Activity (≤ 0.2%)
                 </span>
                 <span className="flex items-center gap-1.5 font-medium text-slate-700">
                   <span className="h-2.5 w-2.5 rounded-sm bg-[#10b981]" />
-                  Feather pecking
+                  Social Isolation (&gt; 29.5%)
+                </span>
+                <span className="flex items-center gap-1.5 font-medium text-slate-700">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#a855f7]" />
+                  Reduced Locomotor Activity (&gt; 78%)
                 </span>
               </div>
 
@@ -1807,17 +1927,17 @@ export default function BehaviorResultsTab() {
                       <div className="flex items-center gap-1 font-mono text-[11px]">
                         {interval.behaviorsByBird[selectedBirdId] ? (
                           <>
-                            <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700 font-semibold" title="Reduced feeding">
+                            <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700 font-semibold" title="Feeding Activity (≤ 0.3%)">
                               F:{counts.reducedFeeding}
                             </span>
-                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 font-semibold" title="Reduced drinking">
+                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 font-semibold" title="Drinking Activity (≤ 0.2%)">
                               D:{counts.reducedDrinking}
                             </span>
-                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700 font-semibold" title="Prolonged low activity">
-                              I:{counts.prolongedInactivity}
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 font-semibold" title="Social Isolation (> 29.5%)">
+                              ISO:{counts.socialIsolation ?? counts.featherPecking}
                             </span>
-                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 font-semibold" title="Feather pecking">
-                              P:{counts.featherPecking}
+                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700 font-semibold" title="Reduced Locomotor Activity (> 78%)">
+                              LOC:{counts.reducedLocomotor ?? counts.prolongedInactivity}
                             </span>
                           </>
                         ) : (

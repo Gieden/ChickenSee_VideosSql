@@ -76,6 +76,16 @@ def tracker_type_of(tracker_yaml: str) -> str:
 
 @dataclass
 class BehaviorConfig:
+    # Final 4-Behavior Ethology Thresholds
+    # 1. Feeding Activity (%): at or below threshold indicates deficit/stress
+    feeding_activity_threshold_pct: float = float(os.getenv("FEEDING_ACTIVITY_THRESHOLD_PCT", "0.3"))
+    # 2. Drinking Activity (%): at or below threshold indicates deficit/stress
+    drinking_activity_threshold_pct: float = float(os.getenv("DRINKING_ACTIVITY_THRESHOLD_PCT", "0.2"))
+    # 3. Social Isolation (%): above threshold indicates isolation/stress
+    social_isolation_threshold_pct: float = float(os.getenv("SOCIAL_ISOLATION_THRESHOLD_PCT", "29.5"))
+    # 4. Reduced Locomotor Activity (%): above threshold indicates lethargy/stress
+    reduced_locomotor_threshold_pct: float = float(os.getenv("REDUCED_LOCOMOTOR_THRESHOLD_PCT", "78.0"))
+
     # Interaction Proximity (pixels in scaled frame)
     # Feeder / Drinker proximity threshold for eating / drinking detection
     feeder_proximity_px: float = float(os.getenv("FEEDER_PROXIMITY_PX", "90.0"))

@@ -57,6 +57,12 @@ class AnalyticsConfig(BaseModel):
     analytics_db_url: str = f"sqlite:///{ANALYTICS_DB_PATH.as_posix()}"
 
     # Precise 4-Behavior Detection Thresholds (pixels & seconds for 640x360 or 1280x720 video)
+    # Final 4-Behavior Classification Thresholds (Ethological Standard)
+    feeding_activity_threshold_pct: float = Field(default=0.3, description="Feeding activity threshold (%) - at or below is flagged")
+    drinking_activity_threshold_pct: float = Field(default=0.2, description="Drinking activity threshold (%) - at or below is flagged")
+    social_isolation_threshold_pct: float = Field(default=29.5, description="Social isolation threshold (%) - above is flagged")
+    reduced_locomotor_threshold_pct: float = Field(default=78.0, description="Reduced locomotor activity threshold (%) - above is flagged")
+
     # 1. Reduced Feeding Behavior Thresholds
     feeder_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to feeder bounding box")
     reduced_feeding_idle_seconds: float = Field(default=10.0, description="Sustained idle time near feeder indicating reduced feeding")

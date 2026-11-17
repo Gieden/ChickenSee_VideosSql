@@ -15,6 +15,8 @@ export interface BirdBehaviorCounts {
   reducedDrinking: number;
   prolongedInactivity: number;
   featherPecking: number;
+  socialIsolation: number;
+  reducedLocomotor: number;
 }
 
 export interface IntervalTelemetry {
@@ -143,11 +145,18 @@ async function loadAnalyticsDbData() {
       if (!birdId) continue;
 
       if (!birdsByChunk.has(chunkId)) birdsByChunk.set(chunkId, {});
+      const feedCount = Math.max(Number(redEat) || 0, Number(lowFeed) || 0);
+      const drinkCount = Number(lowDrink) || 0;
+      const locomotorCount = Math.max(Number(leth) || 0, Number(inact) || 0);
+      const isolationCount = Number(pecking) || 0;
+
       birdsByChunk.get(chunkId)![birdId] = {
-        reducedFeeding: Math.max(Number(redEat) || 0, Number(lowFeed) || 0),
-        reducedDrinking: Number(lowDrink) || 0,
-        prolongedInactivity: Math.max(Number(leth) || 0, Number(inact) || 0),
-        featherPecking: Number(pecking) || 0,
+        reducedFeeding: feedCount,
+        reducedDrinking: drinkCount,
+        prolongedInactivity: locomotorCount,
+        reducedLocomotor: locomotorCount,
+        featherPecking: isolationCount,
+        socialIsolation: isolationCount,
       };
     }
 
@@ -273,11 +282,15 @@ export async function GET(req: NextRequest) {
             reducedDrinking: 0,
             prolongedInactivity: 0,
             featherPecking: 0,
+            socialIsolation: 0,
+            reducedLocomotor: 0,
           };
           current.reducedFeeding += counts.reducedFeeding;
           current.reducedDrinking += counts.reducedDrinking;
           current.prolongedInactivity += counts.prolongedInactivity;
           current.featherPecking += counts.featherPecking;
+          current.socialIsolation += counts.socialIsolation ?? counts.featherPecking;
+          current.reducedLocomotor += counts.reducedLocomotor ?? counts.prolongedInactivity;
         }
       }
 

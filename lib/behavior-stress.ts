@@ -1,10 +1,46 @@
 export type ThiCategory = 'Normal' | 'Moderate' | 'Severe' | 'Emergency' | 'Unavailable';
 
+/**
+ * Ethological 4-behavior indicator specifications and thresholds.
+ */
+export const BEHAVIOR_THRESHOLDS = {
+  feedingActivity: {
+    indicator: 'Feeding Activity',
+    thresholdPct: 0.3,
+    condition: 'At or below',
+    operator: '<=',
+    description: 'Feeding activity at or below 0.3% flags a feeding deficit / stress.',
+  },
+  drinkingActivity: {
+    indicator: 'Drinking Activity',
+    thresholdPct: 0.2,
+    condition: 'At or below',
+    operator: '<=',
+    description: 'Drinking activity at or below 0.2% flags a drinking deficit / stress.',
+  },
+  socialIsolation: {
+    indicator: 'Social Isolation',
+    thresholdPct: 29.5,
+    condition: 'Above',
+    operator: '>',
+    description: 'Spatial isolation from flock above 29.5% flags social isolation.',
+  },
+  reducedLocomotor: {
+    indicator: 'Reduced Locomotor Activity',
+    thresholdPct: 78.0,
+    condition: 'Above',
+    operator: '>',
+    description: 'Inactivity or low velocity above 78% flags reduced locomotor activity.',
+  },
+} as const;
+
 export interface BehaviorIndicators {
   reducedFeeding: number;
   reducedDrinking: number;
   prolongedInactivity: number;
   featherPecking: number;
+  socialIsolation?: number;
+  reducedLocomotor?: number;
 }
 
 export interface StressSuggestionInput {
@@ -36,11 +72,14 @@ export function getStressSuggestion(input: StressSuggestionInput): StressSuggest
     };
   }
 
-  // The legacy pecking field can include social-isolation events, so it is not used as stress evidence.
+  // Legacy featherPecking without socialIsolation is not used as stress evidence
+  const locomotorCount = input.behaviors.reducedLocomotor ?? input.behaviors.prolongedInactivity ?? 0;
+  const isolationCount = input.behaviors.socialIsolation ?? 0;
   const behaviorSignals = [
     { name: 'reduced feeding', count: input.behaviors.reducedFeeding },
     { name: 'reduced drinking', count: input.behaviors.reducedDrinking },
-    { name: 'prolonged inactivity', count: input.behaviors.prolongedInactivity },
+    { name: 'reduced locomotor activity', count: locomotorCount },
+    ...(isolationCount > 0 ? [{ name: 'social isolation', count: isolationCount }] : []),
   ].filter((signal) => Number.isFinite(signal.count) && signal.count > 0);
   const elevatedThi = input.thiCategory !== 'Normal';
   const thiReading = `THI ${input.thi.toFixed(1)} (${input.thiCategory.toLowerCase()})`;
