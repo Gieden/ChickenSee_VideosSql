@@ -42,8 +42,8 @@ elseif (Test-Path $customPt) {
     Write-Host "[INFO] yolo26n.pt not found. Using validated custom poultry model: $customPt" -ForegroundColor Cyan
 }
 else {
-    Write-Host "[INFO] Downloading YOLO Nano baseline weights..." -ForegroundColor Cyan
-    & python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
+    Write-Error "No YOLO26n/custom poultry weights found. Place either yolo26n.pt or custom_poultry.pt in the project root before starting the pipeline."
+    exit 1
 }
 
 # 4. Initialize Database

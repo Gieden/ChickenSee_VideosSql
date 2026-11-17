@@ -41,46 +41,46 @@ def _frame_with_band(band_bgr, band_at=(150, 170), size=(400, 240)):
 class TestBandVoting(unittest.TestCase):
     def test_single_frame_never_invents_a_hen_identity(self):
         bank = BandVoteBank()
-        bank.add("Hen1 (Green)", 1.0)
+        bank.add("Hen1 (Yellow)", 1.0)
         self.assertIsNone(bank.locked_label)
 
     def test_three_confident_yolo_band_votes_lock_the_colour(self):
         bank = BandVoteBank()
-        bank.add("Hen3 (Blue)", 3.0)
-        self.assertEqual(bank.locked_label, "Hen3 (Blue)")
+        bank.add("Hen2 (Blue)", 3.0)
+        self.assertEqual(bank.locked_label, "Hen2 (Blue)")
 
     def test_ambiguous_evidence_does_not_lock(self):
         # 2-2 split: both the mass and the share requirements fail, so nothing is displayed.
         bank = BandVoteBank()
         for _ in range(2):
-            bank.add("Hen1 (Green)", 1.0)
+            bank.add("Hen1 (Yellow)", 1.0)
         for _ in range(2):
-            bank.add("Hen4 (Yellow)", 1.0)
+            bank.add("Hen5 (YellowGreen)", 1.0)
         self.assertIsNone(bank.locked_label)
-        self.assertEqual(bank.pending_label(), "Hen1 (Green)")
+        self.assertEqual(bank.pending_label(), "Hen1 (Yellow)")
 
     def test_a_contested_identity_resolves_to_the_dominant_colour(self):
         bank = BandVoteBank()
         for _ in range(3):
-            bank.add("Hen1 (Green)", 1.0)
+            bank.add("Hen1 (Yellow)", 1.0)
         for _ in range(5):
-            bank.add("Hen4 (Yellow)", 1.0)
-        self.assertEqual(bank.locked_label, "Hen4 (Yellow)")
+            bank.add("Hen5 (YellowGreen)", 1.0)
+        self.assertEqual(bank.locked_label, "Hen5 (YellowGreen)")
 
     def test_locked_identity_survives_isolated_noise(self):
         bank = BandVoteBank()
-        bank.add("Hen2 (White)", 3.0)
+        bank.add("Hen4 (White)", 3.0)
         for _ in range(6):
             bank.decay(0.92)
-        bank.add("Hen5 (Pink)", 1.0)
-        self.assertEqual(bank.locked_label, "Hen2 (White)")
+        bank.add("Hen3 (Red)", 1.0)
+        self.assertEqual(bank.locked_label, "Hen4 (White)")
 
     def test_decisive_challenger_can_still_correct_the_identity(self):
         bank = BandVoteBank()
-        bank.add("Hen1 (Green)", 3.0)
+        bank.add("Hen1 (Yellow)", 3.0)
         for _ in range(4):
-            bank.add("Hen4 (Yellow)", 3.0)
-        self.assertEqual(bank.locked_label, "Hen4 (Yellow)")
+            bank.add("Hen5 (YellowGreen)", 3.0)
+        self.assertEqual(bank.locked_label, "Hen5 (YellowGreen)")
 
 
 class TestBandSignature(unittest.TestCase):
@@ -88,7 +88,7 @@ class TestBandSignature(unittest.TestCase):
         frame = _frame_with_band((255, 0, 0))
         signature = leg_band_signature(frame, (100, 20, 260, 220))
         self.assertIsNotNone(signature)
-        self.assertEqual(signature.label, "Hen3 (Blue)")
+        self.assertEqual(signature.label, "Hen2 (Blue)")
         self.assertGreater(signature.confidence, 0.5)
         self.assertTrue(0 < signature.box[0] < signature.box[2] <= 240)
 
@@ -271,10 +271,10 @@ class TestEngineIdentity(unittest.TestCase):
     def test_band_locks_only_after_temporal_support(self):
         engine = self._engine()
         engine.band_banks[1] = engine._make_bank()
-        engine.band_banks[1].add("Hen1 (Green)", 1.0)
+        engine.band_banks[1].add("Hen1 (Yellow)", 1.0)
         self.assertEqual(engine._identity_label(1), "Chicken")
-        engine.band_banks[1].add("Hen1 (Green)", 3.0)
-        self.assertEqual(engine._identity_label(1), "Hen1 (Green)")
+        engine.band_banks[1].add("Hen1 (Yellow)", 3.0)
+        self.assertEqual(engine._identity_label(1), "Hen1 (Yellow)")
 
     def test_identity_buffer_uses_real_fps(self):
         engine = self._engine()

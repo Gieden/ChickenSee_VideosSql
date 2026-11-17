@@ -12,9 +12,30 @@ Files involved:
 | `edge/tracker.py` | `AgriByteTracker` — ByteTrack + apex-anchored association (registered in Ultralytics `TRACKER_MAP`) |
 | `bytetrack_poultry.yaml` | Thresholds for both association paths |
 | `analytics/tracker.py` | Recorded-video tracker used by the analytics worker — display-ID re-ID + hen colour labels |
-| `legband.py` | HSV table and the single-frame band detector (unchanged) |
+| `legband.py` | Canonical saddle-color-to-hen identity map and HSV fallback detectors |
 | `run_tests.py` | `python run_tests.py` → 74 tests |
 | `edge/smoke_reid.py` | `python -m edge.smoke_reid --frames 122` → run the real model and print per-frame identity diagnostics |
+
+## Current checkpoint class order and flock IDs
+
+The trained nine-class checkpoint is the source of truth for YOLO class names; analytics
+must not substitute the older 14-class ordering. Its saddle classes map to the fixed roster:
+
+| Model class | Display identity |
+| --- | --- |
+| `Saddle_Color_Yellow` | `ID1_H1 Yellow` |
+| `Saddle_Color_Blue` | `ID2_H2 Blue` |
+| `Saddle_Color_Red` | `ID_3_H3 Red` |
+| `Saddle_Color_White` | `ID4_H4 White` |
+| `Saddle_Color_YellowGreen` | `ID5_H5 Yellow-Green` |
+| `Rooster` | `ID6_R1 Rooster` |
+| Unidentified `Chicken` | `ID7_Chicken(Unidentified)` |
+
+ID7 is used for the first unidentified bird; additional simultaneous unidentified birds
+retain distinct IDs (ID8 and above) rather than sharing a label.
+Each frame contributes at most one saddle-color vote per track. A saddle box is matched to
+one unambiguous chicken box before it can affect identity; overlapping, near-equal matches
+are left unidentified instead of transferring a color to a neighbour.
 
 ---
 

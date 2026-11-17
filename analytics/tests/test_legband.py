@@ -4,16 +4,25 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import cv2
 import numpy as np
 
-from analytics.tracker import LABEL_COLORS_BGR, TrackedDetection, ZampenYOLOTracker
+from analytics.tracker import (
+    LABEL_COLORS_BGR,
+    TrackedDetection,
+    TrackerFrameOutput,
+    ZampenYOLOTracker,
+)
 from edge.detector import COLOR_MAP as EDGE_COLOR_MAP
 from legband import (
+    ANIMAL_TO_DISPLAY_LABEL,
+    ANIMAL_TO_FIXED_ID,
     BAND_CLASS_TO_HEN,
     HEN_TO_FIXED_ID,
     HEN_TO_SADDLE_TAG,
     LEG_BAND_HSV_RANGES,
     SADDLE_CLASS_TO_HEN,
+    animal_display_label,
     detect_leg_band_color,
     detect_saddle_color,
     suppress_overlapping_equipment,
@@ -22,13 +31,18 @@ from model import COLOR_MAP as MODEL_COLOR_MAP, ChickenDetector
 
 
 class TestLegBandDetection(unittest.TestCase):
+    def test_unidentified_display_labels_use_unique_tracking_ids(self):
+        self.assertEqual(animal_display_label("Chicken", 7), "ID7_Chicken(Unidentified)")
+        self.assertEqual(animal_display_label("Chicken", 8), "ID8_Chicken(Unidentified)")
+        self.assertEqual(animal_display_label("Rooster", 6), "ID6_R1 Rooster")
+
     def test_blue_band_is_detected_from_original_resolution_crop(self):
         frame = np.zeros((200, 120, 3), dtype=np.uint8)
         frame[150:162, 50:62] = (255, 0, 0)
 
         label = detect_leg_band_color(frame, (10, 10, 110, 190))
 
-        self.assertEqual(label, "Hen3 (Blue)")
+        self.assertEqual(label, "Hen2 (Blue)")
 
     def test_uncolored_crop_does_not_invent_a_hen_identity(self):
         frame = np.zeros((200, 120, 3), dtype=np.uint8)
@@ -48,12 +62,11 @@ class TestLegBandDetection(unittest.TestCase):
         )
 
     def test_checkpoint_violet_band_maps_to_blue_display_identity(self):
-        self.assertEqual(BAND_CLASS_TO_HEN["Leg_Band_Violet"], "Hen3 (Blue)")
-        self.assertIn("Hen3 (Blue)", LEG_BAND_HSV_RANGES)
-        self.assertNotIn("Hen3 (Violet)", LEG_BAND_HSV_RANGES)
-        self.assertEqual(MODEL_COLOR_MAP["Hen3 (Blue)"]["hex"], "#0000FF")
-        self.assertEqual(EDGE_COLOR_MAP["Hen3 (Blue)"]["hex"], "#0000FF")
-        self.assertEqual(LABEL_COLORS_BGR["Hen3 (Blue)"], (255, 0, 0))
+        self.assertEqual(BAND_CLASS_TO_HEN["Leg_Band_Violet"], "Hen2 (Blue)")
+        self.assertIn("Hen2 (Blue)", LEG_BAND_HSV_RANGES)
+        self.assertEqual(MODEL_COLOR_MAP["Hen2 (Blue)"]["hex"], "#0000FF")
+        self.assertEqual(EDGE_COLOR_MAP["Hen2 (Blue)"]["hex"], "#0000FF")
+        self.assertEqual(LABEL_COLORS_BGR["Hen2 (Blue)"], (255, 0, 0))
 
     def test_feeder_and_drinker_display_colors_are_gray_in_all_detectors(self):
         for label in ("Feeder", "Drinker"):
@@ -74,12 +87,101 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.processed_frame_count = 10
 
         for _ in range(7):
-            tracker._record_track_label(12, "Hen3 (Blue)")
+            tracker._record_track_label(12, "Hen3 (Red)")
+            tracker.processed_frame_count += 1
         self.assertNotIn(12, tracker.track_label_cache)
 
         # 8th consistent vote locks the label
-        tracker._record_track_label(12, "Hen3 (Blue)")
-        self.assertEqual(tracker.track_label_cache[12], "Hen3 (Blue)")
+        tracker._record_track_label(12, "Hen3 (Red)")
+        self.assertEqual(tracker.track_label_cache[12], "Hen3 (Red)")
+
+    def test_analytics_label_votes_count_distinct_frames_only(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.processed_frame_count = 1
+
+        for _ in range(8):
+            tracker._record_track_label(12, "Hen2 (Blue)")
+
+        self.assertNotIn(12, tracker.track_label_cache)
+        self.assertEqual(len(tracker.track_label_votes[12]), 1)
+
+    def test_annotation_keeps_long_labels_inside_the_frame(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        frame = np.zeros((120, 180, 3), dtype=np.uint8)
+        detection = TrackedDetection(
+            box=[150, 50, 179, 90],
+            centroid=(164, 70),
+            confidence=0.86,
+            class_id=0,
+            class_name="Chicken",
+            track_id=8,
+            bird_label="Chicken",
+        )
+        output = TrackerFrameOutput(
+            frame_idx=1,
+            timestamp_s=0.0,
+            birds=[detection],
+            feeders=[],
+            drinkers=[],
+        )
+
+        annotated = tracker.annotate_frame(frame, output)
+
+        self.assertEqual(annotated.shape, frame.shape)
+        self.assertTrue(np.array_equal(annotated[40, 179], LABEL_COLORS_BGR["Chicken"]))
+
+    def test_analytics_class_map_uses_checkpoint_names(self):
+        names = {
+            0: "Chicken",
+            1: "Drinker",
+            2: "Feeder",
+            3: "Rooster",
+            4: "Saddle_Color_Blue",
+            5: "Saddle_Color_Red",
+            6: "Saddle_Color_White",
+            7: "Saddle_Color_Yellow",
+            8: "Saddle_Color_YellowGreen",
+        }
+
+        self.assertEqual(ZampenYOLOTracker._normalize_class_names(names), names)
+        self.assertEqual(
+            ZampenYOLOTracker._normalize_class_names(["Chicken", "Rooster"]),
+            {0: "Chicken", 1: "Rooster"},
+        )
+
+    def test_analytics_annotation_uses_fixed_label_and_thin_box(self):
+        tracker = object.__new__(ZampenYOLOTracker)
+        bird = TrackedDetection(
+            box=[10, 10, 50, 60],
+            centroid=(30, 35),
+            confidence=0.9,
+            class_id=0,
+            class_name="Chicken",
+            track_id=2,
+            bird_label="Hen2 (Blue)",
+        )
+        frame_out = TrackerFrameOutput(
+            frame_idx=1,
+            timestamp_s=0.0,
+            birds=[bird],
+            feeders=[],
+            drinkers=[],
+        )
+
+        with (
+            patch("analytics.tracker.cv2.rectangle") as rectangle,
+            patch("analytics.tracker.cv2.putText") as put_text,
+            patch("analytics.tracker.cv2.getTextSize", return_value=((120, 14), 0)),
+            patch("analytics.tracker.cv2.addWeighted"),
+        ):
+            tracker.annotate_frame(np.zeros((100, 100, 3), dtype=np.uint8), frame_out)
+
+        self.assertEqual(rectangle.call_args_list[0].args[4], 1)
+        self.assertEqual(rectangle.call_args_list[0].args[5], cv2.LINE_AA)
+        self.assertIn("ID2_H2 Blue (0.90)", [call.args[1] for call in put_text.call_args_list])
 
     def test_analytics_track_ids_are_sequential_and_stable(self):
         class FakeTensor:
@@ -165,8 +267,8 @@ class TestLegBandDetection(unittest.TestCase):
         first = tracker.process_frame(frame, 0)
         second = tracker.process_frame(frame, 1)
 
-        self.assertEqual([bird.track_id for bird in first.birds], [1, 2])
-        self.assertEqual([bird.track_id for bird in second.birds], [2, 1])
+        self.assertEqual([bird.track_id for bird in first.birds], [7, 8])
+        self.assertEqual([bird.track_id for bird in second.birds], [8, 7])
         # The association stage must see leg-band candidates; birds are re-gated at 70%
         # per class right after tracking (see MIN_DETECTION_CONFIDENCE).
         self.assertEqual(
@@ -179,7 +281,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.reset_video_state()
         self.assertEqual(tracker.model.internal_tracker.reset_count, 1)
         next_video = tracker.process_frame(frame, 0)
-        self.assertEqual([bird.track_id for bird in next_video.birds], [1, 2])
+        self.assertEqual([bird.track_id for bird in next_video.birds], [7, 8])
         self.assertEqual(tracker._next_short_id, 3)
 
     def test_tracker_reuses_id_for_nearby_reappearing_chicken(self):
@@ -234,29 +336,39 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual(detector.class_names, {0: "Chicken"})
 
     def test_saddle_class_mapping_and_fixed_ids(self):
-        # 1. All 5 saddle classes map to the 5 designated Hens
         self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Yellow"], "Hen1 (Yellow)")
-        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Green"], "Hen2 (Green)")
-        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Blue"], "Hen3 (Blue)")
-        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Bluegreen"], "Hen4 (Bluegreen)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Blue"], "Hen2 (Blue)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Red"], "Hen3 (Red)")
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_White"], "Hen4 (White)")
         self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_YellowGreen"], "Hen5 (YellowGreen)")
 
-        # 2. Fixed ID assignment
         self.assertEqual(HEN_TO_FIXED_ID["Hen1 (Yellow)"], 1)
-        self.assertEqual(HEN_TO_FIXED_ID["Hen2 (Green)"], 2)
-        self.assertEqual(HEN_TO_FIXED_ID["Hen3 (Blue)"], 3)
-        self.assertEqual(HEN_TO_FIXED_ID["Hen4 (Bluegreen)"], 4)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen2 (Blue)"], 2)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen3 (Red)"], 3)
+        self.assertEqual(HEN_TO_FIXED_ID["Hen4 (White)"], 4)
         self.assertEqual(HEN_TO_FIXED_ID["Hen5 (YellowGreen)"], 5)
-
-        # 3. Label tag formatting matches user template
+        self.assertEqual(ANIMAL_TO_FIXED_ID["Rooster"], 6)
+        self.assertEqual(ANIMAL_TO_FIXED_ID["Chicken"], 7)
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Hen1 (Yellow)"], "ID1_H1 Yellow")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Hen2 (Blue)"], "ID2_H2 Blue")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Hen3 (Red)"], "ID_3_H3 Red")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Hen4 (White)"], "ID4_H4 White")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Hen5 (YellowGreen)"], "ID5_H5 Yellow-Green")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Rooster"], "ID6_R1 Rooster")
+        self.assertEqual(ANIMAL_TO_DISPLAY_LABEL["Chicken"], "ID7_Chicken(Unidentified)")
         self.assertEqual(HEN_TO_SADDLE_TAG["Hen1 (Yellow)"], "Saddle_Yellow(Hen1)")
-        self.assertEqual(HEN_TO_SADDLE_TAG["Hen2 (Green)"], "Saddle_Green(Hen2)")
+        self.assertEqual(HEN_TO_SADDLE_TAG["Hen2 (Blue)"], "Saddle_Blue(Hen2)")
 
-        # 4. Color map matching
         self.assertEqual(MODEL_COLOR_MAP["Hen1 (Yellow)"]["hex"], "#FFFF00")
+        for color_map in (MODEL_COLOR_MAP, EDGE_COLOR_MAP):
+            self.assertNotIn("Hen4 (Bluegreen)", color_map)
+            self.assertNotIn("Saddle_Bluegreen(Hen4)", color_map)
+            self.assertEqual(color_map["Hen4 (White)"]["hex"], "#FFFFFF")
+            self.assertEqual(color_map["Hen5 (YellowGreen)"]["hex"], "#9ACD32")
         self.assertEqual(LABEL_COLORS_BGR["Hen1 (Yellow)"], (0, 255, 255))
-        self.assertEqual(LABEL_COLORS_BGR["Hen2 (Green)"], (0, 255, 0))
-        self.assertEqual(LABEL_COLORS_BGR["Hen3 (Blue)"], (255, 0, 0))
+        self.assertEqual(LABEL_COLORS_BGR["Hen2 (Blue)"], (255, 0, 0))
+        self.assertEqual(LABEL_COLORS_BGR["Hen3 (Red)"], (0, 0, 255))
+        self.assertEqual(LABEL_COLORS_BGR["Hen4 (White)"], (255, 255, 255))
         self.assertEqual(LABEL_COLORS_BGR["Rooster"], (0, 0, 255))
         self.assertEqual(LABEL_COLORS_BGR["Chicken"], (0, 165, 255))
 
@@ -282,7 +394,14 @@ class TestLegBandDetection(unittest.TestCase):
         tracker.track_saddle_conf = {}
         tracker.class_map = {
             0: "Chicken",
-            12: "Saddle_Color_Yellow",
+            1: "Drinker",
+            2: "Feeder",
+            3: "Rooster",
+            4: "Saddle_Color_Blue",
+            5: "Saddle_Color_Red",
+            6: "Saddle_Color_White",
+            7: "Saddle_Color_Yellow",
+            8: "Saddle_Color_YellowGreen",
         }
         tracker.conf = 0.25
         tracker.iou = 0.45
@@ -315,7 +434,7 @@ class TestLegBandDetection(unittest.TestCase):
         res0 = SimpleNamespace(boxes=FakeBoxes(
             xyxy=[[100, 100, 150, 150], [500, 500, 550, 550], [115, 115, 135, 135]],
             conf=[0.88, 0.82, 0.85],
-            cls=[0, 0, 12],  # Chicken, Chicken, Saddle_Color_Yellow
+            cls=[0, 0, 7],  # Chicken, Chicken, Saddle_Color_Yellow
             tid=[101, 102, -1],
         ))
 
@@ -324,7 +443,7 @@ class TestLegBandDetection(unittest.TestCase):
         res1 = SimpleNamespace(boxes=FakeBoxes(
             xyxy=[[102, 101, 152, 151], [502, 501, 552, 551], [515, 515, 535, 535]],
             conf=[0.87, 0.83, 0.25],
-            cls=[0, 0, 12],  # Chicken, Chicken, Saddle_Color_Yellow (false positive on B)
+            cls=[0, 0, 7],  # Chicken, Chicken, Saddle_Color_Yellow (false positive on B)
             tid=[101, 102, -1],
         ))
 
@@ -337,19 +456,20 @@ class TestLegBandDetection(unittest.TestCase):
         blank = np.zeros((600, 600, 3), dtype=np.uint8)
         out0 = tracker.process_frame(blank, 0)
         birdA_f0 = next(b for b in out0.birds if b.box[0] < 200)
-        self.assertEqual(birdA_f0.bird_label, "Hen1 (Yellow)")
-        self.assertEqual(birdA_f0.track_id, 1)
+        # One frame is only one vote; don't turn it into eight votes and lock a label.
+        self.assertEqual(birdA_f0.bird_label, "Chicken")
+        self.assertEqual(birdA_f0.track_id, 7)
+        self.assertEqual(tracker.hen_track_owners["Hen1 (Yellow)"], 1)
 
         out1 = tracker.process_frame(blank, 1)
         birdA_f1 = next(b for b in out1.birds if b.box[0] < 200)
         birdB_f1 = next(b for b in out1.birds if b.box[0] > 400)
 
-        # The detection / ByteTrack MUST REMAIN with Hen1!
-        self.assertEqual(birdA_f1.bird_label, "Hen1 (Yellow)")
-        self.assertEqual(birdA_f1.track_id, 1)
-        # Bird B must NOT steal Hen1 and must NOT become ID 1
+        # A low-confidence tag on another bird cannot steal the owner's ID.
+        self.assertEqual(birdA_f1.bird_label, "Chicken")
+        self.assertEqual(birdA_f1.track_id, 7)
         self.assertNotEqual(birdB_f1.bird_label, "Hen1 (Yellow)")
-        self.assertNotEqual(birdB_f1.track_id, 1)
+        self.assertEqual(tracker.hen_track_owners["Hen1 (Yellow)"], 1)
 
 
 if __name__ == "__main__":

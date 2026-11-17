@@ -19,6 +19,7 @@ from .detector import PoultryInferenceEngine, FrameInferenceResult
 from .behavior import BehaviorAnalyzer, FrameBehaviorSummary
 from .sensors import SensorHub, SensorReading
 from .aggregator import HourlyTelemetryAggregator, HourlyAggregationRecord
+from legband import animal_display_label
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -139,17 +140,18 @@ class EdgePipelineManager:
         for d in inf_res.detections:
             x1, y1, x2, y2 = d.box
             color = d.color_bgr
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1, cv2.LINE_AA)
 
             # Behavior badge if chicken
             beh_text = ""
             if d.track_id is not None and d.track_id in beh_sum.per_bird_behaviors:
                 beh_text = f" [{beh_sum.per_bird_behaviors[d.track_id]}]"
 
-            label_text = f"#{d.track_id} {d.label}{beh_text} ({d.confidence:.2f})" if d.track_id else f"{d.label} ({d.confidence:.2f})"
-            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            label = animal_display_label(d.label, d.track_id)
+            label_text = f"{label}{beh_text} ({d.confidence:.2f})"
+            (tw, th), _ = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
             cv2.rectangle(frame, (x1, max(0, y1 - 22)), (x1 + tw + 6, max(22, y1)), color, -1)
-            cv2.putText(frame, label_text, (x1 + 3, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0) if sum(color) > 400 else (255, 255, 255), 1)
+            cv2.putText(frame, label_text, (x1 + 3, max(16, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0) if sum(color) > 400 else (255, 255, 255), 1, cv2.LINE_AA)
 
         # 2. Draw Top Telemetry Dashboard Bar
         overlay = frame.copy()

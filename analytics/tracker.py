@@ -16,10 +16,11 @@ from ultralytics import YOLO
 
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
 from legband import (
+    ANIMAL_TO_FIXED_ID,
     BAND_CLASS_TO_HEN,
     HEN_TO_FIXED_ID,
-    HEN_TO_SADDLE_TAG,
     SADDLE_CLASS_TO_HEN,
+    animal_display_label,
     detect_leg_band_color,
     detect_saddle_color,
     equipment_boxes_overlap,
@@ -85,24 +86,14 @@ LABEL_COLORS_BGR = {
     "Chicken":                 (0, 165, 255),
     "Hen1 (Yellow)":           (0, 255, 255),
     "Saddle_Yellow(Hen1)":     (0, 255, 255),
-    "Hen2 (Green)":            (0, 255, 0),
-    "Saddle_Green(Hen2)":      (0, 255, 0),
-    "Hen3 (Blue)":             (255, 0, 0),
-    "Saddle_Blue(Hen3)":       (255, 0, 0),
-    "Hen4 (Bluegreen)":        (209, 206, 0),
-    "Saddle_Bluegreen(Hen4)":  (209, 206, 0),
+    "Hen2 (Blue)":             (255, 0, 0),
+    "Saddle_Blue(Hen2)":       (255, 0, 0),
+    "Hen3 (Red)":              (0, 0, 255),
+    "Saddle_Red(Hen3)":        (0, 0, 255),
+    "Hen4 (White)":            (255, 255, 255),
+    "Saddle_White(Hen4)":      (255, 255, 255),
     "Hen5 (YellowGreen)":      (50, 205, 154),
     "Saddle_YellowGreen(Hen5)":(50, 205, 154),
-    "Saddle_Color_Yellow":     (0, 255, 255),
-    "Saddle_Color_Green":      (0, 255, 0),
-    "Saddle_Color_Blue":       (255, 0, 0),
-    "Saddle_Color_Bluegreen":  (209, 206, 0),
-    "Saddle_Color_YellowGreen":(50, 205, 154),
-    # Legacy leg band labels
-    "Hen1 (Green)":            (0, 255, 0),
-    "Hen2 (White)":            (255, 255, 255),
-    "Hen4 (Yellow)":           (0, 255, 255),
-    "Hen5 (Pink)":             (180, 105, 255),
     "Feeder":                  (128, 128, 128),
     "Drinker":                 (128, 128, 128),
     "Default":                 (128, 128, 128),
@@ -154,6 +145,18 @@ class ZampenYOLOTracker:
     # (prevents two adjacent birds from swapping Hen1/Hen3 when their boxes overlap).
     LABEL_REUSE_COOLDOWN_FRAMES = 90
 
+    @staticmethod
+    def _normalize_class_names(names: Any) -> Dict[int, str]:
+        if isinstance(names, dict):
+            class_map = {int(class_id): str(name) for class_id, name in names.items()}
+        elif isinstance(names, (list, tuple)):
+            class_map = {class_id: str(name) for class_id, name in enumerate(names)}
+        else:
+            raise TypeError("YOLO model.names must be a class-name dictionary or sequence")
+        if not class_map:
+            raise ValueError("YOLO model has no class names")
+        return class_map
+
     def __init__(self, model_weights: Optional[str] = None, tracker_yaml: Optional[str] = None):
         self.weights_path = self._resolve_weights(model_weights or CONFIG.model_name)
         self.tracker_yaml = resolve_tracker_config(tracker_yaml or CONFIG.tracker_config)
@@ -173,24 +176,7 @@ class ZampenYOLOTracker:
         self.model = YOLO(self.weights_path)
         # Dedicated equipment model (separate predictor state so .track() calls don't interfere)
         self._equip_model = YOLO(self.weights_path)
-
-        # Standard poultry class mapping (all 14 classes)
-        self.class_map = {
-            0: "Chicken",
-            1: "Drinker",
-            2: "Feeder",
-            3: "Leg_Band_Blue",
-            4: "Leg_Band_Green",
-            5: "Leg_Band_Pink",
-            6: "Leg_Band_White",
-            7: "Leg_Band_Yellow",
-            8: "Rooster",
-            9: "Saddle_Color_Blue",
-            10: "Saddle_Color_Bluegreen",
-            11: "Saddle_Color_Green",
-            12: "Saddle_Color_Yellow",
-            13: "Saddle_Color_YellowGreen",
-        }
+        self.class_map = self._normalize_class_names(self.model.names)
 
         # Persistent ID Re-ID cache: track_id -> confirmed label
         self.track_label_cache: Dict[int, str] = {}
@@ -202,6 +188,7 @@ class ZampenYOLOTracker:
         self.track_class_last_seen: Dict[int, int] = {}
         self.processed_frame_count = 0
         self.short_id_map: Dict[int, int] = {}
+        self._unidentified_id_map: Dict[int, int] = {}
         self._next_short_id = 1
         # Fixed-population ID pool: when flock_size > 0 display IDs are drawn
         # from {1..flock_size}
@@ -227,8 +214,8 @@ class ZampenYOLOTracker:
         if raw_track_id is None:
             return None
         cached_label = self.track_label_cache.get(raw_track_id)
-        if cached_label in HEN_TO_FIXED_ID:
-            fixed_id = HEN_TO_FIXED_ID[cached_label]
+        if cached_label in ANIMAL_TO_FIXED_ID:
+            fixed_id = ANIMAL_TO_FIXED_ID[cached_label]
             self.short_id_map[raw_track_id] = fixed_id
             return fixed_id
         if raw_track_id not in self.short_id_map:
@@ -258,6 +245,7 @@ class ZampenYOLOTracker:
         self.track_class_last_seen.clear()
         self.processed_frame_count = 0
         self.short_id_map.clear()
+        self._unidentified_id_map.clear()
         self._next_short_id = 1
         getattr(self, "cached_feeders", []).clear()
         getattr(self, "cached_drinkers", []).clear()
@@ -418,10 +406,15 @@ class ZampenYOLOTracker:
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
+        if last_seen == self.processed_frame_count:
+            return
         # 15-frame rolling window; clear only after 90 consecutive unseen frames
         # so a bird that briefly ducks behind the feeder doesn't lose its identity.
         votes = self.track_label_votes.setdefault(track_id, deque(maxlen=15))
-        if last_seen is not None and self.processed_frame_count - last_seen > 90:
+        if (
+            last_seen is not None
+            and self.processed_frame_count - last_seen > self.LABEL_REUSE_COOLDOWN_FRAMES
+        ):
             votes.clear()
         votes.append(label)
         self.track_label_last_seen[track_id] = self.processed_frame_count
@@ -429,7 +422,7 @@ class ZampenYOLOTracker:
         # per-frame HSV noise cannot flip a hen's colour identity.
         vote_counts = Counter(votes)
         resolved_label, count = vote_counts.most_common(1)[0]
-        if count >= 8:
+        if count >= 8 and count / len(votes) >= 0.70:
             # Once a label is locked, only replace it if the new winner has â‰¥8
             # votes AND beats the current cache by a large absolute margin.
             current = self.track_label_cache.get(track_id)
@@ -450,23 +443,25 @@ class ZampenYOLOTracker:
             Path(CONFIG.custom_weights_path),
             PROJECT_ROOT / "custom_poultry.pt",
             PROJECT_ROOT / "yolo26n.pt",
-            PROJECT_ROOT / "yolo11n.pt",
-            PROJECT_ROOT / "yolov8n.pt",
         ]
 
         for cand in candidates:
             if cand and cand.is_file():
                 return str(cand.resolve())
 
-        # If desired is a standard ultralytics weight name, YOLO will auto-download
+        # The project is intentionally pinned to YOLO26n/custom weights; do not silently
+        # fall back to other Ultralytics families because that changes the model contract.
+        if desired_name.lower() in {"yolo11n.pt", "yolov8n.pt"}:
+            raise FileNotFoundError(
+                f"No local weights found for '{desired_name}'. Place custom_poultry.pt or yolo26n.pt in the project root."
+            )
+
         return desired_name
 
     def _resolve_track_class(
         self, cls_id: int, confidence: float, track_id: Optional[int]
     ) -> Tuple[int, str, float]:
-        class_name = self.class_map.get(
-            cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
-        )
+        class_name = self.class_map.get(cls_id, f"class_{cls_id}")
         if track_id is None:
             return cls_id, class_name, confidence
 
@@ -509,8 +504,7 @@ class ZampenYOLOTracker:
 
         resolved_observations, resolved_confidence_sum = class_history[resolved_cls_id]
         resolved_name = self.class_map.get(
-            resolved_cls_id,
-            self.model.names.get(resolved_cls_id, f"class_{resolved_cls_id}"),
+            resolved_cls_id, f"class_{resolved_cls_id}"
         )
         return (
             resolved_cls_id,
@@ -553,6 +547,8 @@ class ZampenYOLOTracker:
             self._rooster_display_map: Dict[int, int] = {}
         if not hasattr(self, "track_tag_confirmed"):
             self.track_tag_confirmed: set = set()
+        if not hasattr(self, "_unidentified_id_map"):
+            self._unidentified_id_map: Dict[int, int] = {}
 
         self.processed_frame_count += 1
         self._prune_track_class_history()
@@ -627,9 +623,7 @@ class ZampenYOLOTracker:
         for box, conf, cls_id, track_id in zip(boxes, confs, classes, track_ids):
             if track_id is not None and track_id <= 0:
                 track_id = None
-            class_name = self.class_map.get(
-                cls_id, self.model.names.get(cls_id, f"class_{cls_id}")
-            )
+            class_name = self.class_map.get(cls_id, f"class_{cls_id}")
             confidence = float(conf)
             is_tag = class_name.startswith("Saddle_Color_") or class_name.startswith("Leg_Band_")
             is_equip = class_name in ("Feeder", "Drinker")
@@ -698,7 +692,7 @@ class ZampenYOLOTracker:
                         r_confs = raw_res.boxes.conf.cpu().numpy()
                         r_classes = raw_res.boxes.cls.int().cpu().tolist()
                         for r_box, r_conf, r_cls in zip(r_boxes, r_confs, r_classes):
-                            r_name = self.class_map.get(r_cls, self.model.names.get(r_cls, ""))
+                            r_name = self.class_map.get(r_cls, f"class_{r_cls}")
                             r_confidence = float(r_conf)
                             rx1, ry1, rx2, ry2 = [int(v) for v in r_box]
                             if r_name.startswith("Saddle_Color_"):
@@ -769,6 +763,7 @@ class ZampenYOLOTracker:
         # Re-ID & Continuity Lock for Saddles (Higher-Confidence Preserved)
         # ------------------------------------------------------------------
         current_frame = self.processed_frame_count
+        conflicting_track_ids = set()
 
         # 1. Match saddle detections to candidate birds
         bird_saddle_candidates: Dict[int, List[Tuple[float, str, float, List[int]]]] = {}
@@ -779,6 +774,7 @@ class ZampenYOLOTracker:
             if not hen_label:
                 continue
 
+            candidates = []
             for bird in birds:
                 if bird.track_id is None:
                     continue
@@ -787,10 +783,23 @@ class ZampenYOLOTracker:
                 x1, y1, x2, y2 = bird.box
                 bw = max(1.0, float(x2 - x1))
                 bh = max(1.0, float(y2 - y1))
-                # Check if saddle centroid is within dorsal / back region of chicken box
                 if (x1 - 0.05 * bw <= scx <= x2 + 0.05 * bw) and (y1 <= scy <= y1 + 0.80 * bh):
-                    dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
-                    bird_saddle_candidates.setdefault(bird.track_id, []).append((sconf, hen_label, dist, sbox))
+                    dist = (
+                        abs(scx - (x1 + x2) / 2) / bw
+                        + abs(scy - (y1 + 0.45 * bh)) / bh
+                    )
+                    candidates.append((dist, bird))
+
+            candidates.sort(key=lambda item: item[0])
+            if not candidates or (
+                len(candidates) > 1
+                and candidates[1][0] - candidates[0][0] < 0.10
+            ):
+                continue
+            dist, bird = candidates[0]
+            bird_saddle_candidates.setdefault(bird.track_id, []).append(
+                (sconf, hen_label, dist, sbox)
+            )
 
         # 2. For each bird, pick the saddle detection with the HIGHEST confidence
         bird_best_saddle: Dict[int, Tuple[float, str, List[int]]] = {}
@@ -845,7 +854,7 @@ class ZampenYOLOTracker:
             incumbent_last_seen = self.hen_owner_last_frame.get(hen_label, 0)
             incumbent_is_active = (
                 incumbent_tid in {b.track_id for b in birds}
-                or (current_frame - incumbent_last_seen <= self.REIDENTIFICATION_MAX_GAP_FRAMES)
+                or (current_frame - incumbent_last_seen <= self.LABEL_REUSE_COOLDOWN_FRAMES)
             )
 
             # Rule: When the system detects a higher confidence of that saddle,
@@ -864,9 +873,10 @@ class ZampenYOLOTracker:
             self.hen_owner_last_frame[hen_label] = current_frame
             self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
 
-            # Fast lock votes
-            for _ in range(8):
-                self._record_track_label(win_tid, hen_label)
+            cached_label = self.track_label_cache.get(win_tid)
+            if cached_label is not None and cached_label != hen_label:
+                conflicting_track_ids.add(win_tid)
+            self._record_track_label(win_tid, hen_label)
             if win_tid in self.track_label_cache:
                 self.track_tag_confirmed.add(win_tid)
 
@@ -884,15 +894,21 @@ class ZampenYOLOTracker:
             if bird.track_id in self.track_label_cache:
                 self.track_tag_confirmed.add(bird.track_id)
                 continue
-            hen_label = detect_saddle_color(frame, bird.box) if len(saddle_dets) == 0 else None
+            hen_label = (
+                detect_saddle_color(frame, bird.box)
+                if bird.track_id not in bird_best_saddle
+                else None
+            )
             if hen_label:
                 # Never let fallback HSV steal an identity that is already active on another bird
                 if self.hen_track_owners.get(hen_label) in active_hen_owners:
                     continue
                 if self.hen_owner_conf.get(hen_label, 0.0) >= 0.35:
                     continue
-                for _ in range(8):
-                    self._record_track_label(bird.track_id, hen_label)
+                cached_label = self.track_label_cache.get(bird.track_id)
+                if cached_label is not None and cached_label != hen_label:
+                    conflicting_track_ids.add(bird.track_id)
+                self._record_track_label(bird.track_id, hen_label)
                 if bird.track_id in self.track_label_cache:
                     self.track_tag_confirmed.add(bird.track_id)
                     self.hen_track_owners[hen_label] = bird.track_id
@@ -936,6 +952,7 @@ class ZampenYOLOTracker:
                 bird.track_id is not None
                 and bird.track_id in getattr(self, "track_tag_confirmed", set())
                 and bird.track_id in self.track_label_cache
+                and bird.track_id not in conflicting_track_ids
             ):
                 assigned = self.track_label_cache[bird.track_id]
                 if bird.bird_label != assigned:
@@ -959,7 +976,13 @@ class ZampenYOLOTracker:
             elif bird.class_name == "Chicken":
                 # Continuous identity protection: if this track was previously confirmed as a Hen, retain it!
                 prev_lbl = self.track_last_label.get(bird.track_id)
-                if prev_lbl and prev_lbl in HEN_TO_FIXED_ID and prev_lbl not in used_labels:
+                if (
+                    bird.track_id not in conflicting_track_ids
+                    and bird.track_id in getattr(self, "track_tag_confirmed", set())
+                    and self.track_label_cache.get(bird.track_id) == prev_lbl
+                    and prev_lbl in HEN_TO_FIXED_ID
+                    and prev_lbl not in used_labels
+                ):
                     bird.bird_label = prev_lbl
                     bird.track_id = HEN_TO_FIXED_ID[prev_lbl]
                     used_labels.add(prev_lbl)
@@ -978,6 +1001,24 @@ class ZampenYOLOTracker:
                             cand += 1
                         other.track_id = cand
                 bird.track_id = 6
+
+        used_display_ids = {
+            bird.track_id
+            for bird in birds
+            if bird.class_name == "Rooster" or bird.bird_label in HEN_TO_FIXED_ID
+        }
+        for bird in birds:
+            if bird.class_name == "Chicken" and bird.bird_label == "Chicken":
+                tracking_id = bird.track_id
+                display_id = self._unidentified_id_map.get(tracking_id)
+                if display_id is None or display_id in used_display_ids:
+                    display_id = ANIMAL_TO_FIXED_ID["Chicken"]
+                    while display_id in used_display_ids:
+                        display_id += 1
+                    if tracking_id is not None:
+                        self._unidentified_id_map[tracking_id] = display_id
+                bird.track_id = display_id
+                used_display_ids.add(display_id)
 
         # Stage C: a colour that was already shown by another active track in the current frame cannot be shown twice.
         active_tids = {bird.track_id for bird in birds if bird.track_id is not None}
@@ -1024,7 +1065,7 @@ class ZampenYOLOTracker:
                     e_confs = equip_res.boxes.conf.cpu().numpy()
                     e_classes = equip_res.boxes.cls.int().cpu().tolist()
                     for e_box, e_conf, e_cls in zip(e_boxes, e_confs, e_classes):
-                        e_name = self.class_map.get(e_cls, self.model.names.get(e_cls, ""))
+                        e_name = self.class_map.get(e_cls, f"class_{e_cls}")
                         if e_name == "Feeder" and len(feeders) == 0:
                             x1, y1, x2, y2 = [int(v) for v in e_box]
                             feeders.append(TrackedDetection(
@@ -1084,9 +1125,10 @@ class ZampenYOLOTracker:
     def annotate_frame(self, frame: np.ndarray, frame_out: TrackerFrameOutput) -> np.ndarray:
         """Draws bounding boxes, track IDs, saddle anchors, and a detection HUD onto a copy of the frame."""
         vis = frame.copy()
-        w = vis.shape[1]
+        height, width = vis.shape[:2]
 
         identified_hens = set()
+        occupied_labels = []
 
         def _draw(det: TrackedDetection, fallback_name: str):
             x1, y1, x2, y2 = det.box
@@ -1102,27 +1144,63 @@ class ZampenYOLOTracker:
             color = LABEL_COLORS_BGR.get(label, LABEL_COLORS_BGR.get(det.class_name, LABEL_COLORS_BGR["Default"]))
 
             # Draw primary bounding box according to saddle color
-            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1, cv2.LINE_AA)
 
-            # Top pill badge with requested template: ID_1 Saddle_Yellow(Hen1)
-            if is_identified_hen:
-                saddle_tag = HEN_TO_SADDLE_TAG.get(label, label)
-                text = f"ID_{det.track_id} {saddle_tag} ({det.confidence:.2f})"
-            elif label == "Rooster":
-                tid = f"ID_{det.track_id} " if det.track_id is not None else ""
-                text = f"{tid}Rooster ({det.confidence:.2f})"
-            elif label == "Chicken":
-                tid = f"ID_{det.track_id} " if det.track_id is not None else ""
-                text = f"{tid}Chicken ({det.confidence:.2f})"
-            else:
-                text = f"{label} ({det.confidence:.2f})"
+            display_label = animal_display_label(label, det.track_id)
+            text = f"{display_label} ({det.confidence:.2f})"
+            font_scale = 0.38
+            (text_width, text_height), baseline = cv2.getTextSize(
+                text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
+            )
+            while text_width + 6 > width and font_scale > 0.22:
+                font_scale -= 0.02
+                (text_width, text_height), baseline = cv2.getTextSize(
+                    text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
+                )
 
-            # Badge background
-            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            y_text = max(th + 4, y1)
-            cv2.rectangle(vis, (x1, y_text - th - 6), (x1 + tw + 6, y_text + 2), color, -1)
+            badge_width = min(width, text_width + 6)
+            badge_height = text_height + baseline + 6
+            label_x = min(max(0, x1), max(0, width - badge_width))
+            min_label_y = min(40, max(0, height - badge_height))
+            max_label_y = max(min_label_y, height - badge_height)
+            candidate_tops = (y1 - badge_height - 2, y2 + 2, y1 + 2)
+            label_rect = None
+            best_overlap = None
+            for candidate_top in candidate_tops:
+                label_y = min(max(min_label_y, candidate_top), max_label_y)
+                candidate_rect = (
+                    label_x,
+                    label_y,
+                    label_x + badge_width,
+                    label_y + badge_height,
+                )
+                overlap = sum(
+                    max(0, min(candidate_rect[2], existing[2]) - max(candidate_rect[0], existing[0]))
+                    * max(0, min(candidate_rect[3], existing[3]) - max(candidate_rect[1], existing[1]))
+                    for existing in occupied_labels
+                )
+                if overlap == 0:
+                    label_rect = candidate_rect
+                    break
+                if best_overlap is None or overlap < best_overlap[0]:
+                    best_overlap = (overlap, candidate_rect)
+
+            if label_rect is None:
+                label_rect = best_overlap[1]
+            occupied_labels.append(label_rect)
+            label_x, label_y, label_right, label_bottom = label_rect
+            cv2.rectangle(vis, (label_x, label_y), (label_right, label_bottom), color, -1)
             ink = (0, 0, 0) if sum(color) > 400 else (255, 255, 255)
-            cv2.putText(vis, text, (x1 + 3, y_text - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, ink, 1)
+            cv2.putText(
+                vis,
+                text,
+                (label_x + 3, label_y + text_height + 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                font_scale,
+                ink,
+                1,
+                cv2.LINE_AA,
+            )
 
             # For identified hens, draw a saddle anchor indicator on the dorsal/back region
             if is_identified_hen:
@@ -1132,7 +1210,11 @@ class ZampenYOLOTracker:
                 cv2.circle(vis, (cx, cy_saddle), 4, color, -1, cv2.LINE_AA)
                 cv2.circle(vis, (cx, cy_saddle), 1, (255, 255, 255), -1, cv2.LINE_AA)
 
-        for bird in frame_out.birds:
+        def _bird_label_priority(detection: TrackedDetection):
+            label = detection.bird_label or detection.class_name
+            return (label == "Rooster" or label.startswith("Hen"), detection.confidence)
+
+        for bird in sorted(frame_out.birds, key=_bird_label_priority, reverse=True):
             _draw(bird, "Chicken")
         for feeder in frame_out.feeders:
             _draw(feeder, "Feeder")
@@ -1141,26 +1223,22 @@ class ZampenYOLOTracker:
 
         # Top HUD bar
         overlay = vis.copy()
-        cv2.rectangle(overlay, (0, 0), (w, 36), (15, 20, 28), -1)
+        cv2.rectangle(overlay, (0, 0), (width, 36), (15, 20, 28), -1)
         cv2.addWeighted(overlay, 0.88, vis, 0.12, 0, vis)
 
-        # Build hen roster indicator (Y G B BG YG)
+        # Build fixed hen roster indicator.
         tag_status = []
         for hen_key, short_code in [
             ("Hen1 (Yellow)", "Y"),
-            ("Hen2 (Green)", "G"),
-            ("Hen3 (Blue)", "B"),
-            ("Hen4 (Bluegreen)", "BG"),
+            ("Hen2 (Blue)", "B"),
+            ("Hen3 (Red)", "R"),
+            ("Hen4 (White)", "W"),
             ("Hen5 (YellowGreen)", "YG"),
-            ("Hen1 (Green)", "G"),
-            ("Hen2 (White)", "W"),
-            ("Hen5 (Pink)", "P"),
         ]:
-            if hen_key in identified_hens:
-                tag_status.append(f"{short_code}:[OK]")
-            elif short_code not in [s.split(":")[0] for s in tag_status]:
-                tag_status.append(f"{short_code}:-")
-        tag_str = " ".join(tag_status[:5])
+            tag_status.append(
+                f"{short_code}:[OK]" if hen_key in identified_hens else f"{short_code}:-"
+            )
+        tag_str = " ".join(tag_status)
 
         hud_left = (
             f"FRAME {frame_out.frame_idx} | BIRDS: {len(frame_out.birds)} | "

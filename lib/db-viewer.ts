@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import initSqlJs, { Database, SqlValue } from 'sql.js';
+import initSqlJs from 'sql.js';
+import type { Database, SqlValue } from 'sql.js';
 
 let SQLModule: any = null;
 
@@ -141,7 +142,89 @@ export interface SensorChartPoint {
   thi: number;
 }
 
-export function calculateSensorAverages(db: Database): SensorAverages {
+export interface SensorTimeRange {
+  startAt: string;
+  endAt: string;
+}
+
+export interface SensorHourOption extends SensorTimeRange {
+  key: string;
+  label: string;
+  totalReadings: number;
+}
+
+export function querySensorHourOptions(db: Database, timeZone: string): SensorHourOption[] {
+  if (!getDatabaseTables(db).includes('sensor_logs')) return [];
+
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+  const dateFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+  });
+  const timeFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const buckets = new Map<string, { startMs: number; count: number }>();
+  const result = db.exec('SELECT captured_at FROM sensor_logs WHERE captured_at IS NOT NULL;');
+
+  if (!result.length) return [];
+
+  for (const [value] of result[0].values) {
+    const timestamp = Date.parse(String(value));
+    if (!Number.isFinite(timestamp)) continue;
+
+    const parts = formatter.formatToParts(new Date(timestamp));
+    const fields = Object.fromEntries(parts.map(({ type, value: partValue }) => [type, partValue]));
+    const year = Number(fields.year);
+    const month = Number(fields.month);
+    const day = Number(fields.day);
+    const hour = Number(fields.hour);
+    const minute = Number(fields.minute);
+    const second = Number(fields.second);
+    if (![year, month, day, hour, minute, second].every(Number.isFinite)) continue;
+
+    const localTimestamp = Date.UTC(year, month - 1, day, hour, minute, second, timestamp % 1000);
+    const offsetMs = localTimestamp - timestamp;
+    const startMs = Date.UTC(year, month - 1, day, hour) - offsetMs;
+    const localHour = `${fields.year}-${fields.month}-${fields.day}T${fields.hour}`;
+    const key = `${localHour}|${offsetMs}`;
+    const bucket = buckets.get(key);
+
+    if (bucket) {
+      bucket.count += 1;
+    } else {
+      buckets.set(key, { startMs, count: 1 });
+    }
+  }
+
+  return Array.from(buckets.entries())
+    .map(([key, bucket]) => {
+      const start = new Date(bucket.startMs);
+      const end = new Date(bucket.startMs + 60 * 60 * 1000);
+      return {
+        key,
+        startAt: start.toISOString(),
+        endAt: end.toISOString(),
+        label: `${dateFormatter.format(start)} · ${timeFormatter.format(start)}–${timeFormatter.format(end)}`,
+        totalReadings: bucket.count,
+      };
+    })
+    .sort((a, b) => a.startAt.localeCompare(b.startAt));
+}
+
+export function calculateSensorAverages(db: Database, range?: SensorTimeRange): SensorAverages {
   const tables = getDatabaseTables(db);
   const out: SensorAverages = {
     totalReadings: 0,
@@ -167,6 +250,12 @@ export function calculateSensorAverages(db: Database): SensorAverages {
 
   if (tables.includes('sensor_logs')) {
     try {
+      const durationExpression = range
+        ? 'MAX(elapsed_seconds) - MIN(elapsed_seconds)'
+        : 'MAX(elapsed_seconds)';
+      const whereClause = range
+        ? 'WHERE julianday(captured_at) >= julianday(?) AND julianday(captured_at) < julianday(?)'
+        : '';
       const q = `
         SELECT 
           COUNT(*),
@@ -184,10 +273,11 @@ export function calculateSensorAverages(db: Database): SensorAverages {
           MAX(sound_db),
           MIN(captured_at),
           MAX(captured_at),
-          MAX(elapsed_seconds)
-        FROM sensor_logs;
+          ${durationExpression}
+        FROM sensor_logs
+        ${whereClause};
       `;
-      const res = db.exec(q);
+      const res = db.exec(q, range ? [range.startAt, range.endAt] : undefined);
       if (res.length && res[0].values.length) {
         const row = res[0].values[0];
         out.totalReadings = Number(row[0]) || 0;
@@ -229,7 +319,7 @@ export function calculateSensorAverages(db: Database): SensorAverages {
         if (!out.startedAt && row[1]) out.startedAt = String(row[1]);
         if (!out.endedAt && row[2]) out.endedAt = String(row[2]);
         if (row[3] !== null) out.frameCount = Number(row[3]);
-        if (!out.durationSeconds && row[4] !== null) out.durationSeconds = Number(row[4]);
+        if (!range && !out.durationSeconds && row[4] !== null) out.durationSeconds = Number(row[4]);
       }
     } catch {
       // ignore
@@ -241,25 +331,36 @@ export function calculateSensorAverages(db: Database): SensorAverages {
 
 export function queryDownsampledSensorData(
   db: Database,
-  targetPoints: number = 150
+  targetPoints: number = 150,
+  range?: SensorTimeRange
 ): SensorChartPoint[] {
   const tables = getDatabaseTables(db);
   if (!tables.includes('sensor_logs')) return [];
 
   try {
-    const countRes = db.exec('SELECT COUNT(*) FROM sensor_logs;');
+    const whereClause = range
+      ? 'WHERE julianday(captured_at) >= julianday(?) AND julianday(captured_at) < julianday(?)'
+      : '';
+    const params = range ? [range.startAt, range.endAt] : undefined;
+    const countRes = db.exec(`SELECT COUNT(*) FROM sensor_logs ${whereClause};`, params);
     const total = countRes.length && countRes[0].values.length ? Number(countRes[0].values[0][0]) : 0;
     if (total === 0) return [];
 
+    const boundsRes = db.exec(`SELECT MIN(rowid), MAX(rowid) FROM sensor_logs ${whereClause};`, params);
+    if (!boundsRes.length || !boundsRes[0].values.length) return [];
+    const firstRowId = Number(boundsRes[0].values[0][0]);
+    const lastRowId = Number(boundsRes[0].values[0][1]);
     const step = Math.max(1, Math.floor(total / targetPoints));
     const q = `
       SELECT elapsed_seconds, captured_at, temperature, humidity, ammonia_ppm, sound_db
       FROM sensor_logs
-      WHERE rowid % ${step} = 0 OR rowid = 1 OR rowid = ${total}
+      ${whereClause ? `${whereClause} AND` : 'WHERE'} (
+        rowid % ${step} = 0 OR rowid = ${firstRowId} OR rowid = ${lastRowId}
+      )
       ORDER BY rowid ASC
       LIMIT 250;
     `;
-    const res = db.exec(q);
+    const res = db.exec(q, params);
     if (!res.length || !res[0].values) return [];
 
     return res[0].values.map((row, idx) => {
@@ -298,6 +399,51 @@ export function queryDownsampledSensorData(
   } catch {
     return [];
   }
+}
+
+export function querySensorTableData(
+  db: Database,
+  range: SensorTimeRange,
+  limit: number = 50,
+  offset: number = 0,
+  search = '',
+): QueryResult {
+  const safeLimit = Math.max(1, Math.min(200, Math.floor(limit) || 50));
+  const safeOffset = Math.max(0, Math.floor(offset) || 0);
+  const columnsResult = db.exec('PRAGMA table_info("sensor_logs");');
+  const columns = columnsResult.length
+    ? columnsResult[0].values.map((col) => String(col[1]))
+    : [];
+  const searchClause = search.trim() && columns.length
+    ? ` AND (${columns.map((column) => `CAST("${column.replace(/"/g, '""')}" AS TEXT) LIKE ?`).join(' OR ')})`
+    : '';
+  const searchPattern = `%${search.trim()}%`;
+  const whereClause = `WHERE julianday(captured_at) >= julianday(?) AND julianday(captured_at) < julianday(?)${searchClause}`;
+  const params = [
+    range.startAt,
+    range.endAt,
+    ...(searchClause ? columns.map(() => searchPattern) : []),
+  ];
+  const countRes = db.exec(`SELECT COUNT(*) FROM sensor_logs ${whereClause};`, params);
+  const totalRows = countRes.length && countRes[0].values.length
+    ? Number(countRes[0].values[0][0])
+    : 0;
+  const result = db.exec(
+    `SELECT * FROM sensor_logs ${whereClause} ORDER BY rowid ASC LIMIT ${safeLimit} OFFSET ${safeOffset};`,
+    params,
+  );
+
+  if (!result.length) {
+    const pragmaRes = db.exec('PRAGMA table_info("sensor_logs");');
+    const columns = pragmaRes.length ? pragmaRes[0].values.map((col) => String(col[1])) : [];
+    return { columns, values: [], totalRows };
+  }
+
+  return {
+    columns: result[0].columns,
+    values: result[0].values,
+    totalRows,
+  };
 }
 
 export function queryTableAllRows(

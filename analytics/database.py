@@ -128,7 +128,7 @@ class BirdTrackMetrics(Base):
     chunk_metric_id = Column(Integer, ForeignKey("half_hour_metrics.id"), nullable=False, index=True)
     
     track_id = Column(Integer, nullable=False, index=True)
-    bird_label = Column(String(64), nullable=False)       # e.g., "Hen1 (Green)", "Rooster", "Chicken"
+    bird_label = Column(String(64), nullable=False)       # e.g., "Hen1 (Yellow)", "Rooster", "Chicken"
     bird_type = Column(String(32), nullable=False)        # "hen" or "rooster"
     
     feeding_s = Column(Float, default=0.0)

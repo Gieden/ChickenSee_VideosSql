@@ -34,9 +34,8 @@ from .reid import (
     leg_band_signature,
 )
 from legband import (
+    ANIMAL_TO_FIXED_ID,
     BAND_CLASS_TO_HEN,
-    HEN_TO_FIXED_ID,
-    HEN_TO_SADDLE_TAG,
     SADDLE_CLASS_TO_HEN,
     detect_leg_band_color,
     detect_saddle_color,
@@ -53,25 +52,14 @@ COLOR_MAP = {
     "Chicken":                 {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
     "Hen1 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
     "Saddle_Yellow(Hen1)":     {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen2 (Red)":              {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Saddle_Red(Hen2)":        {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Hen3 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Saddle_White(Hen3)":      {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen4 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Saddle_Blue(Hen4)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen2 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Saddle_Green(Hen2)":      {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen3 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Saddle_Blue(Hen3)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen4 (Bluegreen)":        {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
-    "Saddle_Bluegreen(Hen4)":  {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Hen2 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Saddle_Blue(Hen2)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Hen3 (Red)":              {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Saddle_Red(Hen3)":        {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Hen4 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
+    "Saddle_White(Hen4)":      {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
     "Hen5 (YellowGreen)":      {"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
     "Saddle_YellowGreen(Hen5)":{"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
-    # Legacy leg band colors for backward compatibility
-    "Hen1 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen2 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen4 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen5 (Pink)":             {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
     "Feeder":                  {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
     "Drinker":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
     "Default":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
@@ -86,7 +74,7 @@ WHITE_FEATHER_HSV_UPPER = (180, 40, 235)
 class Detection:
     box: List[int]                # [x1, y1, x2, y2]
     track_id: Optional[int]       # Stable poultry identity ID (survives ByteTrack ID switches)
-    label: str                    # e.g., "Rooster", "Hen1 (Green)", "Feeder"
+    label: str                    # e.g., "Rooster", "Hen1 (Yellow)", "Feeder"
     confidence: float             # Model detection confidence
     type: str                     # "rooster" | "hen" | "infrastructure"
     centroid: Tuple[int, int]     # (cx, cy)
@@ -227,6 +215,7 @@ class PoultryInferenceEngine:
     def _reset_state(self) -> None:
         """Initialise (or wipe) the per-run identity memory."""
         self.track_identities: Dict[int, int] = {}          # ByteTrack id -> identity id
+        self.unidentified_display_ids: Dict[int, int] = {}
         self.identity_last_seen: Dict[int, int] = {}        # identity id -> frame idx
         self.identity_centroids: Dict[int, Tuple[float, float]] = {}
         self.identity_descriptors: Dict[int, np.ndarray] = {}
@@ -613,7 +602,7 @@ class PoultryInferenceEngine:
             # consecutive frames, and this is the most expensive per-bird operation in the loop.
             scan_band = bird["name"] == "Chicken" and self.frame_count % 2 == 1
             sigma = leg_band_signature(frame, orig_box) if scan_band else None
-            if sigma is not None and sigma.label == "Hen2 (White)" and self._white_feather_dominant(frame, sigma.box):
+            if sigma is not None and sigma.label == "Hen4 (White)" and self._white_feather_dominant(frame, sigma.box):
                 self.bad_bands[(raw_tid if raw_tid is not None else -1, sigma.label)] = self.frame_count
                 sigma = None
             if sigma is not None and raw_tid is not None:
@@ -695,16 +684,26 @@ class PoultryInferenceEngine:
                 continue
             sx1, sy1, sx2, sy2 = sbox
             scx, scy = (sx1 + sx2) / 2, (sy1 + sy2) / 2
-            best, best_dist = None, None
+            candidates = []
             for item in records:
                 if item.class_name != "Chicken":
                     continue
                 x1, y1, x2, y2 = item.work_box
-                # Upper/mid body dorsal matching
-                if (x1 - 35 <= scx <= x2 + 35) and (y1 - 35 <= scy <= y2 + 35):
-                    dist = abs(scx - (x1 + x2) / 2) + abs(scy - (y1 + y2) / 2)
-                    if best is None or dist < best_dist:
-                        best, best_dist = item, dist
+                bw = max(1.0, x2 - x1)
+                bh = max(1.0, y2 - y1)
+                if (x1 - 0.05 * bw <= scx <= x2 + 0.05 * bw) and (y1 <= scy <= y1 + 0.80 * bh):
+                    dist = (
+                        abs(scx - (x1 + x2) / 2) / bw
+                        + abs(scy - (y1 + 0.45 * bh)) / bh
+                    )
+                    candidates.append((dist, item))
+            candidates.sort(key=lambda candidate: candidate[0])
+            if not candidates or (
+                len(candidates) > 1
+                and candidates[1][0] - candidates[0][0] < 0.10
+            ):
+                continue
+            best = candidates[0][1]
             if best is not None:
                 best_would_be = self.band_banks.get(best.identity_id)
                 if best_would_be is None or best_would_be.locked_label in (None, colour):
@@ -764,6 +763,7 @@ class PoultryInferenceEngine:
         unid_count = 0
 
         ordered = sorted(records, key=lambda r: (r.identity_id))
+        assigned_output_ids = set()
         for item in ordered:
             bank = self.band_banks.get(item.identity_id)
             if bank is not None:
@@ -786,7 +786,15 @@ class PoultryInferenceEngine:
                 unid_count += 1
 
             cinfo = COLOR_MAP.get(label, COLOR_MAP["Chicken"])
-            final_tid = HEN_TO_FIXED_ID.get(label, item.identity_id) if label.startswith("Hen") else item.identity_id
+            final_tid = ANIMAL_TO_FIXED_ID.get(label, item.identity_id)
+            if label == "Chicken":
+                final_tid = self.unidentified_display_ids.get(item.identity_id)
+                if final_tid is None or final_tid in assigned_output_ids:
+                    final_tid = ANIMAL_TO_FIXED_ID["Chicken"]
+                    while final_tid in assigned_output_ids:
+                        final_tid += 1
+                    self.unidentified_display_ids[item.identity_id] = final_tid
+            assigned_output_ids.add(final_tid)
             det = Detection(
                 box=[int(x1), int(y1), int(x2), int(y2)],
                 track_id=final_tid,

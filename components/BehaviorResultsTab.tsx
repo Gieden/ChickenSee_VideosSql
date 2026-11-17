@@ -75,14 +75,7 @@ export interface IntervalTelemetry {
   >;
 }
 
-// ── Profile definitions aligned strictly with system COLOR_MAP & Saddle classes ──
-// Rooster -> Red (#FF0000)
-// Chicken -> Orange (#FFA500)
-// Hen1 (Yellow) -> Yellow (#FFFF00)
-// Hen2 (Green) -> Green (#00FF00)
-// Hen3 (Blue) -> Blue (#0000FF)
-// Hen4 (Bluegreen) -> Bluegreen (#00CED1)
-// Hen5 (YellowGreen) -> YellowGreen (#9ACD32)
+// Profiles follow the current dataset saddle classes and fixed flock IDs.
 export const CHICKEN_PROFILES: ChickenProfile[] = [
   {
     id: 'hen1_yellow',
@@ -93,28 +86,28 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
     tagColorHex: '#FFFF00',
   },
   {
-    id: 'hen2_green',
-    name: 'Hen2 (Green)',
+    id: 'hen2_blue',
+    name: 'Hen2 (Blue)',
     role: 'Hen (ID #2)',
-    gender: 'Female',
-    tagColorName: 'Green saddle',
-    tagColorHex: '#00FF00',
-  },
-  {
-    id: 'hen3_blue',
-    name: 'Hen3 (Blue)',
-    role: 'Hen (ID #3)',
     gender: 'Female',
     tagColorName: 'Blue saddle',
     tagColorHex: '#0000FF',
   },
   {
-    id: 'hen4_bluegreen',
-    name: 'Hen4 (Bluegreen)',
+    id: 'hen3_red',
+    name: 'Hen3 (Red)',
+    role: 'Hen (ID #3)',
+    gender: 'Female',
+    tagColorName: 'Red saddle',
+    tagColorHex: '#FF0000',
+  },
+  {
+    id: 'hen4_white',
+    name: 'Hen4 (White)',
     role: 'Hen (ID #4)',
     gender: 'Female',
-    tagColorName: 'Bluegreen saddle',
-    tagColorHex: '#00CED1',
+    tagColorName: 'White saddle',
+    tagColorHex: '#FFFFFF',
   },
   {
     id: 'hen5_yellowgreen',

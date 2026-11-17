@@ -8,17 +8,21 @@ import {
   queryTableData,
   calculateSensorAverages,
   queryDownsampledSensorData,
+  querySensorHourOptions,
+  querySensorTableData,
 } from '@/lib/db-viewer';
+import type { SensorTimeRange } from '@/lib/db-viewer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * GET /api/database/session?file=<storagePath>&limit=100&offset=0&table=sensor_logs
+ * GET /api/database/session?file=<storagePath>&timeZone=<IANA zone>
+ * GET /api/database/session?file=<storagePath>&hourStart=<ISO>&hourEnd=<ISO>&limit=50&offset=0
  *
  * Returns detailed inspection data for a single sensors.sqlite session:
  * - Calculated sensor averages (temperature, humidity, ammonia, sound)
- * - Dynamic chart points visualizing telemetry over time
+ * - Local-hour options and dynamic chart points visualizing telemetry over time
  * - Real-time unaveraged tabular readings (sensor_logs, recording)
  */
 export async function GET(req: NextRequest) {
@@ -32,9 +36,32 @@ export async function GET(req: NextRequest) {
   const limitParam = searchParams.get('limit');
   const offsetParam = searchParams.get('offset');
   const activeTableParam = searchParams.get('table');
+  const hourStartParam = searchParams.get('hourStart');
+  const hourEndParam = searchParams.get('hourEnd');
+  const timeZone = searchParams.get('timeZone') || 'UTC';
+  const searchParam = searchParams.get('search') || '';
 
   if (!targetFile) {
     return NextResponse.json({ error: 'Missing "file" query parameter' }, { status: 400 });
+  }
+
+  let hourRange: SensorTimeRange | undefined;
+  if (hourStartParam || hourEndParam) {
+    const startMs = hourStartParam ? Date.parse(hourStartParam) : NaN;
+    const endMs = hourEndParam ? Date.parse(hourEndParam) : NaN;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs - startMs !== 60 * 60 * 1000) {
+      return NextResponse.json({ error: 'Hour filter must be a one-hour time range.' }, { status: 400 });
+    }
+    hourRange = {
+      startAt: new Date(startMs).toISOString(),
+      endAt: new Date(endMs).toISOString(),
+    };
+  }
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
+  } catch {
+    return NextResponse.json({ error: 'Invalid time zone.' }, { status: 400 });
   }
 
   const databases = await listSyncedDatabases();
@@ -54,15 +81,25 @@ export async function GET(req: NextRequest) {
     const tables = getDatabaseTables(db);
 
     // 1. Calculate sensor averages & summary metadata
-    const averages = calculateSensorAverages(db);
+    const averages = calculateSensorAverages(db, hourRange);
 
     // 2. Query downsampled telemetry points for the dynamic chart
-    const chartPoints = queryDownsampledSensorData(db, 150);
+    const chartPoints = queryDownsampledSensorData(db, 150, hourRange);
+    const hourOptions = hourRange ? null : querySensorHourOptions(db, timeZone);
 
     // 3. Query table data (unaveraged real-time records)
     const tableData: Record<string, { columns: string[]; values: unknown[][]; totalRows: number }> = {};
     for (const t of tables) {
-      if (limitParam) {
+      if (hourRange && t === 'sensor_logs') {
+        const limit = parseInt(limitParam || '50', 10) || 50;
+        const offset = parseInt(offsetParam || '0', 10) || 0;
+        const result = querySensorTableData(db, hourRange, limit, offset, searchParam);
+        tableData[t] = {
+          columns: result.columns,
+          values: result.values as unknown[][],
+          totalRows: result.totalRows,
+        };
+      } else if (limitParam) {
         // If limit is specified (e.g. paginated table view)
         const limit = parseInt(limitParam, 10) || 50;
         const offset = parseInt(offsetParam || '0', 10) || 0;
@@ -100,6 +137,7 @@ export async function GET(req: NextRequest) {
       size: selectedDbMeta.size || 0,
       averages,
       chartPoints,
+      hourOptions,
       tables: tableData,
     });
   } catch (error: any) {

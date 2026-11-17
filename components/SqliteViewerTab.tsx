@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Database,
   Calendar,
@@ -60,6 +60,14 @@ interface SensorChartPoint {
   ammoniaPpm: number;
   soundDb: number;
   thi: number;
+}
+
+interface SensorHourOption {
+  key: string;
+  startAt: string;
+  endAt: string;
+  label: string;
+  totalReadings: number;
 }
 
 interface SessionFileMeta {
@@ -153,12 +161,17 @@ export default function SqliteViewerTab() {
   const [modalAverages, setModalAverages] = useState<SensorAverages | null>(null);
   const [modalChartPoints, setModalChartPoints] = useState<SensorChartPoint[]>([]);
   const [modalTables, setModalTables] = useState<Record<string, { columns: string[]; values: unknown[][]; totalRows: number }> | null>(null);
+  const [modalHourOptions, setModalHourOptions] = useState<SensorHourOption[]>([]);
+  const [modalSelectedHour, setModalSelectedHour] = useState('all');
+  const [modalUpdating, setModalUpdating] = useState(false);
   const [modalActiveTable, setModalActiveTable] = useState<string>('sensor_logs');
   const [modalChartMetric, setModalChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound' | 'thi' | 'all'>('temp_hum');
   const [chartHoverIdx, setChartHoverIdx] = useState<number | null>(null);
   const [modalTableSearch, setModalTableSearch] = useState('');
   const [modalTablePage, setModalTablePage] = useState(1);
   const [modalTablePageSize, setModalTablePageSize] = useState(50);
+  const detailRequestId = useRef(0);
+  const searchRequestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch SQLite files and aggregations from API
   const fetchDatabases = useCallback(async () => {
@@ -184,42 +197,129 @@ export default function SqliteViewerTab() {
     fetchDatabases();
   }, [fetchDatabases]);
 
-  // Open Detail Modal for a specific sensors.sqlite file
-  const handleOpenDetailModal = async (file: SessionFileMeta) => {
-    setSelectedSession(file);
-    setModalAverages(file.averages);
-    setModalChartPoints([]);
-    setModalTables(null);
-    setModalActiveTable('sensor_logs');
-    setModalTableSearch('');
-    setModalTablePage(1);
-    setChartHoverIdx(null);
+  const loadModalDetails = async (
+    file: SessionFileMeta,
+    hourOption: SensorHourOption | null = null,
+    table?: string,
+    offset = 0,
+    search = '',
+    initial = false,
+  ) => {
+    const requestId = ++detailRequestId.current;
+    if (initial) setModalLoading(true);
+    else setModalUpdating(true);
     setModalError(null);
-    setModalLoading(true);
-
     try {
-      const res = await fetch(`/api/database/session?file=${encodeURIComponent(file.storagePath)}`);
+      const params = new URLSearchParams({ file: file.storagePath });
+      if (hourOption) {
+        params.set('hourStart', hourOption.startAt);
+        params.set('hourEnd', hourOption.endAt);
+        params.set('limit', String(modalTablePageSize));
+        params.set('offset', String(offset));
+        if (table) params.set('table', table);
+        if (search) params.set('search', search);
+      } else {
+        params.set('timeZone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+      }
+
+      const res = await fetch(`/api/database/session?${params.toString()}`);
       if (!res.ok) {
         throw new Error(`Failed to load session details (HTTP ${res.status})`);
       }
       const data = await res.json();
+      if (requestId !== detailRequestId.current) return;
       if (data.averages) setModalAverages(data.averages);
       if (data.chartPoints) setModalChartPoints(data.chartPoints);
+      if (Array.isArray(data.hourOptions)) setModalHourOptions(data.hourOptions);
       if (data.tables) {
         setModalTables(data.tables);
-        if (data.tables['sensor_logs']) {
-          setModalActiveTable('sensor_logs');
-        } else {
-          const firstKey = Object.keys(data.tables)[0];
-          if (firstKey) setModalActiveTable(firstKey);
+        if (initial) {
+          if (data.tables['sensor_logs']) {
+            setModalActiveTable('sensor_logs');
+          } else {
+            const firstKey = Object.keys(data.tables)[0];
+            if (firstKey) setModalActiveTable(firstKey);
+          }
         }
       }
     } catch (err: any) {
+      if (requestId !== detailRequestId.current) return;
       console.error('Error loading session detail modal:', err);
       setModalError(err?.message || 'Failed to load telemetry details.');
     } finally {
-      setModalLoading(false);
+      if (requestId === detailRequestId.current) {
+        setModalLoading(false);
+        setModalUpdating(false);
+      }
     }
+  };
+
+  // Open Detail Modal for a specific sensors.sqlite file
+  const handleOpenDetailModal = async (file: SessionFileMeta) => {
+    if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
+    setSelectedSession(file);
+    setModalAverages(file.averages);
+    setModalChartPoints([]);
+    setModalTables(null);
+    setModalHourOptions([]);
+    setModalSelectedHour('all');
+    setModalActiveTable('sensor_logs');
+    setModalTableSearch('');
+    setModalTablePage(1);
+    setChartHoverIdx(null);
+    await loadModalDetails(file, null, undefined, 0, '', true);
+  };
+
+  const handleHourSelection = (hourKey: string) => {
+    if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
+    setModalSelectedHour(hourKey);
+    setModalTablePage(1);
+    setModalTableSearch('');
+    setChartHoverIdx(null);
+    if (!selectedSession) return;
+
+    const hourOption = modalHourOptions.find((option) => option.key === hourKey);
+    void loadModalDetails(selectedSession, hourOption || null, modalActiveTable, 0);
+  };
+
+  const handleModalPageChange = (page: number) => {
+    if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
+    const nextPage = Math.max(1, page);
+    setModalTablePage(nextPage);
+    if (modalSelectedHour === 'all' || modalActiveTable !== 'sensor_logs' || !selectedSession) return;
+
+    const hourOption = modalHourOptions.find((option) => option.key === modalSelectedHour);
+    if (hourOption) {
+      void loadModalDetails(
+        selectedSession,
+        hourOption,
+        modalActiveTable,
+        (nextPage - 1) * modalTablePageSize,
+        modalTableSearch,
+      );
+    }
+  };
+
+  const handleModalSearchChange = (search: string) => {
+    setModalTableSearch(search);
+    setModalTablePage(1);
+    if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
+    if (modalSelectedHour === 'all' || modalActiveTable !== 'sensor_logs' || !selectedSession) return;
+
+    const hourOption = modalHourOptions.find((option) => option.key === modalSelectedHour);
+    if (hourOption) {
+      searchRequestTimer.current = setTimeout(() => {
+        void loadModalDetails(selectedSession, hourOption, modalActiveTable, 0, search);
+      }, 300);
+    }
+  };
+
+  const handleCloseDetailModal = () => {
+    if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
+    detailRequestId.current += 1;
+    setSelectedSession(null);
+    setModalLoading(false);
+    setModalUpdating(false);
   };
 
   // Filter date groups by search
@@ -715,7 +815,7 @@ export default function SqliteViewerTab() {
       {selectedSession && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-2 sm:p-4 backdrop-blur-sm"
-          onClick={() => setSelectedSession(null)}
+          onClick={handleCloseDetailModal}
           role="dialog"
           aria-modal="true"
           aria-label="Sensor Telemetry Inspection Modal"
@@ -749,7 +849,7 @@ export default function SqliteViewerTab() {
               </div>
 
               <button
-                onClick={() => setSelectedSession(null)}
+                onClick={handleCloseDetailModal}
                 aria-label="Close"
                 className="rounded-xl border border-slate-200 bg-white p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition shadow-xs"
               >
@@ -759,6 +859,41 @@ export default function SqliteViewerTab() {
 
             {/* Modal Body: Scrollable area with Chart and Table */}
             <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-slate-100">
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-5 py-3 sm:px-6">
+                <div>
+                  <label htmlFor="sensor-hour-filter" className="text-xs font-bold text-slate-800">
+                    View sensor data by hour
+                  </label>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {modalSelectedHour === 'all'
+                      ? 'Showing the full paired sensor session.'
+                      : 'The chart, summary, and sensor table use only the selected hour.'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {modalUpdating && <RefreshCw className="h-3.5 w-3.5 animate-spin text-orange-500" aria-label="Updating sensor data" />}
+                  <select
+                    id="sensor-hour-filter"
+                    value={modalSelectedHour}
+                    onChange={(event) => handleHourSelection(event.target.value)}
+                    className="min-w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  >
+                    <option value="all">All hours</option>
+                    {modalHourOptions.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label} ({option.totalReadings.toLocaleString()} readings)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {modalError && (
+                <div role="alert" className="mx-5 mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 sm:mx-6">
+                  {modalError}
+                </div>
+              )}
               
               {/* Quick Session Aggregation Pill Bar */}
               {modalAverages && (
@@ -999,8 +1134,16 @@ export default function SqliteViewerTab() {
                       <button
                         key={tbl}
                         onClick={() => {
+                          if (searchRequestTimer.current) clearTimeout(searchRequestTimer.current);
                           setModalActiveTable(tbl);
                           setModalTablePage(1);
+                          setModalTableSearch('');
+                          if (modalSelectedHour !== 'all' && selectedSession) {
+                            const hourOption = modalHourOptions.find((option) => option.key === modalSelectedHour);
+                            if (hourOption) {
+                              void loadModalDetails(selectedSession, hourOption, tbl, 0);
+                            }
+                          }
                         }}
                         className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
                           modalActiveTable === tbl
@@ -1022,17 +1165,14 @@ export default function SqliteViewerTab() {
                     <input
                       type="text"
                       value={modalTableSearch}
-                      onChange={(e) => {
-                        setModalTableSearch(e.target.value);
-                        setModalTablePage(1);
-                      }}
+                      onChange={(e) => handleModalSearchChange(e.target.value)}
                       placeholder="Search values in table..."
                       className="w-full rounded-xl border border-slate-200 bg-white pl-8 pr-7 py-1.5 text-xs text-slate-800 placeholder-slate-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                     />
                     {modalTableSearch && (
                       <button
                         type="button"
-                        onClick={() => setModalTableSearch('')}
+                        onClick={() => handleModalSearchChange('')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       >
                         <X className="h-3 w-3" />
@@ -1053,16 +1193,17 @@ export default function SqliteViewerTab() {
                   }
 
                   const q = modalTableSearch.trim().toLowerCase();
-                  const filtered = q
+                  const serverPaged = modalSelectedHour !== 'all' && modalActiveTable === 'sensor_logs';
+                  const filtered = q && !serverPaged
                     ? activeTbl.values.filter((r) =>
                         r.some((c) => c !== null && String(c).toLowerCase().includes(q)))
                     : activeTbl.values;
 
                   // Pagination calculation
-                  const totalFiltered = filtered.length;
+                  const totalFiltered = serverPaged ? activeTbl.totalRows : filtered.length;
                   const totalPages = Math.ceil(totalFiltered / modalTablePageSize) || 1;
                   const startIndex = (modalTablePage - 1) * modalTablePageSize;
-                  const paginatedRows = filtered.slice(startIndex, startIndex + modalTablePageSize);
+                  const paginatedRows = serverPaged ? filtered : filtered.slice(startIndex, startIndex + modalTablePageSize);
 
                   // Columns to highlight
                   const highlightCols = [
@@ -1233,8 +1374,8 @@ export default function SqliteViewerTab() {
 
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setModalTablePage((p) => Math.max(1, p - 1))}
-                            disabled={modalTablePage <= 1}
+                            onClick={() => handleModalPageChange(modalTablePage - 1)}
+                            disabled={modalTablePage <= 1 || modalUpdating}
                             className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-50 disabled:opacity-40"
                           >
                             <ChevronLeft className="h-3.5 w-3.5" /> Previous
@@ -1243,8 +1384,8 @@ export default function SqliteViewerTab() {
                             Page {modalTablePage} of {totalPages}
                           </span>
                           <button
-                            onClick={() => setModalTablePage((p) => Math.min(totalPages, p + 1))}
-                            disabled={modalTablePage >= totalPages}
+                            onClick={() => handleModalPageChange(Math.min(totalPages, modalTablePage + 1))}
+                            disabled={modalTablePage >= totalPages || modalUpdating}
                             className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1 font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-50 disabled:opacity-40"
                           >
                             Next <ChevronRight className="h-3.5 w-3.5" />
@@ -1265,7 +1406,7 @@ export default function SqliteViewerTab() {
 
               <button
                 type="button"
-                onClick={() => setSelectedSession(null)}
+                onClick={handleCloseDetailModal}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700 shadow-2xs transition hover:bg-slate-100"
               >
                 Close Inspector

@@ -38,19 +38,14 @@ const BIRD_COLOR_MAP: Record<string, string> = {
   'Chicken':                 '#FFA500',
   'Hen1 (Yellow)':           '#FFFF00',
   'Saddle_Yellow(Hen1)':     '#FFFF00',
-  'Hen2 (Green)':            '#00FF00',
-  'Saddle_Green(Hen2)':      '#00FF00',
-  'Hen3 (Blue)':             '#0000FF',
-  'Saddle_Blue(Hen3)':       '#0000FF',
-  'Hen4 (Bluegreen)':        '#00CED1',
-  'Saddle_Bluegreen(Hen4)':  '#00CED1',
+  'Hen2 (Blue)':             '#0000FF',
+  'Saddle_Blue(Hen2)':       '#0000FF',
+  'Hen3 (Red)':              '#FF0000',
+  'Saddle_Red(Hen3)':        '#FF0000',
+  'Hen4 (White)':            '#FFFFFF',
+  'Saddle_White(Hen4)':      '#FFFFFF',
   'Hen5 (YellowGreen)':      '#9ACD32',
   'Saddle_YellowGreen(Hen5)':'#9ACD32',
-  // Legacy leg band aliases
-  'Hen1 (Green)':            '#00FF00',
-  'Hen2 (White)':            '#FFFFFF',
-  'Hen4 (Yellow)':           '#FFFF00',
-  'Hen5 (Pink)':             '#FF69B4',
 };
 const getBirdHex = (name: string) => BIRD_COLOR_MAP[name] ?? '#808080';
 
@@ -428,7 +423,7 @@ export default function SampleInspectorTab() {
       setCurrentPhase('Detection complete — bounding boxes & telemetry active.');
 
       // ── 6. Synthesise behaviour events (sensor data already parsed above) ────
-      const birdsList = ['Rooster', 'Hen1 (Yellow)', 'Hen2 (Green)', 'Hen3 (Blue)', 'Hen4 (Bluegreen)', 'Hen5 (YellowGreen)'];
+      const birdsList = ['Rooster', 'Hen1 (Yellow)', 'Hen2 (Blue)', 'Hen3 (Red)', 'Hen4 (White)', 'Hen5 (YellowGreen)'];
       const behaviorTypes: BirdBehaviorEvent['behavior'][] = [
         'Feather Pecking', 'Reduced Feeding', 'Reduced Drinking', 'Lethargy / Inactivity',
       ];
@@ -982,13 +977,13 @@ export default function SampleInspectorTab() {
                         }}
                       >
                         <div className="absolute -top-4 left-0 rounded bg-red-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
-                          Rooster #1 (0.94)
+                          Rooster #6 (0.94)
                         </div>
                       </div>
 
-                      {/* 2. Hen 1 (Green) - Near Feeder */}
+                      {/* 2. Hen 1 (Yellow) - Near Feeder */}
                       <div
-                        className="absolute border-2 border-emerald-400 rounded bg-emerald-400/10 shadow-[0_0_8px_rgba(34,197,94,0.5)] transition-all duration-300"
+                        className="absolute border-2 border-yellow-400 rounded bg-yellow-400/10 shadow-[0_0_8px_rgba(250,204,21,0.5)] transition-all duration-300"
                         style={{
                           left: `${52 + Math.sin(videoCurrentTime * 1.1) * 1.2}%`,
                           top: `${38 + Math.cos(videoCurrentTime * 0.9) * 1.0}%`,
@@ -996,14 +991,14 @@ export default function SampleInspectorTab() {
                           height: '16%',
                         }}
                       >
-                        <div className="absolute -top-4 left-0 rounded bg-emerald-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
-                          Hen1 (Green) #2 [Feeding]
+                        <div className="absolute -top-4 left-0 rounded bg-yellow-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
+                          Hen1 (Yellow) #1 [Feeding]
                         </div>
                       </div>
 
-                      {/* 3. Hen 2 (White) */}
+                      {/* 3. Hen 2 (Blue) */}
                       <div
-                        className="absolute border-2 border-slate-100 rounded bg-white/15 shadow-[0_0_8px_rgba(255,255,255,0.6)] transition-all duration-300"
+                        className="absolute border-2 border-sky-400 rounded bg-sky-400/10 shadow-[0_0_8px_rgba(56,189,248,0.5)] transition-all duration-300"
                         style={{
                           left: `${61 + Math.sin(videoCurrentTime * 0.5) * 0.8}%`,
                           top: `${39 + Math.cos(videoCurrentTime * 0.6) * 0.8}%`,
@@ -1011,14 +1006,14 @@ export default function SampleInspectorTab() {
                           height: '17%',
                         }}
                       >
-                        <div className="absolute -top-4 left-0 rounded bg-slate-800 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap border border-white/30">
-                          Hen2 (White) #3 [Stationary]
+                        <div className="absolute -top-4 left-0 rounded bg-sky-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
+                          Hen2 (Blue) #2 [Stationary]
                         </div>
                       </div>
 
-                      {/* 4. Hen 3 (Blue) */}
+                      {/* 4. Hen 3 (Red) */}
                       <div
-                        className="absolute border-2 border-sky-400 rounded bg-sky-400/10 shadow-[0_0_8px_rgba(56,189,248,0.5)] transition-all duration-300"
+                        className="absolute border-2 border-red-400 rounded bg-red-400/10 shadow-[0_0_8px_rgba(248,113,113,0.5)] transition-all duration-300"
                         style={{
                           left: `${62 + Math.sin(videoCurrentTime * 0.9) * 1.5}%`,
                           top: `${46 + Math.cos(videoCurrentTime * 1.2) * 1.2}%`,
@@ -1026,14 +1021,14 @@ export default function SampleInspectorTab() {
                           height: '18%',
                         }}
                       >
-                        <div className="absolute -top-4 left-0 rounded bg-sky-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
-                          Hen3 (Blue) #4 [Active]
+                        <div className="absolute -top-4 left-0 rounded bg-red-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
+                          Hen3 (Red) #3 [Active]
                         </div>
                       </div>
 
-                      {/* 5. Hen 4 (Yellow) */}
+                      {/* 5. Hen 4 (White) */}
                       <div
-                        className="absolute border-2 border-amber-400 rounded bg-amber-400/10 shadow-[0_0_8px_rgba(251,191,36,0.5)] transition-all duration-300"
+                        className="absolute border-2 border-slate-100 rounded bg-white/15 shadow-[0_0_8px_rgba(255,255,255,0.6)] transition-all duration-300"
                         style={{
                           left: `${18 + Math.sin(videoCurrentTime * 0.7) * 1.0}%`,
                           top: `${69 + Math.cos(videoCurrentTime * 0.8) * 1.0}%`,
@@ -1041,14 +1036,14 @@ export default function SampleInspectorTab() {
                           height: '16%',
                         }}
                       >
-                        <div className="absolute -top-4 left-0 rounded bg-amber-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
-                          Hen4 (Yellow) #5 [Active]
+                        <div className="absolute -top-4 left-0 rounded bg-slate-800 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap border border-white/30">
+                          Hen4 (White) #4 [Active]
                         </div>
                       </div>
 
-                      {/* 6. Hen 5 (Pink) */}
+                      {/* 6. Hen 5 (YellowGreen) */}
                       <div
-                        className="absolute border-2 border-pink-400 rounded bg-pink-400/10 shadow-[0_0_8px_rgba(244,114,182,0.5)] transition-all duration-300"
+                        className="absolute border-2 border-lime-500 rounded bg-lime-500/10 shadow-[0_0_8px_rgba(132,204,22,0.5)] transition-all duration-300"
                         style={{
                           left: `${71 + Math.sin(videoCurrentTime * 0.6) * 1.0}%`,
                           top: `${72 + Math.cos(videoCurrentTime * 0.5) * 0.9}%`,
@@ -1056,8 +1051,8 @@ export default function SampleInspectorTab() {
                           height: '15%',
                         }}
                       >
-                        <div className="absolute -top-4 left-0 rounded bg-pink-600 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
-                          Hen5 (Pink) #6 [Resting]
+                        <div className="absolute -top-4 left-0 rounded bg-lime-700 px-1 py-0.2 font-mono text-[9px] font-bold text-white shadow whitespace-nowrap">
+                          Hen5 (YellowGreen) #5 [Resting]
                         </div>
                       </div>
 
@@ -1293,7 +1288,7 @@ export default function SampleInspectorTab() {
             </div>
 
             <div className="space-y-4">
-              {['Rooster', 'Hen1 (Yellow)', 'Hen2 (Green)', 'Hen3 (Blue)', 'Hen4 (Bluegreen)', 'Hen5 (YellowGreen)'].map((birdName) => {
+              {['Rooster', 'Hen1 (Yellow)', 'Hen2 (Blue)', 'Hen3 (Red)', 'Hen4 (White)', 'Hen5 (YellowGreen)'].map((birdName) => {
                 const birdEvents = analysisResult.behaviorEvents.filter((e) => e.birdName === birdName);
                 return (
                   <div key={birdName} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">

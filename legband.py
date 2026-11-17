@@ -4,100 +4,90 @@ import cv2
 import numpy as np
 
 
-# Current dataset uses a 9-class poultry schema, but the tracker still needs a stable
-# internal hen identity vocabulary for re-ID and display. Keep the legacy colour names
-# as compatibility aliases while mapping the live dataset to explicit current-colour IDs.
+# Fixed flock identity follows the current dataset's saddle colours.
 SADDLE_CLASS_TO_HEN = {
+    "Saddle_Color_Blue": "Hen2 (Blue)",
+    "Saddle_Color_Red": "Hen3 (Red)",
+    "Saddle_Color_White": "Hen4 (White)",
     "Saddle_Color_Yellow": "Hen1 (Yellow)",
-    "Saddle_Color_Green": "Hen2 (Green)",
-    "Saddle_Color_Red": "Hen2 (Red)",
-    "Saddle_Color_White": "Hen3 (White)",
-    "Saddle_Color_Blue": "Hen4 (Blue)",
-    "Saddle_Color_Bluegreen": "Hen4 (Bluegreen)",
     "Saddle_Color_YellowGreen": "Hen5 (YellowGreen)",
 }
 
 HEN_TO_FIXED_ID = {
     "Hen1 (Yellow)": 1,
-    "Hen2 (Red)": 2,
-    "Hen3 (White)": 3,
-    "Hen4 (Blue)": 4,
+    "Hen2 (Blue)": 2,
+    "Hen3 (Red)": 3,
+    "Hen4 (White)": 4,
     "Hen5 (YellowGreen)": 5,
-    "Hen2 (Green)": 2,
-    "Hen3 (Blue)": 4,
-    "Hen4 (Bluegreen)": 4,
-    "Hen1 (Green)": 2,
-    "Hen2 (White)": 3,
-    "Hen3 (Violet)": 4,
-    "Hen4 (Yellow)": 1,
-    "Hen5 (Pink)": 5,
 }
 
 FIXED_ID_TO_HEN = {
     1: "Hen1 (Yellow)",
-    2: "Hen2 (Red)",
-    3: "Hen3 (White)",
-    4: "Hen4 (Blue)",
+    2: "Hen2 (Blue)",
+    3: "Hen3 (Red)",
+    4: "Hen4 (White)",
     5: "Hen5 (YellowGreen)",
 }
 
 HEN_TO_SADDLE_TAG = {
     "Hen1 (Yellow)": "Saddle_Yellow(Hen1)",
-    "Hen2 (Red)": "Saddle_Red(Hen2)",
-    "Hen3 (White)": "Saddle_White(Hen3)",
-    "Hen4 (Blue)": "Saddle_Blue(Hen4)",
+    "Hen2 (Blue)": "Saddle_Blue(Hen2)",
+    "Hen3 (Red)": "Saddle_Red(Hen3)",
+    "Hen4 (White)": "Saddle_White(Hen4)",
     "Hen5 (YellowGreen)": "Saddle_YellowGreen(Hen5)",
-    "Hen2 (Green)": "Saddle_Green(Hen2)",
-    "Hen3 (Blue)": "Saddle_Blue(Hen3)",
-    "Hen4 (Bluegreen)": "Saddle_Bluegreen(Hen4)",
-    "Hen1 (Green)": "Saddle_Green(Hen1)",
-    "Hen2 (White)": "Saddle_White(Hen2)",
-    "Hen4 (Yellow)": "Saddle_Yellow(Hen4)",
-    "Hen5 (Pink)": "Saddle_Pink(Hen5)",
 }
 
+HEN_TO_DISPLAY_LABEL = {
+    "Hen1 (Yellow)": "ID1_H1 Yellow",
+    "Hen2 (Blue)": "ID2_H2 Blue",
+    "Hen3 (Red)": "ID_3_H3 Red",
+    "Hen4 (White)": "ID4_H4 White",
+    "Hen5 (YellowGreen)": "ID5_H5 Yellow-Green",
+}
+
+ANIMAL_TO_FIXED_ID = {
+    **HEN_TO_FIXED_ID,
+    "Rooster": 6,
+    "Chicken": 7,
+}
+
+ANIMAL_TO_DISPLAY_LABEL = {
+    **HEN_TO_DISPLAY_LABEL,
+    "Rooster": "ID6_R1 Rooster",
+    "Chicken": "ID7_Chicken(Unidentified)",
+}
+
+
+def animal_display_label(label: str, tracking_id: Optional[int] = None) -> str:
+    if label == "Chicken" and tracking_id is not None:
+        return f"ID{tracking_id}_Chicken(Unidentified)"
+    return ANIMAL_TO_DISPLAY_LABEL.get(label, label)
+
+
 SADDLE_HSV_RANGES = {
-    "Hen1 (Yellow)": ((15, 45, 35), (36, 255, 255)),
-    "Hen2 (Red)": ((0, 60, 60), (12, 255, 255)),
-    "Hen3 (White)": ((0, 0, 150), (180, 40, 255)),
-    "Hen4 (Blue)": ((96, 60, 45), (135, 255, 255)),
+    "Hen1 (Yellow)": ((15, 45, 35), (34, 255, 255)),
+    "Hen2 (Blue)": ((96, 60, 45), (135, 255, 255)),
+    "Hen3 (Red)": ((0, 60, 60), (12, 255, 255)),
+    "Hen4 (White)": ((0, 0, 150), (180, 40, 255)),
     "Hen5 (YellowGreen)": ((35, 45, 35), (65, 255, 255)),
-    "Hen2 (Green)": ((60, 45, 35), (96, 255, 255)),
-    "Hen4 (Bluegreen)": ((85, 45, 35), (105, 255, 255)),
 }
 
 LEG_BAND_HSV_RANGES = {
-    # Saddle Ranges
-    "Hen1 (Yellow)": ((16, 65, 65), (38, 255, 255)),
-    "Hen2 (Red)": ((0, 60, 65), (12, 255, 255)),
-    "Hen3 (White)": ((0, 0, 150), (180, 45, 255)),
-    "Hen4 (Blue)": ((95, 75, 55), (160, 255, 255)),
-    "Hen5 (YellowGreen)": ((26, 60, 60), (45, 255, 255)),
-    "Hen2 (Green)": ((35, 50, 50), (82, 255, 255)),
-    "Hen4 (Bluegreen)": ((80, 55, 50), (102, 255, 255)),
-    # Legacy leg band ranges preserved for backward compatibility
-    "Hen1 (Green)": ((33, 50, 50), (88, 255, 255)),
-    "Hen2 (White)": ((0, 0, 140), (180, 55, 255)),
-    "Hen4 (Yellow)": ((16, 65, 65), (38, 255, 255)),
-    "Hen5 (Pink)": ((145, 45, 60), (179, 255, 255)),
+    "Hen1 (Yellow)": ((16, 65, 65), (34, 255, 255)),
+    "Hen2 (Blue)": ((95, 75, 55), (135, 255, 255)),
+    "Hen3 (Red)": ((0, 60, 65), (12, 255, 255)),
+    "Hen4 (White)": ((0, 0, 150), (180, 45, 255)),
+    "Hen5 (YellowGreen)": ((35, 60, 60), (65, 255, 255)),
 }
 
 BAND_CLASS_TO_HEN = {
-    # Current dataset classes (priority)
-    "Saddle_Color_Yellow": "Hen1 (Yellow)",
-    "Saddle_Color_Red": "Hen2 (Red)",
-    "Saddle_Color_White": "Hen3 (White)",
-    "Saddle_Color_Blue": "Hen4 (Blue)",
-    "Saddle_Color_YellowGreen": "Hen5 (YellowGreen)",
-    "Saddle_Color_Green": "Hen2 (Green)",
-    "Saddle_Color_Bluegreen": "Hen4 (Bluegreen)",
-    # Legacy leg band classes
-    "Leg_Band_Green": "Hen1 (Green)",
-    "Leg_Band_White": "Hen2 (White)",
-    "Leg_Band_Violet": "Hen3 (Blue)",
-    "Leg_Band_Blue": "Hen3 (Blue)",
-    "Leg_Band_Yellow": "Hen4 (Yellow)",
-    "Leg_Band_Pink": "Hen5 (Pink)",
+    **SADDLE_CLASS_TO_HEN,
+    # Legacy band classes whose colours still identify a member of this flock.
+    "Leg_Band_Blue": "Hen2 (Blue)",
+    "Leg_Band_Violet": "Hen2 (Blue)",
+    "Leg_Band_Red": "Hen3 (Red)",
+    "Leg_Band_White": "Hen4 (White)",
+    "Leg_Band_Yellow": "Hen1 (Yellow)",
 }
 
 

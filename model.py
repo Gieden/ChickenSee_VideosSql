@@ -5,10 +5,11 @@ import base64
 from collections import Counter, deque
 from ultralytics import YOLO
 from legband import (
+    ANIMAL_TO_FIXED_ID,
     BAND_CLASS_TO_HEN,
-    HEN_TO_FIXED_ID,
     HEN_TO_SADDLE_TAG,
     SADDLE_CLASS_TO_HEN,
+    animal_display_label,
     detect_leg_band_color,
     detect_saddle_color,
     equipment_boxes_overlap,
@@ -24,25 +25,14 @@ COLOR_MAP = {
     "Chicken":                 {"hex": "#FFA500", "rgb": (255, 165, 0),   "bgr": (0, 165, 255)},
     "Hen1 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
     "Saddle_Yellow(Hen1)":     {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen2 (Red)":              {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Saddle_Red(Hen2)":        {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
-    "Hen3 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Saddle_White(Hen3)":      {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen4 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Saddle_Blue(Hen4)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen2 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Saddle_Green(Hen2)":      {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen3 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Saddle_Blue(Hen3)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
-    "Hen4 (Bluegreen)":        {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
-    "Saddle_Bluegreen(Hen4)":  {"hex": "#00CED1", "rgb": (0, 206, 209),   "bgr": (209, 206, 0)},
+    "Hen2 (Blue)":             {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Saddle_Blue(Hen2)":       {"hex": "#0000FF", "rgb": (0, 0, 255),     "bgr": (255, 0, 0)},
+    "Hen3 (Red)":              {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Saddle_Red(Hen3)":        {"hex": "#FF0000", "rgb": (255, 0, 0),     "bgr": (0, 0, 255)},
+    "Hen4 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
+    "Saddle_White(Hen4)":      {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
     "Hen5 (YellowGreen)":      {"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
     "Saddle_YellowGreen(Hen5)":{"hex": "#9ACD32", "rgb": (154, 205, 50),  "bgr": (50, 205, 154)},
-    # Legacy leg band colors for backward compatibility
-    "Hen1 (Green)":            {"hex": "#00FF00", "rgb": (0, 255, 0),     "bgr": (0, 255, 0)},
-    "Hen2 (White)":            {"hex": "#FFFFFF", "rgb": (255, 255, 255), "bgr": (255, 255, 255)},
-    "Hen4 (Yellow)":           {"hex": "#FFFF00", "rgb": (255, 255, 0),   "bgr": (0, 255, 255)},
-    "Hen5 (Pink)":             {"hex": "#FF69B4", "rgb": (255, 105, 180), "bgr": (180, 105, 255)},
     "Feeder":                  {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
     "Drinker":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
     "Default":                 {"hex": "#808080", "rgb": (128, 128, 128), "bgr": (128, 128, 128)},
@@ -112,13 +102,20 @@ class ChickenDetector:
         if track_id is None:
             return
         last_seen = self.track_band_last_seen.get(track_id)
+        if last_seen == self.frame_count:
+            return
         votes = self.track_band_votes.setdefault(track_id, deque(maxlen=8))
         if last_seen is not None and self.frame_count - last_seen > 60:
             votes.clear()
         votes.append(label)
         self.track_band_last_seen[track_id] = self.frame_count
-        most_common = Counter(votes).most_common(1)
-        if most_common and most_common[0][1] >= 2:
+        vote_counts = Counter(votes)
+        most_common = vote_counts.most_common(1)
+        if most_common and most_common[0][1] >= 5 and most_common[0][1] / len(votes) >= 0.70:
+            current = self.track_states.get(track_id, {}).get("label")
+            current_count = vote_counts.get(current, 0)
+            if current is not None and current != most_common[0][0] and most_common[0][1] < current_count + 3:
+                return
             self.track_states[track_id] = {
                 "label": most_common[0][0],
                 "last_seen_frame": self.frame_count,
@@ -270,6 +267,7 @@ class ChickenDetector:
         # 1. Re-ID for Hens via Saddles (Higher-Confidence Preserved)
         # ------------------------------------------------------------------
         bird_saddle_candidates = {}
+        conflicting_track_ids = set()
         for (sbox, sclass, sconf) in saddle_dets:
             sx1, sy1, sx2, sy2 = sbox
             scx = (sx1 + sx2) / 2
@@ -278,6 +276,7 @@ class ChickenDetector:
             if not color_name:
                 continue
 
+            candidates = []
             for bird_entry in chicken_dets + rooster_dets:
                 cbox, _, cname, track_id = bird_entry
                 if track_id is None:
@@ -285,11 +284,23 @@ class ChickenDetector:
                 cx1, cy1, cx2, cy2 = cbox
                 cw = max(1.0, cx2 - cx1)
                 bh = max(1.0, cy2 - cy1)
-                if (cx1 - 0.20 * cw <= scx <= cx2 + 0.20 * cw) and (cy1 - 0.20 * bh <= scy <= cy2 + 0.20 * bh):
-                    dist = abs(scx - (cx1 + cx2) / 2) + abs(scy - (cy1 + cy2) / 2)
-                    bird_saddle_candidates.setdefault(track_id, []).append(
-                        (sconf, color_name, dist, bird_entry)
+                if (cx1 - 0.05 * cw <= scx <= cx2 + 0.05 * cw) and (cy1 <= scy <= cy1 + 0.80 * bh):
+                    dist = (
+                        abs(scx - (cx1 + cx2) / 2) / cw
+                        + abs(scy - (cy1 + 0.45 * bh)) / bh
                     )
+                    candidates.append((dist, bird_entry))
+
+            candidates.sort(key=lambda candidate: candidate[0])
+            if not candidates or (
+                len(candidates) > 1
+                and candidates[1][0] - candidates[0][0] < 0.10
+            ):
+                continue
+            dist, bird_entry = candidates[0]
+            bird_saddle_candidates.setdefault(bird_entry[3], []).append(
+                (sconf, color_name, dist, bird_entry)
+            )
 
         # For each bird, pick its highest-confidence saddle
         bird_best_saddle = {}
@@ -343,8 +354,10 @@ class ChickenDetector:
             self.hen_owner_last_frame[color_name] = self.frame_count
             self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
 
-            for _ in range(8):
-                self._record_track_band_label(win_tid, color_name)
+            cached_label = self.track_states.get(win_tid, {}).get("label")
+            if cached_label is not None and cached_label != color_name:
+                conflicting_track_ids.add(win_tid)
+            self._record_track_band_label(win_tid, color_name)
 
         # ------------------------------------------------------------------
         # 2. Strict HSV Fallback — ONLY run on unidentified Chickens
@@ -363,6 +376,9 @@ class ChickenDetector:
             )
             band_label = detect_leg_band_color(source_frame, scaled_box)
             if band_label:
+                cached_label = self.track_states.get(track_id, {}).get("label")
+                if cached_label is not None and cached_label != band_label:
+                    conflicting_track_ids.add(track_id)
                 self._record_track_band_label(track_id, band_label)
 
         # ------------------------------------------------------------------
@@ -395,8 +411,15 @@ class ChickenDetector:
             target_label = preferred_label
             if not target_label and raw_tid in self.track_states:
                 target_label = self.track_states[raw_tid]["label"]
-            if target_label in HEN_TO_FIXED_ID:
-                fixed_id = HEN_TO_FIXED_ID[target_label]
+            if target_label in ANIMAL_TO_FIXED_ID:
+                fixed_id = ANIMAL_TO_FIXED_ID[target_label]
+                if target_label == "Chicken":
+                    current_id = self.short_id_map.get(raw_tid)
+                    if current_id is not None and current_id >= fixed_id:
+                        return current_id
+                    used_ids = set(self.short_id_map.values()) | set(range(1, 7))
+                    while fixed_id in used_ids:
+                        fixed_id += 1
                 self.short_id_map[raw_tid] = fixed_id
                 return fixed_id
             if raw_tid in self.short_id_map:
@@ -421,7 +444,11 @@ class ChickenDetector:
                 self.cumulative_count.add(track_id)
 
             display_label = "Chicken"
-            if track_id is not None and track_id in self.track_states:
+            if (
+                track_id is not None
+                and track_id in self.track_states
+                and track_id not in conflicting_track_ids
+            ):
                 cand = self.track_states[track_id]["label"]
                 if cand not in assigned_hen_labels:
                     display_label = cand
@@ -433,10 +460,7 @@ class ChickenDetector:
             assigned_id = short_id(track_id, display_label)
             saddle_tag = HEN_TO_SADDLE_TAG.get(display_label, display_label)
 
-            if display_label.startswith("Hen"):
-                label_text = f"ID_{assigned_id} {saddle_tag}" if assigned_id is not None else saddle_tag
-            else:
-                label_text = f"ID_{assigned_id} Chicken" if assigned_id is not None else "Chicken"
+            label_text = animal_display_label(display_label, assigned_id)
 
             det = {
                 "box":           [int(x1), int(y1), int(x2), int(y2)],
@@ -465,7 +489,7 @@ class ChickenDetector:
 
             colors = get_bbox_color("Rooster")
             assigned_id = short_id(track_id, "Rooster")
-            label_text = f"ID_{assigned_id} Rooster" if assigned_id is not None else "Rooster"
+            label_text = animal_display_label("Rooster", assigned_id)
 
             det = {
                 "box":           [int(x1), int(y1), int(x2), int(y2)],

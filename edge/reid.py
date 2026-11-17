@@ -10,7 +10,7 @@ The helpers below supply a *second, non-spatial* signal for re-acquisition:
 
 * ``leg_band_detection``   - the current frame's leg-band evidence, built on the shared
   leg-anchored detector in ``legband.py`` (colour + band geometry + leg continuity).
-* ``band_state_snapshot`` - the colour identity (green/white/blue/yellow/pink leg band)
+* ``band_state_snapshot`` - the colour identity (yellow/blue/red/white/yellow-green saddle)
   that was already established for a track through temporal voting.
 * ``appearance_descriptor`` - a cheap HSV histogram patch around the band location, used only
   as a weak tie-breaker when two birds share the same band colour class (or the band is

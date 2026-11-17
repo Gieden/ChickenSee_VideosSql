@@ -1,8 +1,10 @@
 import os
 import json
+import math
 import yaml
 import shutil
 import random
+from collections import Counter
 import torch
 from ultralytics import YOLO
 
@@ -40,6 +42,12 @@ DEFAULT_CLASS_NAMES = {
 }
 
 CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
+SADDLE_CLASSES_WITH_LOW_AP = {
+    "Saddle_Color_Blue",
+    "Saddle_Color_Red",
+    "Saddle_Color_White",
+}
+SADDLE_OVERSAMPLE_PREFIX = "__saddle_boost__"
 
 # Auto-sync with dataset/classes.txt or dataset/notes.json if present.
 # This keeps the training config aligned with the real packaged dataset instead of
@@ -114,6 +122,80 @@ def split_dataset(val_ratio=0.20, seed=42):
     return copied_train, copied_val
 
 
+def oversample_weak_saddle_images(image_dir, label_dir, class_names):
+    """Duplicate only training images containing the currently weak saddle classes."""
+    for image_name in os.listdir(image_dir):
+        if image_name.startswith(SADDLE_OVERSAMPLE_PREFIX):
+            os.remove(os.path.join(image_dir, image_name))
+            label_name = os.path.splitext(image_name)[0] + ".txt"
+            label_path = os.path.join(label_dir, label_name)
+            if os.path.isfile(label_path):
+                os.remove(label_path)
+
+    weak_class_ids = {
+        int(class_id)
+        for class_id, class_name in class_names.items()
+        if class_name in SADDLE_CLASSES_WITH_LOW_AP
+    }
+    saddle_class_ids = {
+        int(class_id)
+        for class_id, class_name in class_names.items()
+        if class_name.startswith("Saddle_Color_")
+    }
+    image_classes = {}
+    class_counts = Counter()
+
+    for image_name in os.listdir(image_dir):
+        if not image_name.lower().endswith((".jpg", ".jpeg", ".png")):
+            continue
+        label_path = os.path.join(label_dir, os.path.splitext(image_name)[0] + ".txt")
+        if not os.path.isfile(label_path):
+            continue
+
+        weak_classes = set()
+        with open(label_path, "r", encoding="utf-8") as label_file:
+            for line in label_file:
+                parts = line.split()
+                if not parts:
+                    continue
+                try:
+                    class_id = int(parts[0])
+                except ValueError:
+                    continue
+                if class_id in saddle_class_ids:
+                    class_counts[class_id] += 1
+                    if class_id in weak_class_ids:
+                        weak_classes.add(class_id)
+        if weak_classes:
+            image_classes[image_name] = weak_classes
+
+    if not class_counts:
+        return 0
+
+    max_saddle_count = max(class_counts.values())
+    extra_copies_by_class = {}
+    for class_id in weak_class_ids:
+        class_count = class_counts.get(class_id, 0)
+        if class_count:
+            factor = min(3.0, max(2.0, math.sqrt(max_saddle_count / class_count)))
+            extra_copies_by_class[class_id] = max(1, int(factor) - 1)
+
+    copied_images = 0
+    for image_name, class_ids in image_classes.items():
+        extra_copies = max(extra_copies_by_class[class_id] for class_id in class_ids)
+        source_image = os.path.join(image_dir, image_name)
+        source_label = os.path.join(label_dir, os.path.splitext(image_name)[0] + ".txt")
+        for copy_index in range(1, extra_copies + 1):
+            duplicate_name = f"{SADDLE_OVERSAMPLE_PREFIX}{copy_index}__{image_name}"
+            duplicate_label = os.path.splitext(duplicate_name)[0] + ".txt"
+            shutil.copy2(source_image, os.path.join(image_dir, duplicate_name))
+            shutil.copy2(source_label, os.path.join(label_dir, duplicate_label))
+            copied_images += 1
+
+    print(f"✅ Oversampled low-AP saddle classes with {copied_images} extra training images.")
+    return copied_images
+
+
 def main():
     # Count paired raw images
     raw_images = [
@@ -121,7 +203,11 @@ def main():
         if f.lower().endswith((".jpg", ".jpeg", ".png"))
     ]
     total_raw = len(raw_images)
-    n_train = len(os.listdir(train_img_dir)) if os.path.isdir(train_img_dir) else 0
+    n_train = sum(
+        1 for name in os.listdir(train_img_dir)
+        if os.path.isfile(os.path.join(train_img_dir, name))
+        and not name.startswith(SADDLE_OVERSAMPLE_PREFIX)
+    ) if os.path.isdir(train_img_dir) else 0
     n_val   = len(os.listdir(val_img_dir)) if os.path.isdir(val_img_dir) else 0
 
     # Split if train/val missing, empty, or out of sync with total raw images
@@ -136,6 +222,8 @@ def main():
         split_dataset()
     else:
         print(f"📂 Using existing split → train: {n_train}  val: {n_val}")
+
+    oversample_weak_saddle_images(train_img_dir, train_lbl_dir, CLASS_NAMES)
 
     # ---------------------------------------------------------------------------
     # Step 2 — Write dataset_config.yaml
@@ -163,12 +251,18 @@ def main():
     # ---------------------------------------------------------------------------
     # Step 3 — Load base model
     # ---------------------------------------------------------------------------
-    base_model = os.path.join(project_dir, "yolo26n.pt")
-    if not os.path.isfile(base_model):
-        if os.path.isfile(os.path.join(project_dir, "custom_poultry.pt")):
-            base_model = os.path.join(project_dir, "custom_poultry.pt")
-        else:
-            base_model = "yolo11n.pt"
+    base_model = None
+    custom_weight = os.path.join(project_dir, "custom_poultry.pt")
+    yolo26_weight = os.path.join(project_dir, "yolo26n.pt")
+
+    if os.path.isfile(custom_weight):
+        base_model = custom_weight
+    elif os.path.isfile(yolo26_weight):
+        base_model = yolo26_weight
+    else:
+        raise FileNotFoundError(
+            "No model weights found. Place either custom_poultry.pt or yolo26n.pt in the project root before training."
+        )
 
     # Determine training hardware accelerator
     device = 0 if torch.cuda.is_available() else "cpu"
@@ -197,9 +291,10 @@ def main():
         fliplr=0.5,
         mosaic=1.0,
         scale=0.9,            # force downscaling of crops for scale invariance
-        hsv_h=0.015,
-        hsv_s=0.7,
-        hsv_v=0.4,
+        # Saddle color is a class signal; use mild HSV augmentation to preserve it.
+        hsv_h=0.005,
+        hsv_s=0.2,
+        hsv_v=0.15,
         patience=30,          # early stopping if no improvement for 30 epochs
         save_period=25,       # checkpoint every 25 epochs
         verbose=True,

@@ -260,14 +260,11 @@ const REPORT_PROFILES = [
   'Flock',
   'Rooster',
   'Hen1 (Yellow)',
-  'Hen2 (Green)',
-  'Hen3 (Blue)',
-  'Hen4 (Bluegreen)',
+  'Hen2 (Blue)',
+  'Hen3 (Red)',
+  'Hen4 (White)',
   'Hen5 (YellowGreen)',
-  'Hen1 (Green)',
-  'Hen2 (White)',
-  'Hen4 (Yellow)',
-  'Hen5 (Pink)',
+  'Chicken (Unidentified)',
 ] as const;
 
 const REPORT_BEHAVIORS = [
@@ -291,14 +288,11 @@ const CHICKEN_PROFILES = [
   'All Chickens',
   'Rooster',
   'Hen1 (Yellow)',
-  'Hen2 (Green)',
-  'Hen3 (Blue)',
-  'Hen4 (Bluegreen)',
+  'Hen2 (Blue)',
+  'Hen3 (Red)',
+  'Hen4 (White)',
   'Hen5 (YellowGreen)',
-  'Hen1 (Green)',
-  'Hen2 (White)',
-  'Hen4 (Yellow)',
-  'Hen5 (Pink)',
+  'Chicken (Unidentified)',
 ] as const;
 
 const TIME_OPTIONS = [
