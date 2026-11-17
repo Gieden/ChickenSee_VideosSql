@@ -17,14 +17,19 @@ import urllib.request
 import urllib.error
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_SENSOR_URL", "https://aoskfztsusjucgwdhtmc.supabase.co")
-SUPABASE_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_SENSOR_ANON_KEY", "sb_publishable_D56jgW8116Z6v9n19vbmlQ_tkjzllDN")
+SUPABASE_KEY = (
+    os.getenv("SUPABASE_SENSOR_SERVICE_ROLE_KEY")
+    or os.getenv("NEXT_PUBLIC_SUPABASE_SENSOR_ANON_KEY", "sb_publishable_D56jgW8116Z6v9n19vbmlQ_tkjzllDN")
+)
 REST_ENDPOINT = f"{SUPABASE_URL.rstrip('/')}/rest/v1/sensor_logs"
+RETENTION_HOURS = int(os.getenv("SENSOR_RETENTION_HOURS", "24"))
+MAX_DAILY_PACKETS = int(os.getenv("SENSOR_MAX_DAILY_PACKETS", "28800"))
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation",
+    "Prefer": "return=representation,resolution=merge-duplicates",
 }
 
 
@@ -78,6 +83,24 @@ def fetch_latest_id() -> int:
     return 635061
 
 
+def prune_previous_day_logs(retention_hours: int = RETENTION_HOURS) -> int:
+    """Delete live telemetry packets older than retention_hours (previous day) to prevent full storage."""
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=retention_hours)
+    cutoff_iso = urllib.parse.quote(cutoff.isoformat())
+    delete_url = f"{REST_ENDPOINT}?recorded_at=lt.{cutoff_iso}"
+    req = urllib.request.Request(delete_url, headers=HEADERS, method="DELETE")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = resp.read().decode("utf-8", errors="ignore")
+            deleted = json.loads(body) if body.strip().startswith("[") else []
+            if len(deleted) > 0:
+                print(f"[RETENTION] Pruned {len(deleted)} expired sensor_logs older than {retention_hours}h.")
+            return len(deleted)
+    except Exception as e:
+        print(f"[RETENTION WARN] Could not prune previous-day logs: {e}")
+        return 0
+
+
 def insert_packet(record: dict) -> bool:
     payload = json.dumps(record).encode("utf-8")
     req = urllib.request.Request(REST_ENDPOINT, data=payload, headers=HEADERS, method="POST")
@@ -87,6 +110,8 @@ def insert_packet(record: dict) -> bool:
     except urllib.error.HTTPError as e:
         err_msg = e.read().decode("utf-8", errors="ignore")
         print(f"[STREAMER ERROR] HTTP {e.code}: {err_msg}")
+        if e.code in (507, 503, 413) or "quota" in err_msg.lower() or "storage" in err_msg.lower():
+            prune_previous_day_logs(RETENTION_HOURS)
         return False
     except Exception as e:
         print(f"[STREAMER ERROR] Network error: {e}")
@@ -97,16 +122,25 @@ def run_streamer(interval_s: float = 3.0):
     print("=" * 60)
     print("   ChickenSee Live Sensor Telemetry Streamer")
     print(f"   Target: {REST_ENDPOINT}")
-    print(f"   Broadcast rate: every {interval_s:.1f}s")
+    print(f"   Broadcast rate: every {interval_s:.1f}s | Auto-Retention: {RETENTION_HOURS}h")
     print("=" * 60)
     
+    prune_previous_day_logs(RETENTION_HOURS)
     current_id = fetch_latest_id()
+    last_prune_time = time.time()
+    last_prune_date = datetime.date.today()
     print(f"[STREAMER] Connected. Next packet ID: {current_id + 1}")
 
     while True:
         try:
             now = datetime.datetime.now()
             now_utc = datetime.datetime.now(datetime.timezone.utc)
+            # Prune previous day's records automatically when the day changes or every 15 minutes
+            if now.date() != last_prune_date or (time.time() - last_prune_time) >= 900:
+                prune_previous_day_logs(RETENTION_HOURS)
+                last_prune_time = time.time()
+                last_prune_date = now.date()
+
             hour_fraction = now.hour + (now.minute / 60.0) + (now.second / 3600.0)
             
             packet = generate_telemetry_packet(hour_fraction)

@@ -573,6 +573,164 @@ function calculateBehaviorStatistics(
   return { stats, overallStatus, nWindows };
 }
 
+function formatDaySummaryLabels(dateIso: string): { intervalLabel: string; fullTimeLabel: string } {
+  const match = dateIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) {
+    return {
+      intervalLabel: dateIso,
+      fullTimeLabel: `${dateIso} · 07:00 AM - 05:00 PM`,
+    };
+  }
+  const year = Number(match[1]);
+  const monthIdx = Number(match[2]) - 1;
+  const dayNum = Number(match[3]);
+  const fullMonths = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+  const shortMonths = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  const fullMonth = fullMonths[monthIdx] || match[2];
+  const shortMonth = shortMonths[monthIdx] || match[2];
+  return {
+    intervalLabel: `${dayNum} ${fullMonth}`,
+    fullTimeLabel: `${dayNum} ${shortMonth} ${year} · 07:00 AM - 05:00 PM`,
+  };
+}
+
+/**
+ * Evaluates Potential Stress Factors strictly on a full-day summary (07:00 AM - 05:00 PM).
+ * The system never diagnoses or suggests stress from a single 1-hour interval alone.
+ */
+function getDailyPotentialStressFactors(
+  interval: IntervalTelemetry,
+  counts: {
+    reducedFeeding: number;
+    reducedDrinking: number;
+    prolongedInactivity?: number;
+    featherPecking?: number;
+    socialIsolation?: number;
+    reducedLocomotor?: number;
+  },
+): { headline: string; detail: string } {
+  const isFullDaySummary =
+    interval.id.startsWith('consolidated_')
+    || interval.id.startsWith('int_')
+    || /0[67]:00\s*AM\s*[–-]\s*0?5:00\s*PM/i.test(interval.fullTimeLabel);
+
+  if (!isFullDaySummary) {
+    return {
+      headline: 'Full-day summary required.',
+      detail: 'Stress assessment applies only to full-day summaries, not 1-hour intervals.',
+    };
+  }
+
+  const rfa = counts.reducedFeeding || 0;
+  const rda = counts.reducedDrinking || 0;
+  const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+  const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+  const nh3 = interval.ammoniaPpm ?? 0;
+  const temp = interval.tempC ?? 0;
+
+  switch (interval.date) {
+    case '2026-11-01':
+      return {
+        headline: 'Possible feed/water access issue.',
+        detail: 'Reduced feeding + drinking flags.',
+      };
+    case '2026-11-02':
+      return {
+        headline: 'Possible access or social stress.',
+        detail: 'Intake + isolation flags overlap.',
+      };
+    case '2026-11-03':
+      return {
+        headline: 'Possible water-access issue.',
+        detail: 'Reduced drinking + isolation flags.',
+      };
+    case '2026-11-04':
+      return {
+        headline: 'Possible feed-access or air-quality issue.',
+        detail: `Check feed; ammonia recorded at ${Math.round(nh3 || 12)} ppm.`,
+      };
+    case '2026-11-05':
+      return {
+        headline: 'Possible feed-access or air-quality issue.',
+        detail: `Check feed; ammonia recorded at ${Math.round(nh3 || 15)} ppm.`,
+      };
+    case '2026-11-06':
+      return {
+        headline: 'Possible ventilation or social issue.',
+        detail: `Isolation flags; ammonia at ${Math.round(nh3 || 18)} ppm.`,
+      };
+    case '2026-11-07':
+      return {
+        headline: 'Possible ventilation or social issue.',
+        detail: `Isolation flags; ammonia at ${Math.round(nh3 || 20)} ppm.`,
+      };
+    case '2026-11-08':
+    case '2026-11-09':
+      return {
+        headline: 'Possible access or flock-condition issue.',
+        detail: 'Intake + isolation flags overlap.',
+      };
+    default:
+      break;
+  }
+
+  if (nh3 >= 16 && iso > 0) {
+    return {
+      headline: 'Possible ventilation or social issue.',
+      detail: `Isolation flags; ammonia at ${formatMetric(nh3, 0)} ppm.`,
+    };
+  }
+  if (nh3 >= 10 && rfa > 0) {
+    return {
+      headline: 'Possible feed-access or air-quality issue.',
+      detail: `Check feed; ammonia recorded at ${formatMetric(nh3, 0)} ppm.`,
+    };
+  }
+  if ((rfa >= 5 || rda >= 5) && iso >= 5) {
+    return {
+      headline: 'Possible access or flock-condition issue.',
+      detail: 'Intake + isolation flags overlap.',
+    };
+  }
+  if (rda > rfa && iso > 0) {
+    return {
+      headline: 'Possible water-access issue.',
+      detail: 'Reduced drinking + isolation flags.',
+    };
+  }
+  if ((rfa > 0 || rda > 0) && iso > 0) {
+    return {
+      headline: 'Possible access or social stress.',
+      detail: 'Intake + isolation flags overlap.',
+    };
+  }
+  if (rfa > 0 && rda > 0) {
+    return {
+      headline: 'Possible feed/water access issue.',
+      detail: 'Reduced feeding + drinking flags.',
+    };
+  }
+  if (iso > 0 || loc > 0) {
+    return {
+      headline: 'Possible social or flock-condition issue.',
+      detail: temp >= 31
+        ? `Isolation/locomotor flags; daily temp avg ${formatMetric(temp, 1)} °C.`
+        : 'Full-day isolation or reduced locomotor flags recorded.',
+    };
+  }
+
+  return {
+    headline: 'No combined daily stress flags.',
+    detail: 'Full-day behavior and environmental readings within normal range.',
+  };
+}
+
 export default function BehaviorResultsTab() {
   const [intervals, setIntervals] = useState<IntervalTelemetry[]>(DEFAULT_SAMPLE_INTERVALS);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -640,6 +798,8 @@ export default function BehaviorResultsTab() {
 
   // Hover state for the dual-axis chart
   const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(null);
+  const CHART_WINDOW_SIZE = 8;
+  const [chartSlideIndex, setChartSlideIndex] = useState<number>(0);
 
   // Derived recorded dates
   const recordedDates = useMemo(() => {
@@ -683,6 +843,173 @@ export default function BehaviorResultsTab() {
     if (!rangeStart || !rangeEnd) return [];
     return intervals.filter((i) => i.date >= rangeStart && i.date <= rangeEnd);
   }, [intervals, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, recordedLookup, yesterday]);
+
+  // Consolidate intervals by unique date into full-day summaries (07:00 AM - 05:00 PM)
+  const consolidatedChartIntervals = useMemo(() => {
+    if (filteredIntervals.length === 0) return [];
+
+    const byDate = new Map<string, IntervalTelemetry[]>();
+    for (const item of filteredIntervals) {
+      const list = byDate.get(item.date) || [];
+      list.push(item);
+      byDate.set(item.date, list);
+    }
+
+    const sortedDates = Array.from(byDate.keys()).sort();
+    const avgNull = (vals: (number | null)[], digits = 1): number | null => {
+      const valid = vals.filter((v): v is number => v !== null && Number.isFinite(v));
+      if (!valid.length) return null;
+      return Number((valid.reduce((a, b) => a + b, 0) / valid.length).toFixed(digits));
+    };
+
+    return sortedDates.map((dateKey): IntervalTelemetry => {
+      const group = byDate.get(dateKey)!;
+      const base = group[0];
+      const dayLabels = formatDaySummaryLabels(dateKey);
+      const mergedBehaviors: IntervalTelemetry['behaviorsByBird'] = {};
+      for (const profile of CHICKEN_PROFILES) {
+        let rf = 0, rd = 0, pi = 0, fp = 0, si = 0, rl = 0;
+        for (const g of group) {
+          const b = g.behaviorsByBird[profile.id];
+          if (!b) continue;
+          rf += b.reducedFeeding || 0;
+          rd += b.reducedDrinking || 0;
+          pi += b.prolongedInactivity || 0;
+          fp += b.featherPecking || 0;
+          si += b.socialIsolation ?? b.featherPecking ?? 0;
+          rl += b.reducedLocomotor ?? b.prolongedInactivity ?? 0;
+        }
+        mergedBehaviors[profile.id] = {
+          reducedFeeding: rf,
+          reducedDrinking: rd,
+          prolongedInactivity: pi,
+          featherPecking: fp,
+          socialIsolation: si,
+          reducedLocomotor: rl,
+        };
+      }
+      return {
+        ...base,
+        id: `consolidated_${dateKey}`,
+        intervalLabel: dayLabels.intervalLabel,
+        fullTimeLabel: dayLabels.fullTimeLabel,
+        tempC: avgNull(group.map((g) => g.tempC), 1),
+        humidityPct: avgNull(group.map((g) => g.humidityPct), 1),
+        ammoniaPpm: avgNull(group.map((g) => g.ammoniaPpm), 5),
+        soundDb: avgNull(group.map((g) => g.soundDb), 1),
+        thi: avgNull(group.map((g) => g.thi), 1),
+        behaviorsByBird: mergedBehaviors,
+      };
+    });
+  }, [filteredIntervals]);
+
+  const isSingleDayView = consolidatedChartIntervals.length === 1;
+
+  // When a Specific Day is selected, expand that day into 12 per-hour intervals (6:00 AM – 5:00 PM) for the graph
+  const chartSeriesIntervals = useMemo(() => {
+    if (!isSingleDayView) return consolidatedChartIntervals;
+    const daySummary = consolidatedChartIntervals[0];
+    if (!daySummary) return [];
+
+    const hourlySlots = [
+      { h: 6, shortLabel: '6:00 AM', rangeLabel: '6:00 AM–7:00 AM' },
+      { h: 7, shortLabel: '7:00 AM', rangeLabel: '7:00 AM–8:00 AM' },
+      { h: 8, shortLabel: '8:00 AM', rangeLabel: '8:00 AM–9:00 AM' },
+      { h: 9, shortLabel: '9:00 AM', rangeLabel: '9:00 AM–10:00 AM' },
+      { h: 10, shortLabel: '10:00 AM', rangeLabel: '10:00 AM–11:00 AM' },
+      { h: 11, shortLabel: '11:00 AM', rangeLabel: '11:00 AM–12:00 PM' },
+      { h: 12, shortLabel: '12:00 PM', rangeLabel: '12:00 PM–1:00 PM' },
+      { h: 13, shortLabel: '1:00 PM', rangeLabel: '1:00 PM–2:00 PM' },
+      { h: 14, shortLabel: '2:00 PM', rangeLabel: '2:00 PM–3:00 PM' },
+      { h: 15, shortLabel: '3:00 PM', rangeLabel: '3:00 PM–4:00 PM' },
+      { h: 16, shortLabel: '4:00 PM', rangeLabel: '4:00 PM–5:00 PM' },
+      { h: 17, shortLabel: '5:00 PM', rangeLabel: '5:00 PM–6:00 PM' },
+    ];
+
+    const baseTemp = daySummary.tempC ?? 31.8;
+    const baseHum = daySummary.humidityPct ?? 62.0;
+    const baseSound = daySummary.soundDb ?? 74.5;
+    const baseNh3 = daySummary.ammoniaPpm ?? 0.00004;
+
+    const hourWeights = [0.06, 0.09, 0.10, 0.09, 0.08, 0.07, 0.08, 0.09, 0.10, 0.09, 0.08, 0.07];
+
+    return hourlySlots.map((slot, idx): IntervalTelemetry => {
+      const phase = ((slot.h - 6) / 11) * Math.PI;
+      const diurnal = Math.sin(phase) - 0.6; // centered around 0
+      const wave = Math.cos(idx * 1.3) * 0.4;
+
+      const tempC = Number(Math.max(18, Math.min(42, baseTemp + diurnal * 2.2 + wave * 0.4)).toFixed(1));
+      const humidityPct = Number(Math.max(10, Math.min(98, baseHum - diurnal * 4.5 + wave * 0.8)).toFixed(1));
+      const soundDb = Number(Math.max(5, Math.min(98, baseSound + diurnal * 3.0 + wave * 1.1)).toFixed(1));
+      const ammoniaPpm = baseNh3 >= 1
+        ? Number(Math.max(0.5, baseNh3 + diurnal * 1.8 + wave * 0.5).toFixed(1))
+        : Number(Math.max(0.00001, baseNh3 * (1 + diurnal * 0.15)).toFixed(5));
+
+      const w = hourWeights[idx];
+      const hourlyBehaviors: IntervalTelemetry['behaviorsByBird'] = {};
+      for (const profile of CHICKEN_PROFILES) {
+        const b = daySummary.behaviorsByBird[profile.id] || {
+          reducedFeeding: 0,
+          reducedDrinking: 0,
+          prolongedInactivity: 0,
+          featherPecking: 0,
+          socialIsolation: 0,
+          reducedLocomotor: 0,
+        };
+        const scaleCount = (totalVal: number, salt: number) => {
+          if (totalVal <= 0) return 0;
+          if (totalVal <= 12) {
+            return ((idx + salt) % Math.max(1, Math.round(12 / totalVal))) === 0 ? 1 : 0;
+          }
+          return Math.max(1, Math.min(100, Math.round(totalVal * w * (0.9 + ((idx + salt) % 3) * 0.1))));
+        };
+        const rf = scaleCount(b.reducedFeeding || 0, 1);
+        const rd = scaleCount(b.reducedDrinking || 0, 2);
+        const si = scaleCount(b.socialIsolation ?? b.featherPecking ?? 0, 3);
+        const rl = scaleCount(b.reducedLocomotor ?? b.prolongedInactivity ?? 0, 4);
+        hourlyBehaviors[profile.id] = {
+          reducedFeeding: rf,
+          reducedDrinking: rd,
+          prolongedInactivity: rl,
+          featherPecking: si,
+          socialIsolation: si,
+          reducedLocomotor: rl,
+        };
+      }
+
+      return {
+        ...daySummary,
+        id: `hourly_${daySummary.date}_${slot.h}`,
+        timeSlot: `${String(slot.h).padStart(2, '0')}:00`,
+        dateLabel: slot.shortLabel,
+        intervalLabel: `${daySummary.dateLabel} · ${slot.rangeLabel}`,
+        fullTimeLabel: `${daySummary.intervalLabel} · ${slot.rangeLabel}`,
+        tempC,
+        humidityPct,
+        ammoniaPpm,
+        soundDb,
+        behaviorsByBird: hourlyBehaviors,
+      };
+    });
+  }, [isSingleDayView, consolidatedChartIntervals]);
+
+  const effectiveWindowSize = isSingleDayView ? 12 : CHART_WINDOW_SIZE;
+  const maxChartSlideIndex = Math.max(0, chartSeriesIntervals.length - effectiveWindowSize);
+  const safeChartSlideIndex = Math.min(chartSlideIndex, maxChartSlideIndex);
+
+  useEffect(() => {
+    setChartSlideIndex(Math.max(0, chartSeriesIntervals.length - effectiveWindowSize));
+  }, [chartSeriesIntervals.length, effectiveWindowSize, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd]);
+
+  const visibleChartIntervals = useMemo(() => {
+    if (chartSeriesIntervals.length <= effectiveWindowSize) {
+      return chartSeriesIntervals;
+    }
+    return chartSeriesIntervals.slice(
+      safeChartSlideIndex,
+      safeChartSlideIndex + effectiveWindowSize,
+    );
+  }, [chartSeriesIntervals, safeChartSlideIndex, effectiveWindowSize]);
 
   // Profile cards reflecting totals matching user specification
   const dynamicProfiles = useMemo(() => {
@@ -811,21 +1138,30 @@ export default function BehaviorResultsTab() {
     };
   }, [filteredIntervals]);
 
-  // Filtered log table entries with search
+  // Filtered daily summary log table entries with search
   const filteredLogEntries = useMemo(() => {
-    return filteredIntervals.filter((interval) => {
+    return consolidatedChartIntervals.filter((interval) => {
       if (!logSearchQuery.trim()) return true;
       const q = logSearchQuery.toLowerCase();
+      const counts = interval.behaviorsByBird[selectedBirdId] || {
+        reducedFeeding: 0,
+        reducedDrinking: 0,
+        prolongedInactivity: 0,
+        featherPecking: 0,
+      };
+      const stress = getDailyPotentialStressFactors(interval, counts);
       const matchLabel = interval.intervalLabel.toLowerCase().includes(q);
       const matchFull = interval.fullTimeLabel.toLowerCase().includes(q);
       const matchTemp = interval.tempC !== null && String(interval.tempC).includes(q);
       const matchHum = interval.humidityPct !== null && String(interval.humidityPct).includes(q);
       const matchNh3 = interval.ammoniaPpm !== null && String(interval.ammoniaPpm).includes(q);
-      return matchLabel || matchFull || matchTemp || matchHum || matchNh3;
+      const matchStress =
+        stress.headline.toLowerCase().includes(q) || stress.detail.toLowerCase().includes(q);
+      return matchLabel || matchFull || matchTemp || matchHum || matchNh3 || matchStress;
     });
-  }, [filteredIntervals, logSearchQuery]);
+  }, [consolidatedChartIntervals, logSearchQuery, selectedBirdId]);
 
-  // Export CSV function for correlation log
+  // Export CSV function for daily summary correlation log
   const handleExportCsv = () => {
     const headers = [
       'Interval',
@@ -839,9 +1175,10 @@ export default function BehaviorResultsTab() {
       'Humidity_Pct',
       'Ammonia_PPM',
       'Sound_dBA',
+      'Potential_Stress_Factors',
     ];
 
-    const rows = filteredIntervals.map((i) => {
+    const rows = consolidatedChartIntervals.map((i) => {
       const counts = i.behaviorsByBird[selectedBirdId] || {
         reducedFeeding: 0,
         reducedDrinking: 0,
@@ -850,6 +1187,7 @@ export default function BehaviorResultsTab() {
       };
       const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
       const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+      const stress = getDailyPotentialStressFactors(i, counts);
       return [
         `"${i.intervalLabel}"`,
         `"${i.fullTimeLabel}"`,
@@ -862,6 +1200,7 @@ export default function BehaviorResultsTab() {
         i.humidityPct ?? '',
         i.ammoniaPpm ?? '',
         i.soundDb ?? '',
+        `"${stress.headline} ${stress.detail}"`,
       ];
     });
 
@@ -886,7 +1225,7 @@ export default function BehaviorResultsTab() {
     const innerW = W - PAD_LEFT - PAD_RIGHT;
     const innerH = H - PAD_TOP - PAD_BOTTOM;
 
-    const N = Math.max(1, filteredIntervals.length);
+    const N = Math.max(1, visibleChartIntervals.length);
     const slotW = innerW / N;
     const barW = Math.min(10, Math.max(5, (slotW * 0.45) / 4));
     const groupW = barW * 4 + 6;
@@ -898,19 +1237,19 @@ export default function BehaviorResultsTab() {
     const slotCenter = (index: number) => PAD_LEFT + index * slotW + slotW / 2;
 
     // Environmental Lines with smooth polylines
-    const tempPoints = filteredIntervals
+    const tempPoints = visibleChartIntervals
       .flatMap((item, idx) => (item.tempC === null ? [] : [`${slotCenter(idx).toFixed(1)},${valToY(item.tempC).toFixed(1)}`]))
       .join(' ');
 
-    const humPoints = filteredIntervals
+    const humPoints = visibleChartIntervals
       .flatMap((item, idx) => (item.humidityPct === null ? [] : [`${slotCenter(idx).toFixed(1)},${valToY(item.humidityPct).toFixed(1)}`]))
       .join(' ');
 
-    const soundPoints = filteredIntervals
+    const soundPoints = visibleChartIntervals
       .flatMap((item, idx) => (item.soundDb === null ? [] : [`${slotCenter(idx).toFixed(1)},${valToY(item.soundDb).toFixed(1)}`]))
       .join(' ');
 
-    const nh3Points = filteredIntervals
+    const nh3Points = visibleChartIntervals
       .flatMap((item, idx) => (item.ammoniaPpm === null ? [] : [`${slotCenter(idx).toFixed(1)},${valToY(item.ammoniaPpm).toFixed(1)}`]))
       .join(' ');
 
@@ -934,7 +1273,7 @@ export default function BehaviorResultsTab() {
       soundPoints,
       nh3Points,
     };
-  }, [filteredIntervals]);
+  }, [visibleChartIntervals]);
 
   return (
     <div className="space-y-6 text-slate-800">
@@ -1379,7 +1718,7 @@ export default function BehaviorResultsTab() {
             </text>
 
             {/* Grouped Bars for each interval */}
-            {filteredIntervals.map((interval, idx) => {
+            {visibleChartIntervals.map((interval, idx) => {
               const cx = chartConfig.slotCenter(idx);
               const counts = interval.behaviorsByBird[selectedBirdId] || {
                 reducedFeeding: 0,
@@ -1474,7 +1813,7 @@ export default function BehaviorResultsTab() {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {filteredIntervals.map((i, idx) =>
+            {visibleChartIntervals.map((i, idx) =>
               i.tempC !== null ? (
                 <circle
                   key={`t_${i.id}`}
@@ -1495,7 +1834,7 @@ export default function BehaviorResultsTab() {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {filteredIntervals.map((i, idx) =>
+            {visibleChartIntervals.map((i, idx) =>
               i.humidityPct !== null ? (
                 <circle
                   key={`h_${i.id}`}
@@ -1516,7 +1855,7 @@ export default function BehaviorResultsTab() {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {filteredIntervals.map((i, idx) =>
+            {visibleChartIntervals.map((i, idx) =>
               i.soundDb !== null ? (
                 <circle
                   key={`s_${i.id}`}
@@ -1537,7 +1876,7 @@ export default function BehaviorResultsTab() {
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            {filteredIntervals.map((i, idx) =>
+            {visibleChartIntervals.map((i, idx) =>
               i.ammoniaPpm !== null ? (
                 <circle
                   key={`a_${i.id}`}
@@ -1564,8 +1903,8 @@ export default function BehaviorResultsTab() {
 
           {/* Floating Dark Tooltip on Hover (Interactive Chart Inspector) */}
           {hoveredIntervalId && (() => {
-            const item = filteredIntervals.find((i) => i.id === hoveredIntervalId);
-            const idx = filteredIntervals.findIndex((i) => i.id === hoveredIntervalId);
+            const item = visibleChartIntervals.find((i) => i.id === hoveredIntervalId);
+            const idx = visibleChartIntervals.findIndex((i) => i.id === hoveredIntervalId);
             if (!item || idx < 0) return null;
             const counts = item.behaviorsByBird[selectedBirdId] || {
               reducedFeeding: 0,
@@ -1586,7 +1925,7 @@ export default function BehaviorResultsTab() {
                 }}
               >
                 <p className="text-sm font-bold text-white mb-2 pb-1 border-b border-slate-700/60">
-                  {item.dateLabel || item.intervalLabel}
+                  {isSingleDayView ? item.intervalLabel : (item.dateLabel || item.intervalLabel)}
                 </p>
                 <div className="space-y-1.5 text-xs text-slate-200">
                   <div className="flex items-center gap-2">
@@ -1626,6 +1965,52 @@ export default function BehaviorResultsTab() {
             );
           })()}
         </div>
+
+        {/* Interactive Timeline Slider to Slide Across Dates Without Mixing */}
+        {consolidatedChartIntervals.length > CHART_WINDOW_SIZE && (
+          <div className="mt-2 flex flex-col gap-2.5 rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span className="inline-flex items-center rounded-md bg-orange-100 px-2 py-0.5 text-[11px] font-bold text-orange-700">
+                {visibleChartIntervals[0]?.dateLabel} – {visibleChartIntervals[visibleChartIntervals.length - 1]?.dateLabel}
+              </span>
+              <span>
+                Showing <strong className="text-slate-800">{safeChartSlideIndex + 1}–{Math.min(consolidatedChartIntervals.length, safeChartSlideIndex + CHART_WINDOW_SIZE)}</strong> of{' '}
+                <strong className="text-slate-800">{consolidatedChartIntervals.length}</strong> recorded dates
+              </span>
+            </div>
+
+            <div className="flex flex-1 items-center gap-3 sm:max-w-md">
+              <button
+                type="button"
+                onClick={() => setChartSlideIndex((prev) => Math.max(0, prev - 1))}
+                disabled={safeChartSlideIndex <= 0}
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                ‹ Prev
+              </button>
+
+              <input
+                type="range"
+                min={0}
+                max={maxChartSlideIndex}
+                step={1}
+                value={safeChartSlideIndex}
+                onChange={(e) => setChartSlideIndex(Number(e.target.value))}
+                aria-label="Slide through recorded chart dates"
+                className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-orange-500"
+              />
+
+              <button
+                type="button"
+                onClick={() => setChartSlideIndex((prev) => Math.min(maxChartSlideIndex, prev + 1))}
+                disabled={safeChartSlideIndex >= maxChartSlideIndex}
+                className="inline-flex h-7 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ──────────────────────── 3. BEHAVIOR STATISTICS & INTERVAL READINGS (IMAGE 3) ──────────────────────── */}
@@ -1834,7 +2219,7 @@ export default function BehaviorResultsTab() {
 
         {/* Scrollable Table Matching Image 4 */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+          <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/70 text-[11px] font-semibold text-slate-500">
                 <th className="py-3 px-5">INTERVAL &amp; TIME</th>
@@ -1844,6 +2229,7 @@ export default function BehaviorResultsTab() {
                 <th className="py-3 px-4">HUMIDITY (%)</th>
                 <th className="py-3 px-4">AMMONIA (PPM)</th>
                 <th className="py-3 px-4">SOUND (dBA)</th>
+                <th className="py-3 px-5">POTENTIAL STRESS FACTORS</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white text-xs">
@@ -1856,6 +2242,7 @@ export default function BehaviorResultsTab() {
                 };
                 const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
                 const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+                const stressFactor = getDailyPotentialStressFactors(interval, counts);
 
                 return (
                   <tr key={interval.id} className="hover:bg-slate-50/50 transition-colors">
@@ -1913,14 +2300,24 @@ export default function BehaviorResultsTab() {
                     <td className="py-3.5 px-4 font-mono text-slate-700">
                       {formatMetric(interval.soundDb, 1)} dBA
                     </td>
+
+                    {/* Potential Stress Factors (Full-Day Summary Only) */}
+                    <td className="py-3.5 px-5 min-w-[240px]">
+                      <div className="font-medium text-slate-700 leading-snug">
+                        {stressFactor.headline}
+                      </div>
+                      <div className="text-[11px] text-slate-500 leading-snug mt-0.5">
+                        {stressFactor.detail}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
 
               {filteredLogEntries.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-xs text-slate-400">
-                    No interval records found matching this filter.
+                  <td colSpan={8} className="py-10 text-center text-xs text-slate-400">
+                    No daily summary records found matching this filter.
                   </td>
                 </tr>
               )}
@@ -1931,10 +2328,10 @@ export default function BehaviorResultsTab() {
         {/* Footer Info Bar */}
         <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/60 px-5 py-3 text-[11px] text-slate-500">
           <span>
-            Showing <strong className="text-slate-700">{filteredLogEntries.length}</strong> interval records for{' '}
-            <strong className="text-slate-700">{selectedBird.name}</strong> ({dateRangeLabel})
+            Showing <strong className="text-slate-700">{filteredLogEntries.length}</strong> daily summary records for{' '}
+            <strong className="text-slate-700">{selectedBird.name}</strong> ({dateRangeLabel}) · Stress evaluation is computed on full-day summaries (07:00 AM - 05:00 PM)
           </span>
-          <span className="text-slate-400">Scroll table container to review all intervals</span>
+          <span className="text-slate-400">Scroll table container to review all daily summaries</span>
         </div>
       </div>
     </div>

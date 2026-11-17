@@ -281,11 +281,49 @@ export async function downloadStorageFile(storagePath: string) {
     }
   }
 
+  // 2b. If requesting a unified or virtual sensors.sqlite path, check any local sensors.sqlite in candidateDirs
+  if (cleanPath.endsWith('sensors.sqlite')) {
+    for (const cDir of candidateDirs) {
+      const directSqlite = path.join(cDir, 'sensors.sqlite');
+      if (fs.existsSync(directSqlite)) {
+        return new Blob([fs.readFileSync(directSqlite)]);
+      }
+      try {
+        const entries = fs.readdirSync(cDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            const nestedSqlite = path.join(cDir, entry.name, 'sensors.sqlite');
+            if (fs.existsSync(nestedSqlite)) {
+              return new Blob([fs.readFileSync(nestedSqlite)]);
+            }
+          }
+        }
+      } catch {
+        // Ignore unreadable directory
+      }
+    }
+  }
+
   // 3. Fallback to Supabase Storage client
-  const { data, error } = await getStorageClient()
-    .storage
-    .from(getBucketName())
-    .download(storagePath);
+  const bucket = getStorageClient().storage.from(getBucketName());
+  const { data, error } = await bucket.download(storagePath);
+
+  if (error && storagePath.endsWith('sensors.sqlite')) {
+    const fallbackPaths = [
+      'databases/new/sensors.sqlite',
+      'databases/sensors.sqlite',
+      'databases/data/sensors.sqlite',
+      'databases/rec_2026-11-14_07-00-00_116084/sensors.sqlite',
+      'databases/rec_2026-11-05_10-09-13_763336/sensors.sqlite',
+    ];
+    for (const fbPath of fallbackPaths) {
+      if (fbPath === storagePath) continue;
+      const fbRes = await bucket.download(fbPath);
+      if (!fbRes.error && fbRes.data) {
+        return fbRes.data;
+      }
+    }
+  }
 
   if (error) {
     const statusCode = Number(error.statusCode);

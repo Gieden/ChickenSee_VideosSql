@@ -11,6 +11,7 @@ from legband import (
     SADDLE_CLASS_TO_HEN,
     animal_display_label,
     detect_leg_band_color,
+    detect_pen_equipment,
     detect_saddle_color,
     equipment_boxes_overlap,
     suppress_overlapping_equipment,
@@ -261,6 +262,15 @@ class ChickenDetector:
                 for high_detection in high_resolution_infra
             )
         ]
+        infra_dets = suppress_overlapping_equipment(infra_dets)
+        existing_f = [d[0] for d in infra_dets if d[2] == "Feeder"]
+        existing_d = [d[0] for d in infra_dets if d[2] == "Drinker"]
+        if not existing_f or not existing_d:
+            cv_f, cv_d = detect_pen_equipment(frame, existing_f, existing_d)
+            if not existing_f and cv_f is not None:
+                infra_dets.append((cv_f[0], cv_f[1], "Feeder", None))
+            if not existing_d and cv_d is not None:
+                infra_dets.append((cv_d[0], cv_d[1], "Drinker", None))
         infra_dets = suppress_overlapping_equipment(infra_dets)
 
         # ------------------------------------------------------------------

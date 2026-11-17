@@ -65,15 +65,22 @@ export async function GET(req: NextRequest) {
   }
 
   const databases = await listSyncedDatabases();
+  const isSyntheticPath = (p?: string) => !p || p.includes('_unified') || /rec_2026-11-17_\d{2}-00-00_11608/.test(p);
+  const realDatabases = databases.filter((d) => Boolean(d.localPath) || !isSyntheticPath(d.storagePath));
+
   let selectedDbMeta = databases.find(
     (d) => d.storagePath === targetFile || d.pathname === targetFile || d.localPath === targetFile,
   );
 
-  if (!selectedDbMeta) {
-    const dateMatch = targetFile.match(/(\d{4}-\d{2}-\d{2})/);
-    const dateKey = dateMatch ? dateMatch[1] : '2026-11-17';
-    const matchingMeta = databases.find((d) => d.dateKey === dateKey) || databases[0];
+  const dateMatch = targetFile.match(/(\d{4}-\d{2}-\d{2})/);
+  const dateKey = selectedDbMeta?.dateKey || (dateMatch ? dateMatch[1] : '2026-11-17');
+  const matchingMeta =
+    realDatabases.find((d) => d.dateKey === dateKey)
+    || realDatabases[0]
+    || databases.find((d) => d.dateKey === dateKey)
+    || databases[0];
 
+  if (!selectedDbMeta) {
     if (targetFile.includes('unified')) {
       const isNov17 = dateKey === '2026-11-17';
       selectedDbMeta = {
@@ -102,8 +109,28 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const filePath = selectedDbMeta.localPath || selectedDbMeta.storagePath;
-    const content = await downloadStorageFile(filePath);
+    const candidateSourcePaths = Array.from(new Set([
+      selectedDbMeta.localPath,
+      !isSyntheticPath(selectedDbMeta.storagePath) ? selectedDbMeta.storagePath : undefined,
+      matchingMeta?.localPath,
+      matchingMeta?.storagePath,
+      ...realDatabases.map((d) => d.localPath || d.storagePath),
+      selectedDbMeta.storagePath,
+    ].filter((p): p is string => Boolean(p))));
+
+    let content: Blob | null = null;
+    let lastErr: unknown = null;
+    for (const candidatePath of candidateSourcePaths) {
+      try {
+        content = await downloadStorageFile(candidatePath);
+        if (content) break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    if (!content) {
+      throw lastErr || new Error(`Could not resolve backing SQLite file for ${targetFile}`);
+    }
     const db = await openDatabaseFromBytes(await content.arrayBuffer());
     const tables = getDatabaseTables(db);
 

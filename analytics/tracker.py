@@ -23,6 +23,7 @@ from legband import (
     SADDLE_CLASS_TO_HEN,
     animal_display_label,
     detect_leg_band_color,
+    detect_pen_equipment,
     detect_saddle_color,
     equipment_boxes_overlap,
     suppress_overlapping_equipment,
@@ -133,7 +134,7 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.20  # High-recall confidence threshold for flock birds
-    MIN_EQUIPMENT_CONFIDENCE = 0.15  # Dedicated threshold for Feeder & Drinker equipment
+    MIN_EQUIPMENT_CONFIDENCE = 0.10  # Dedicated threshold for Feeder & Drinker equipment
     MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
     MIN_SADDLE_CONFIDENCE = 0.15     # Dedicated threshold for saddle boxes
     REIDENTIFICATION_MAX_GAP_FRAMES = 90
@@ -1236,6 +1237,40 @@ class ZampenYOLOTracker:
             self.cached_drinkers = list(drinkers)
         elif getattr(self, "cached_drinkers", None):
             drinkers = list(self.cached_drinkers)
+
+        if len(feeders) == 0 or len(drinkers) == 0:
+            try:
+                cv_feeder, cv_drinker = detect_pen_equipment(
+                    frame,
+                    [f.box for f in feeders],
+                    [d.box for d in drinkers],
+                )
+                if len(feeders) == 0 and cv_feeder is not None:
+                    f_box, f_conf = cv_feeder
+                    feeders.append(TrackedDetection(
+                        box=f_box,
+                        centroid=((f_box[0] + f_box[2]) // 2, (f_box[1] + f_box[3]) // 2),
+                        confidence=f_conf,
+                        class_id=2,
+                        class_name="Feeder",
+                        track_id=None,
+                        bird_label="Feeder",
+                    ))
+                    self.cached_feeders = list(feeders)
+                if len(drinkers) == 0 and cv_drinker is not None:
+                    d_box, d_conf = cv_drinker
+                    drinkers.append(TrackedDetection(
+                        box=d_box,
+                        centroid=((d_box[0] + d_box[2]) // 2, (d_box[1] + d_box[3]) // 2),
+                        confidence=d_conf,
+                        class_id=1,
+                        class_name="Drinker",
+                        track_id=None,
+                        bird_label="Drinker",
+                    ))
+                    self.cached_drinkers = list(drinkers)
+            except Exception:
+                pass
 
         equipment = suppress_overlapping_equipment(
             [

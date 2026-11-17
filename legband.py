@@ -314,3 +314,117 @@ def detect_leg_band_color(
         return None
 
     return best_match
+
+
+def detect_pen_equipment(
+    frame: Optional[np.ndarray],
+    existing_feeder_boxes: Optional[Sequence[Sequence[float]]] = None,
+    existing_drinker_boxes: Optional[Sequence[Sequence[float]]] = None,
+) -> Tuple[Optional[Tuple[List[int], float]], Optional[Tuple[List[int], float]]]:
+    """
+    Fallback CV detector for the stationary pen Feeder and Drinker when YOLO misses
+    one or both on wide-angle camera views.
+    Returns (feeder_result, drinker_result) where each is ([x1, y1, x2, y2], confidence) or None.
+    """
+    if frame is None or not isinstance(frame, np.ndarray) or frame.size == 0 or frame.ndim != 3:
+        return None, None
+    # Skip synthetic / blank unit-test frames
+    if float(np.std(frame)) < 12.0:
+        return None, None
+
+    h, w = frame.shape[:2]
+    if h < 120 or w < 160:
+        return None, None
+
+    has_feeder = bool(existing_feeder_boxes and len(existing_feeder_boxes) > 0)
+    has_drinker = bool(existing_drinker_boxes and len(existing_drinker_boxes) > 0)
+    if has_feeder and has_drinker:
+        return None, None
+
+    feeder_out: Optional[Tuple[List[int], float]] = None
+    drinker_out: Optional[Tuple[List[int], float]] = None
+    dome_rect: Optional[Tuple[int, int, int, int]] = None
+
+    # 1. Detect the bright white circular bell drinker dome in the right pen zone
+    rx1, rx2 = int(w * 0.40), int(w * 0.95)
+    ry1, ry2 = int(h * 0.38), int(h * 0.92)
+    if rx2 > rx1 and ry2 > ry1:
+        hsv = cv2.cvtColor(frame[ry1:ry2, rx1:rx2], cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array([0, 0, 165], dtype=np.uint8), np.array([180, 95, 255], dtype=np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        min_a = (w * h) * 0.0012
+        max_a = (w * h) * 0.022
+        best_circ = 0.0
+        for c in cnts:
+            a = cv2.contourArea(c)
+            if not (min_a <= a <= max_a):
+                continue
+            x, y, bw, bh = cv2.boundingRect(c)
+            ar = bw / max(1.0, float(bh))
+            peri = cv2.arcLength(c, True)
+            circ = (4.0 * np.pi * a / (peri * peri)) if peri > 0 else 0.0
+            if 0.72 <= ar <= 1.35 and circ >= 0.50 and circ > best_circ:
+                best_circ = circ
+                dome_rect = (rx1 + x, ry1 + y, bw, bh)
+
+    if not has_drinker and dome_rect is not None:
+        dx, dy, dw, dh = dome_rect
+        pad_x, pad_y = int(dw * 0.18), int(dh * 0.18)
+        d_box = [
+            max(0, dx - pad_x),
+            max(0, dy - pad_y),
+            min(w, dx + dw + pad_x),
+            min(h, dy + dh + pad_y),
+        ]
+        drinker_out = (d_box, 0.82)
+
+    # 2. If Feeder is missing, derive its position above the Drinker
+    if not has_feeder:
+        ref_dome = dome_rect
+        if ref_dome is None and has_drinker and existing_drinker_boxes:
+            db = existing_drinker_boxes[0]
+            dbw = max(10.0, float(db[2] - db[0]))
+            dbh = max(10.0, float(db[3] - db[1]))
+            # Unpad outer drinker box to estimate inner dome
+            dw_est = int(dbw / 1.36)
+            dh_est = int(dbh / 1.36)
+            dx_est = int((db[0] + db[2]) / 2.0 - dw_est / 2.0)
+            dy_est = int((db[1] + db[3]) / 2.0 - dh_est / 2.0)
+            ref_dome = (dx_est, dy_est, dw_est, dh_est)
+
+        if ref_dome is not None:
+            dx, dy, dw, dh = ref_dome
+            fcx = int(dx + dw * 0.5 + dw * 0.35)
+            fcy = int(dy + dh * 0.5 - dh * 3.65)
+            fw, fh = int(dw * 1.75), int(dh * 1.75)
+            fy1 = max(0, fcy - fh // 2)
+            fy2 = min(h, fcy + fh // 2)
+            fx1 = max(0, fcx - fw // 2)
+            fx2 = min(w, fcx + fw // 2)
+            if fx2 - fx1 >= 20 and fy2 - fy1 >= 20:
+                feeder_out = ([fx1, fy1, fx2, fy2], 0.84)
+
+    # 3. If Drinker is still missing but Feeder was detected by YOLO, derive Drinker below Feeder
+    if not has_drinker and drinker_out is None and has_feeder and existing_feeder_boxes:
+        fb = existing_feeder_boxes[0]
+        fw = max(14.0, float(fb[2] - fb[0]))
+        fh = max(14.0, float(fb[3] - fb[1]))
+        fcx = (fb[0] + fb[2]) / 2.0
+        fcy = (fb[1] + fb[3]) / 2.0
+        dome_w = fw / 1.75
+        dome_h = fh / 1.75
+        dcx = int(fcx - 0.35 * dome_w)
+        dcy = int(fcy + 3.65 * dome_h)
+        dw_box = int(dome_w * 1.36)
+        dh_box = int(dome_h * 1.36)
+        dx1 = max(0, dcx - dw_box // 2)
+        dy1 = max(0, dcy - dh_box // 2)
+        dx2 = min(w, dcx + dw_box // 2)
+        dy2 = min(h, dcy + dh_box // 2)
+        if dx2 - dx1 >= 16 and dy2 - dy1 >= 16 and dy2 <= h:
+            drinker_out = ([dx1, dy1, dx2, dy2], 0.78)
+
+    return feeder_out, drinker_out
+

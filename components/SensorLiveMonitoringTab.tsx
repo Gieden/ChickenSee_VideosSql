@@ -85,20 +85,39 @@ export default function SensorLiveMonitoringTab() {
         // Attempt 2: direct Supabase SDK (anon key)
         if (!fetchedOk) {
           const supabase = getSupabaseSensorClient();
-          const { data, error: sbError } = await supabase
+          const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          let { data, error: sbError } = await supabase
             .from('sensor_logs')
             .select(
               'id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status'
             )
+            .gte('recorded_at', cutoff24hIso)
             .order('id', { ascending: false })
             .limit(fetchLimit);
+
+          if (!sbError && (!data || data.length === 0)) {
+            const fallback = await supabase
+              .from('sensor_logs')
+              .select(
+                'id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status'
+              )
+              .order('id', { ascending: false })
+              .limit(fetchLimit);
+            data = fallback.data;
+            sbError = fallback.error;
+          }
 
           if (sbError) throw new Error(sbError.message);
           rows = (data || []) as SensorLogRow[];
         }
 
         const enriched = rows.map((r) => enrichSensorReading(r));
-        setReadings(enriched);
+        const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
+        const recentOnly = enriched.filter((r) => {
+          const ts = Date.parse(r.recorded_at);
+          return !Number.isFinite(ts) || ts >= cutoffMs;
+        });
+        setReadings((recentOnly.length > 0 ? recentOnly : enriched).slice(0, fetchLimit));
         setLastSyncTime(new Date());
         setError(null);
       } catch (err: unknown) {
@@ -125,8 +144,13 @@ export default function SensorLiveMonitoringTab() {
     const handleIncomingRow = (row: SensorLogRow) => {
       if (row && (row.id !== undefined || row.recorded_at)) {
         const enriched = enrichSensorReading(row);
+        const cutoffMs = Date.now() - 24 * 60 * 60 * 1000;
         setReadings((prev) => {
-          const filtered = prev.filter((r) => r.id !== enriched.id);
+          const filtered = prev.filter((r) => {
+            if (r.id === enriched.id) return false;
+            const ts = Date.parse(r.recorded_at);
+            return !Number.isFinite(ts) || ts >= cutoffMs;
+          });
           return [enriched, ...filtered.slice(0, fetchLimit - 1)];
         });
         setLastSyncTime(new Date());
@@ -415,6 +439,11 @@ export default function SensorLiveMonitoringTab() {
               <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-orange-600">
                 public.sensor_logs
               </code>
+            </span>
+            <span>·</span>
+            <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span>24h Auto-Retention (Previous-Day Prune)</span>
             </span>
           </div>
           <div className="mt-1 flex items-center gap-1.5 sm:mt-0 text-slate-400">
