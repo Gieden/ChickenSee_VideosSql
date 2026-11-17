@@ -40,6 +40,7 @@ import {
   relativeDayLabel,
   todayIso,
 } from '@/lib/date-range';
+import { getStressSuggestion } from '@/lib/behavior-stress';
 
 export interface ChickenProfile {
   id: string;
@@ -135,18 +136,18 @@ export const CHICKEN_PROFILES: ChickenProfile[] = [
   },
 ];
 
-function getStressDescription(level: IntervalTelemetry['heatStress']): string {
+function getThiDescription(level: IntervalTelemetry['heatStress']): string {
   switch (level) {
     case 'Unavailable':
-      return 'Environmental telemetry unavailable';
+      return 'Temperature, humidity, or THI sensor data is unavailable';
     case 'Emergency':
-      return 'Immediate attention needed';
+      return 'Very high sensor-derived heat-load category';
     case 'Severe':
-      return 'High heat-stress risk';
+      return 'High sensor-derived heat-load category';
     case 'Moderate':
-      return 'Watch conditions closely';
+      return 'Elevated sensor-derived heat-load category';
     default:
-      return 'Conditions look comfortable';
+      return 'THI is below the current heat-load watch threshold';
   }
 }
 
@@ -216,8 +217,8 @@ export default function BehaviorResultsTab() {
     };
   }, [refreshKey]);
 
-  // Selected Profile state (defaults to 'hen1_green' matching COLOR_MAP)
-  const [selectedBirdId, setSelectedBirdId] = useState<string>('hen1_green');
+  // Selected profile defaults to the current fixed flock ID.
+  const [selectedBirdId, setSelectedBirdId] = useState<string>('hen1_yellow');
 
   // Date Filtering Mode:
   // 'preset' | 'single' | 'range'
@@ -234,7 +235,7 @@ export default function BehaviorResultsTab() {
 
   // Detailed Log Search & Filter states
   const [logSearchQuery, setLogSearchQuery] = useState<string>('');
-  const [logStressFilter, setLogStressFilter] = useState<'all' | 'normal' | 'alert'>('all');
+  const [logThiFilter, setLogThiFilter] = useState<'all' | 'normal' | 'elevated'>('all');
 
   // Chart tooltip hover state
   const [hoveredIntervalId, setHoveredIntervalId] = useState<string | null>(null);
@@ -428,9 +429,16 @@ export default function BehaviorResultsTab() {
   }, [filteredIntervals, selectedBirdId]);
 
   const chartSummary = useMemo(() => {
-    const alertIntervals = filteredIntervals.filter(
-      (interval) => interval.heatStress !== 'Normal' && interval.heatStress !== 'Unavailable'
-    );
+    const possibleStressCount = filteredIntervals.filter((interval) =>
+      getStressSuggestion({
+        birdName: selectedBird.name,
+        thiCategory: interval.heatStress,
+        thi: interval.thi,
+        tempC: interval.tempC,
+        humidityPct: interval.humidityPct,
+        behaviors: interval.behaviorsByBird[selectedBirdId],
+      }).status === 'possible'
+    ).length;
     const rank: Record<IntervalTelemetry['heatStress'], number> = {
       Unavailable: -1,
       Normal: 0,
@@ -438,19 +446,25 @@ export default function BehaviorResultsTab() {
       Severe: 2,
       Emergency: 3,
     };
-    const highestRisk = filteredIntervals.reduce<IntervalTelemetry | null>((highest, interval) => {
+    const highestThi = filteredIntervals.reduce<IntervalTelemetry | null>((highest, interval) => {
       if (interval.heatStress === 'Unavailable') return highest;
       if (!highest || rank[interval.heatStress] > rank[highest.heatStress]) return interval;
       return highest;
     }, null);
 
     return {
-      alertCount: alertIntervals.length,
-      highestRisk,
+      possibleStressCount,
+      pairedDataCount: filteredIntervals.filter(
+        (interval) =>
+          interval.heatStress !== 'Unavailable' &&
+          interval.thi !== null &&
+          interval.behaviorsByBird[selectedBirdId] !== undefined
+      ).length,
+      highestThi,
       intervalCount: filteredIntervals.length,
       totalEvents: birdAggregates.total,
     };
-  }, [filteredIntervals, birdAggregates.total]);
+  }, [filteredIntervals, selectedBird, selectedBirdId, birdAggregates.total]);
 
   // Synchronized telemetry summary aggregates (averages, min/max ranges)
   const telemetryStats = useMemo(() => {
@@ -477,23 +491,23 @@ export default function BehaviorResultsTab() {
   // Filtered log table entries
   const filteredLogEntries = useMemo(() => {
     return filteredIntervals.filter((interval) => {
-      if (logStressFilter === 'normal' && interval.heatStress !== 'Normal') return false;
+      if (logThiFilter === 'normal' && interval.heatStress !== 'Normal') return false;
       if (
-        logStressFilter === 'alert' &&
+        logThiFilter === 'elevated' &&
         (interval.heatStress === 'Normal' || interval.heatStress === 'Unavailable')
       ) return false;
       if (logSearchQuery.trim()) {
         const q = logSearchQuery.toLowerCase();
         const matchLabel = interval.fullTimeLabel.toLowerCase().includes(q);
-        const matchStress = interval.heatStress.toLowerCase().includes(q);
+        const matchThi = interval.heatStress.toLowerCase().includes(q);
         const matchTemp = interval.tempC !== null && String(interval.tempC).includes(q);
         const matchHum = interval.humidityPct !== null && String(interval.humidityPct).includes(q);
         const matchNh3 = interval.ammoniaPpm !== null && String(interval.ammoniaPpm).includes(q);
-        if (!matchLabel && !matchStress && !matchTemp && !matchHum && !matchNh3) return false;
+        if (!matchLabel && !matchThi && !matchTemp && !matchHum && !matchNh3) return false;
       }
       return true;
     });
-  }, [filteredIntervals, logStressFilter, logSearchQuery]);
+  }, [filteredIntervals, logThiFilter, logSearchQuery]);
 
   // Export CSV of correlation log
   const handleExportCsv = () => {
@@ -511,7 +525,8 @@ export default function BehaviorResultsTab() {
       'Ammonia_PPM',
       'Sound_DB',
       'THI',
-      'Heat_Stress_Level',
+      'THI_Environmental_Category',
+      'Stress_Suggestion',
     ];
 
     const rows = filteredIntervals.map((i) => {
@@ -521,6 +536,14 @@ export default function BehaviorResultsTab() {
         prolongedInactivity: 0,
         featherPecking: 0,
       };
+      const suggestion = getStressSuggestion({
+        birdName: selectedBird.name,
+        thiCategory: i.heatStress,
+        thi: i.thi,
+        tempC: i.tempC,
+        humidityPct: i.humidityPct,
+        behaviors: i.behaviorsByBird[selectedBirdId],
+      });
       return [
         `"${i.intervalLabel}"`,
         i.date,
@@ -536,6 +559,7 @@ export default function BehaviorResultsTab() {
         i.soundDb ?? '',
         i.thi ?? '',
         `"${i.heatStress}"`,
+        `"${suggestion.label}"`,
       ];
     });
 
@@ -969,7 +993,7 @@ export default function BehaviorResultsTab() {
                   <div className="mt-3.5 rounded-xl bg-slate-50/90 border border-slate-100 p-2.5 space-y-2">
                     <div className="flex items-baseline justify-between">
                       <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Observed Stress
+                        Recorded Behavior Events
                       </span>
                       <div className="flex items-baseline gap-1">
                         <span className="text-lg font-black text-slate-900 tracking-tight">
@@ -1099,10 +1123,10 @@ export default function BehaviorResultsTab() {
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between mb-4">
             <div>
               <h4 className="text-sm sm:text-base font-bold text-slate-900">
-                Stress behaviors &amp; environmental conditions
+                Behavior evidence alongside sensor conditions
               </h4>
               <p className="text-[11px] text-slate-500">
-                Grouped bars: behavior events per recorded interval · dashed lines: normalized environmental readings when available
+                Grouped bars: behavior flags per interval · dashed lines: sensor readings. A time match is an association, not proof of cause.
               </p>
             </div>
             <button
@@ -1123,20 +1147,20 @@ export default function BehaviorResultsTab() {
             <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-3 py-2.5">
               <p className="text-[10px] font-bold uppercase tracking-wide text-sky-700">Intervals reviewed</p>
               <p className="mt-1 text-xl font-extrabold text-sky-900">{chartSummary.intervalCount}</p>
-              <p className="text-[10px] text-sky-700">sampled periods</p>
+              <p className="text-[10px] text-sky-700">{chartSummary.pairedDataCount} with paired sensor + behavior data</p>
             </div>
             <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Needs attention</p>
-              <p className="mt-1 text-xl font-extrabold text-amber-900">{chartSummary.alertCount}</p>
-              <p className="text-[10px] text-amber-700">intervals above normal</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-amber-700">Possible stress indicators</p>
+              <p className="mt-1 text-xl font-extrabold text-amber-900">{chartSummary.possibleStressCount}</p>
+              <p className="text-[10px] text-amber-700">behavior + elevated THI in one interval</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Highest risk</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Highest THI category</p>
               <p className="mt-1 truncate text-sm font-extrabold text-slate-900">
-                {chartSummary.highestRisk?.heatStress || 'No data'}
+                {chartSummary.highestThi?.heatStress || 'No data'}
               </p>
               <p className="text-[10px] text-slate-500">
-                {chartSummary.highestRisk ? getStressDescription(chartSummary.highestRisk.heatStress) : 'Select a range'}
+                Sensor-only heat-load indicator
               </p>
             </div>
           </div>
@@ -1379,7 +1403,7 @@ export default function BehaviorResultsTab() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-bold text-slate-900">{showTimeLabels ? interval.fullTimeLabel : interval.dateLabel}</span>
                   <span className="font-semibold text-orange-800">
-                    {interval.heatStress}: {getStressDescription(interval.heatStress)}
+                    THI {interval.heatStress}: {getThiDescription(interval.heatStress)}
                   </span>
                 </div>
                 <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
@@ -1572,12 +1596,13 @@ export default function BehaviorResultsTab() {
 
                 <div className="flex items-stretch gap-2.5 overflow-x-auto pb-2 pt-1 scrollbar-thin">
                   {filteredIntervals.map((interval, idx) => {
-                      const isAlert = interval.heatStress !== 'Normal' && interval.heatStress !== 'Unavailable';
+                    const hasElevatedThi =
+                      interval.heatStress !== 'Normal' && interval.heatStress !== 'Unavailable';
                     return (
                       <div
                         key={interval.id || idx}
                         className={`min-w-[155px] shrink-0 rounded-xl border p-2.5 transition-all shadow-xs ${
-                          isAlert
+                          hasElevatedThi
                             ? 'border-amber-300 bg-amber-50/30'
                               : interval.heatStress === 'Unavailable'
                                 ? 'border-slate-200 bg-slate-50'
@@ -1652,7 +1677,7 @@ export default function BehaviorResultsTab() {
                                     : 'bg-emerald-100 text-emerald-800'
                             }`}
                           >
-                            {interval.heatStress}
+                            THI {interval.heatStress}
                           </span>
                           <span className="text-[10px] text-slate-400 font-mono">
                             THI {formatMetric(interval.thi, 0)}
@@ -1667,7 +1692,7 @@ export default function BehaviorResultsTab() {
               {/* Explanatory Footnotes */}
               <div className="border-t border-slate-100 pt-2.5 text-[11px] text-slate-500 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
                 <p>Line scales: temperature 0–40 °C · humidity 0–100% · ammonia 0–20 ppm · sound 0–100 dBA.</p>
-                <p className="italic text-emerald-700 font-medium flex items-center gap-1">
+                <p className="italic text-slate-600 font-medium flex items-center gap-1">
                   <Check className="h-3.5 w-3.5" /> Synchronized telemetry from paired sensors.sqlite and video inference.
                 </p>
               </div>
@@ -1704,14 +1729,14 @@ export default function BehaviorResultsTab() {
             <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               <Filter className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
               <select
-                aria-label="Filter stress state"
-                value={logStressFilter}
-                onChange={(e) => setLogStressFilter(e.target.value as typeof logStressFilter)}
+                aria-label="Filter THI category"
+                value={logThiFilter}
+                onChange={(e) => setLogThiFilter(e.target.value as typeof logThiFilter)}
                 className="cursor-pointer bg-transparent font-medium text-slate-800 outline-none"
               >
-                <option value="all">All conditions</option>
-                <option value="normal">Comfortable only</option>
-                <option value="alert">Needs attention</option>
+                <option value="all">All THI conditions</option>
+                <option value="normal">Normal THI only</option>
+                <option value="elevated">Elevated THI</option>
               </select>
             </div>
 
@@ -1726,9 +1751,13 @@ export default function BehaviorResultsTab() {
           </div>
         </div>
 
+        <p className="border-t border-slate-100 bg-slate-50 px-4 py-2.5 text-[11px] text-slate-600">
+          A possible-stress suggestion appears only when this chicken has a flagged feeding, drinking, or inactivity behavior and elevated THI in the same six-hour interval. THI is derived from temperature and humidity; ammonia and sound are shown as context but do not trigger this suggestion. The overlap is not a diagnosis and does not establish cause.
+        </p>
+
         {/* Scrollable table container */}
         <div className="max-h-[480px] overflow-x-auto overflow-y-auto overscroll-contain">
-          <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+          <table className="w-full min-w-[1120px] border-collapse text-left text-xs">
             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 shadow-[0_1px_2px_rgba(0,0,0,0.06)] text-xs font-semibold text-slate-600">
               <tr>
                 <th className="bg-slate-50 px-4 py-3 sm:px-6">INTERVAL &amp; TIME</th>
@@ -1738,8 +1767,8 @@ export default function BehaviorResultsTab() {
                 <th className="bg-slate-50 px-4 py-3">HUMIDITY (%)</th>
                 <th className="bg-slate-50 px-4 py-3">AMMONIA (PPM)</th>
                 <th className="bg-slate-50 px-4 py-3">SOUND (dBA)</th>
-                <th className="bg-slate-50 px-4 py-3">HEAT COMFORT</th>
-                <th className="bg-slate-50 px-4 py-3">WHAT TO DO</th>
+                <th className="bg-slate-50 px-4 py-3">SENSOR THI</th>
+                <th className="bg-slate-50 px-4 py-3">STRESS SUGGESTION</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -1750,7 +1779,14 @@ export default function BehaviorResultsTab() {
                   prolongedInactivity: 0,
                   featherPecking: 0,
                 };
-                const isAlert = interval.heatStress === 'Severe' || interval.heatStress === 'Emergency';
+                const suggestion = getStressSuggestion({
+                  birdName: selectedBird.name,
+                  thiCategory: interval.heatStress,
+                  thi: interval.thi,
+                  tempC: interval.tempC,
+                  humidityPct: interval.humidityPct,
+                  behaviors: interval.behaviorsByBird[selectedBirdId],
+                });
 
                 return (
                   <tr key={interval.id} className="transition hover:bg-slate-50/80">
@@ -1769,18 +1805,24 @@ export default function BehaviorResultsTab() {
                     {/* Behavior event badges */}
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex items-center gap-1 font-mono text-[11px]">
-                        <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700 font-semibold" title="Reduced feeding">
-                          F:{counts.reducedFeeding}
-                        </span>
-                        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 font-semibold" title="Reduced drinking">
-                          D:{counts.reducedDrinking}
-                        </span>
-                        <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700 font-semibold" title="Prolonged low activity">
-                          I:{counts.prolongedInactivity}
-                        </span>
-                        <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 font-semibold" title="Feather pecking">
-                          P:{counts.featherPecking}
-                        </span>
+                        {interval.behaviorsByBird[selectedBirdId] ? (
+                          <>
+                            <span className="rounded bg-orange-50 px-1.5 py-0.5 text-orange-700 font-semibold" title="Reduced feeding">
+                              F:{counts.reducedFeeding}
+                            </span>
+                            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 font-semibold" title="Reduced drinking">
+                              D:{counts.reducedDrinking}
+                            </span>
+                            <span className="rounded bg-purple-50 px-1.5 py-0.5 text-purple-700 font-semibold" title="Prolonged low activity">
+                              I:{counts.prolongedInactivity}
+                            </span>
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700 font-semibold" title="Feather pecking">
+                              P:{counts.featherPecking}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-slate-400">No behavior record</span>
+                        )}
                       </div>
                     </td>
 
@@ -1825,30 +1867,33 @@ export default function BehaviorResultsTab() {
                           }`}
                         >
                           {interval.heatStress === 'Emergency'
-                            ? 'Immediate attention'
+                            ? 'Very high THI'
                             : interval.heatStress === 'Severe'
-                            ? 'High risk'
+                            ? 'High THI'
                             : interval.heatStress === 'Moderate'
-                            ? 'Watch closely'
+                            ? 'Elevated THI'
                             : interval.heatStress === 'Unavailable'
                               ? 'Unavailable'
-                              : 'Comfortable'}
+                              : 'Normal THI'}
                         </span>
                       </div>
                     </td>
 
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                          isAlert
-                            ? 'bg-orange-100 text-orange-800'
-                            : interval.heatStress === 'Unavailable'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                      >
-                        {isAlert ? 'Review conditions' : interval.heatStress === 'Unavailable' ? 'Telemetry unavailable' : 'No concerns'}
-                      </span>
+                    <td className="max-w-[460px] whitespace-normal px-4 py-3">
+                      <div className="space-y-1">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            suggestion.status === 'possible'
+                              ? 'bg-amber-100 text-amber-800'
+                              : suggestion.status === 'no_combined_indicators'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {suggestion.label}
+                        </span>
+                        <p className="text-[11px] leading-4 text-slate-600">{suggestion.detail}</p>
+                      </div>
                     </td>
                   </tr>
                 );

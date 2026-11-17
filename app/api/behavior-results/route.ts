@@ -4,6 +4,7 @@ import path from 'path';
 import initSqlJs from 'sql.js';
 import { createClient } from '@supabase/supabase-js';
 import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
+import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 
 export const dynamic = 'force-dynamic';
@@ -180,10 +181,7 @@ async function loadSupabaseSlotAverages(dateStr: string, startH: number, endH: n
     }
 
     if (data && data.length > 0) {
-      const average = (values: Array<number | null>) => {
-        const valid = values.filter((value): value is number => typeof value === 'number' && value > 0);
-        return valid.length ? valid.reduce((total, value) => total + value, 0) / valid.length : null;
-      };
+      const average = (values: Array<number | null>) => averageAvailableSensorValues(values);
       const round = (value: number | null, digits: number) =>
         value === null ? null : Number(value.toFixed(digits));
 
@@ -220,11 +218,10 @@ export async function GET(req: NextRequest) {
         slot: string;
         startHour: number;
         endHour: number;
-        sensorRows: number;
-        tempTotal: number;
-        humidityTotal: number;
-        ammoniaTotal: number;
-        thiTotal: number;
+        tempValues: unknown[];
+        humidityValues: unknown[];
+        ammoniaValues: unknown[];
+        thiValues: unknown[];
         behaviorsByBird: Record<string, BirdBehaviorCounts>;
       }>();
 
@@ -238,7 +235,7 @@ export async function GET(req: NextRequest) {
           ammoniaAvg,
           thiAvg,
           sensorDataAvailable,
-        ] = metricRow as [number, string, string, number, number, number, number, number];
+        ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown];
         const date = normalizeIsoDate(rawDate);
         const hour = Number.parseInt(hourSlot, 10);
         if (!date || !Number.isInteger(hour) || hour < 6 || hour >= 24) continue;
@@ -252,22 +249,20 @@ export async function GET(req: NextRequest) {
             slot,
             startHour,
             endHour: startHour + 6,
-            sensorRows: 0,
-            tempTotal: 0,
-            humidityTotal: 0,
-            ammoniaTotal: 0,
-            thiTotal: 0,
+            tempValues: [],
+            humidityValues: [],
+            ammoniaValues: [],
+            thiValues: [],
             behaviorsByBird: {},
           });
         }
 
         const interval = grouped.get(key)!;
         if (Number(sensorDataAvailable)) {
-          interval.sensorRows += 1;
-          interval.tempTotal += Number(tempAvg) || 0;
-          interval.humidityTotal += Number(humidityAvg) || 0;
-          interval.ammoniaTotal += Number(ammoniaAvg) || 0;
-          interval.thiTotal += Number(thiAvg) || 0;
+          interval.tempValues.push(tempAvg);
+          interval.humidityValues.push(humidityAvg);
+          interval.ammoniaValues.push(ammoniaAvg);
+          interval.thiValues.push(thiAvg);
         }
 
         const chunkBirds = analyticsData.birdsByChunk.get(Number(chunkId));
@@ -289,10 +284,10 @@ export async function GET(req: NextRequest) {
       const builtIntervals: IntervalTelemetry[] = [];
       for (const group of Array.from(grouped.values())) {
         const sensorAvg = await loadSupabaseSlotAverages(group.date, group.startHour, group.endHour);
-        const tempC = sensorAvg?.tempC ?? (group.sensorRows ? group.tempTotal / group.sensorRows : null);
-        const humidityPct = sensorAvg?.humidityPct ?? (group.sensorRows ? group.humidityTotal / group.sensorRows : null);
-        const ammoniaPpm = sensorAvg?.ammoniaPpm ?? (group.sensorRows ? group.ammoniaTotal / group.sensorRows : null);
-        const storedThi = group.sensorRows ? group.thiTotal / group.sensorRows : null;
+        const tempC = sensorAvg?.tempC ?? averageAvailableSensorValues(group.tempValues);
+        const humidityPct = sensorAvg?.humidityPct ?? averageAvailableSensorValues(group.humidityValues);
+        const ammoniaPpm = sensorAvg?.ammoniaPpm ?? averageAvailableSensorValues(group.ammoniaValues);
+        const storedThi = averageAvailableSensorValues(group.thiValues);
         const thi = tempC !== null && humidityPct !== null
           ? computeThi(tempC, humidityPct)
           : storedThi;
