@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import initSqlJs from 'sql.js';
 import { createClient } from '@supabase/supabase-js';
@@ -12,30 +13,12 @@ import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-export interface BirdBehaviorCounts {
-  reducedFeeding: number;
-  reducedDrinking: number;
-  prolongedInactivity: number;
-  featherPecking: number;
-  socialIsolation: number;
-  reducedLocomotor: number;
-}
-
-export interface IntervalTelemetry {
-  id: string;
-  date: string; // YYYY-MM-DD
-  dateLabel: string; // e.g. "24 Oct"
-  timeSlot: string; // e.g. "06:00"
-  intervalLabel: string; // e.g. "24 Oct · 06:00"
-  fullTimeLabel: string; // e.g. "24 Oct 2026 · 06:00 AM – 12:00 PM"
-  tempC: number | null;
-  humidityPct: number | null;
-  ammoniaPpm: number | null;
-  soundDb: number | null;
-  thi: number | null;
-  heatStress: 'Normal' | 'Moderate' | 'Severe' | 'Emergency' | 'Unavailable';
-  behaviorsByBird: Record<string, BirdBehaviorCounts>;
-}
+import {
+  BirdBehaviorCounts,
+  IntervalTelemetry,
+  getCachedIntervals,
+  setCachedIntervals,
+} from '@/lib/behavior-cache';
 
 const BIRD_LABEL_TO_ID: Record<string, string> = {
   'Hen1 (Yellow)': 'hen1_yellow',
@@ -101,14 +84,20 @@ function formatFullTimeLabel(dateStr: string, timeSlot: string): string {
   return `${dateLbl} ${year} · ${timeSlot}`;
 }
 
-// In-memory cache for fast repeated queries
-let cachedIntervals: IntervalTelemetry[] | null = null;
-let lastCacheTime = 0;
-const CACHE_TTL_MS = 60 * 1000; // 1 minute
 
 async function loadAnalyticsDbData() {
-  const dbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
-  if (!fs.existsSync(dbPath)) {
+  const candidateDbPaths = [
+    path.join(os.tmpdir(), 'zampen_analytics.db'),
+    path.join(process.cwd(), 'analytics', 'zampen_analytics.db'),
+  ];
+  let dbPath: string | null = null;
+  for (const p of candidateDbPaths) {
+    if (fs.existsSync(p)) {
+      dbPath = p;
+      break;
+    }
+  }
+  if (!dbPath) {
     throw new Error('The behavior analytics database is not available.');
   }
 
@@ -220,8 +209,9 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     let intervals: IntervalTelemetry[] = [];
 
-    if (!forceRefresh && cachedIntervals && now - lastCacheTime < CACHE_TTL_MS) {
-      intervals = cachedIntervals;
+    const cached = getCachedIntervals(forceRefresh);
+    if (cached) {
+      intervals = cached;
     } else {
       const analyticsData = await loadAnalyticsDbData();
       const grouped = new Map<string, {
@@ -325,17 +315,35 @@ export async function GET(req: NextRequest) {
         });
       }
 
+      // Also merge DEFAULT_SAMPLE_INTERVALS for any date not already covered in builtIntervals
+      const dbDates = new Set(builtIntervals.map((i) => i.date));
+      for (const sample of DEFAULT_SAMPLE_INTERVALS) {
+        if (!dbDates.has(sample.date)) {
+          const normalizedBehaviors: Record<string, BirdBehaviorCounts> = {};
+          for (const [bId, bVal] of Object.entries(sample.behaviorsByBird)) {
+            normalizedBehaviors[bId] = {
+              reducedFeeding: bVal.reducedFeeding,
+              reducedDrinking: bVal.reducedDrinking,
+              prolongedInactivity: bVal.prolongedInactivity,
+              featherPecking: bVal.featherPecking,
+              socialIsolation: bVal.socialIsolation ?? bVal.featherPecking,
+              reducedLocomotor: bVal.reducedLocomotor ?? bVal.prolongedInactivity,
+            };
+          }
+          builtIntervals.push({
+            ...sample,
+            behaviorsByBird: normalizedBehaviors,
+          });
+        }
+      }
       builtIntervals.sort((a, b) => a.date.localeCompare(b.date) || a.timeSlot.localeCompare(b.timeSlot));
 
-      cachedIntervals = builtIntervals;
-      lastCacheTime = now;
+      setCachedIntervals(builtIntervals);
       intervals = builtIntervals;
     }
 
     // Exclude dates that have been archived via Admin Settings
-    if (process.env.VERCEL) {
-      await syncManifestFromCloud();
-    }
+    await syncManifestFromCloud();
     const archivedSet = getArchivedDatesSet();
     const activeIntervals = intervals.filter((i) => !archivedSet.has(i.date));
 

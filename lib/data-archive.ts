@@ -86,6 +86,10 @@ function getManifestPath(): string {
   return path.join(getArchiveDir(), MANIFEST_FILE_NAME);
 }
 
+export function clearManifestCache(): void {
+  cachedManifest = null;
+}
+
 export function readArchiveManifest(): ArchiveManifest {
   const manifestPath = getManifestPath();
   try {
@@ -96,16 +100,12 @@ export function readArchiveManifest(): ArchiveManifest {
         version: 1,
         archivedDates: Array.from(
           new Set(
-            [
-              ...(Array.isArray(parsed.archivedDates) ? parsed.archivedDates : []),
-              ...(cachedManifest?.archivedDates || []),
-            ]
+            (Array.isArray(parsed.archivedDates) ? parsed.archivedDates : [])
               .map((d) => String(d).slice(0, 10))
               .filter(Boolean),
           ),
         ).sort(),
         archives: {
-          ...(cachedManifest?.archives || {}),
           ...(parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {}),
         },
       };
@@ -126,38 +126,35 @@ export function readArchiveManifest(): ArchiveManifest {
 }
 
 export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
-  const local = readArchiveManifest();
   const bucket = getSupabaseArchiveBucket();
-  if (!bucket) return local;
-  try {
-    const { data, error } = await bucket.download(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`);
-    if (!error && data) {
-      const raw = await data.text();
-      const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
-      const merged: ArchiveManifest = {
-        version: 1,
-        archivedDates: Array.from(
-          new Set(
-            (Array.isArray(remote.archivedDates) ? remote.archivedDates : local.archivedDates)
-              .map((d) => String(d).slice(0, 10))
-              .filter(Boolean),
-          ),
-        ).sort(),
-        archives: {
-          ...local.archives,
-          ...(remote.archives && typeof remote.archives === 'object' ? remote.archives : {}),
-        },
-      };
-      cachedManifest = merged;
-      try {
-        fs.writeFileSync(getManifestPath(), JSON.stringify(merged, null, 2), 'utf-8');
-      } catch {}
-      return merged;
+  if (bucket) {
+    try {
+      const { data, error } = await bucket.download(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`);
+      if (!error && data) {
+        const raw = await data.text();
+        const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
+        const result: ArchiveManifest = {
+          version: 1,
+          archivedDates: Array.from(
+            new Set(
+              (Array.isArray(remote.archivedDates) ? remote.archivedDates : [])
+                .map((d) => String(d).slice(0, 10))
+                .filter(Boolean),
+            ),
+          ).sort(),
+          archives: remote.archives && typeof remote.archives === 'object' ? remote.archives : {},
+        };
+        cachedManifest = result;
+        try {
+          fs.writeFileSync(getManifestPath(), JSON.stringify(result, null, 2), 'utf-8');
+        } catch {}
+        return result;
+      }
+    } catch {
+      // ignore cloud fetch error
     }
-  } catch {
-    // ignore cloud fetch error
   }
-  return local;
+  return readArchiveManifest();
 }
 
 async function writeArchiveManifestAsync(manifest: ArchiveManifest): Promise<void> {
@@ -318,7 +315,9 @@ export function extractDateInfoFromSqlFile(fileName: string, sqlContent: string)
     birdTrackMetrics?: { columns: string[]; values: unknown[][] };
   } | undefined;
 
-  for (const line of lines) {
+  const maxHeaderLines = Math.min(lines.length, 60);
+  for (let idx = 0; idx < maxHeaderLines; idx++) {
+    const line = lines[idx];
     if (line.startsWith(META_PREFIX)) {
       try {
         parsedMeta = JSON.parse(line.slice(META_PREFIX.length).trim()) as ArchiveMetadata;
@@ -338,15 +337,26 @@ export function extractDateInfoFromSqlFile(fileName: string, sqlContent: string)
 
   // 2. Also scan SQL INSERT statements for YYYY-MM-DD dates if needed
   const sqlDateMatches = sqlContent.match(/\b(20\d{2}-\d{2}-\d{2})\b/g) || [];
+
+  const rangeDates: string[] = [];
+  const sDate = parsedMeta?.startDate || fileDateMatches[0];
+  const eDate = parsedMeta?.endDate || fileDateMatches[fileDateMatches.length - 1];
+  if (sDate && eDate && sDate <= eDate) {
+    rangeDates.push(...enumerateDates(sDate, eDate));
+  }
+
   const allDates = Array.from(
     new Set([
       ...(parsedMeta?.dates || []),
+      ...rangeDates,
       ...fileDateMatches,
       ...sqlDateMatches,
     ].map((d) => normalizeIsoDate(d)).filter((d): d is string => Boolean(d))),
   ).sort();
 
-  if (fileDateMatches.length === 0 && (!parsedMeta || !parsedMeta.dates?.length)) {
+  const isAllDataArchive = /all_data/i.test(fileName) || parsedMeta?.scope === 'all';
+
+  if (!isAllDataArchive && fileDateMatches.length === 0 && (!parsedMeta || !parsedMeta.dates?.length)) {
     return {
       valid: false,
       error:
@@ -355,7 +365,7 @@ export function extractDateInfoFromSqlFile(fileName: string, sqlContent: string)
     };
   }
 
-  if (allDates.length === 0) {
+  if (!isAllDataArchive && allDates.length === 0) {
     return {
       valid: false,
       error: 'No valid ISO dates (YYYY-MM-DD) were found in the attached SQL archive file.',
@@ -411,32 +421,51 @@ export async function archiveDataByScope(params: {
       const db = new SQL.Database(buf);
 
       try {
-        const quotedDates = range.dates.map((d) => `'${d.replace(/'/g, "''")}'`).join(', ');
-        if (quotedDates.length > 0) {
-          const hmRes = db.exec(`SELECT * FROM half_hour_metrics WHERE substr(date_slot, 1, 10) IN (${quotedDates}) ORDER BY id ASC`);
+        if (scope === 'all') {
+          const hmRes = db.exec(`SELECT * FROM half_hour_metrics ORDER BY id ASC`);
           if (hmRes.length > 0) {
             halfHourCols = hmRes[0].columns;
             halfHourRows = hmRes[0].values;
           }
-
-          const chunkIds = halfHourRows
-            .map((r) => Number(r[0]))
-            .filter((n) => Number.isFinite(n));
-
-          if (chunkIds.length > 0) {
-            const btRes = db.exec(
-              `SELECT * FROM bird_track_metrics WHERE chunk_metric_id IN (${chunkIds.join(', ')}) ORDER BY id ASC`,
-            );
-            if (btRes.length > 0) {
-              birdTrackCols = btRes[0].columns;
-              birdTrackRows = btRes[0].values;
+          const btRes = db.exec(`SELECT * FROM bird_track_metrics ORDER BY id ASC`);
+          if (btRes.length > 0) {
+            birdTrackCols = btRes[0].columns;
+            birdTrackRows = btRes[0].values;
+          }
+          db.run(`DELETE FROM bird_track_metrics`);
+          db.run(`DELETE FROM half_hour_metrics`);
+          const exported = db.export();
+          try { fs.writeFileSync(dbPath, Buffer.from(exported)); } catch {}
+          try { fs.writeFileSync(path.join(os.tmpdir(), 'zampen_analytics.db'), Buffer.from(exported)); } catch {}
+        } else {
+          const quotedDates = range.dates.map((d) => `'${d.replace(/'/g, "''")}'`).join(', ');
+          if (quotedDates.length > 0) {
+            const hmRes = db.exec(`SELECT * FROM half_hour_metrics WHERE substr(date_slot, 1, 10) IN (${quotedDates}) ORDER BY id ASC`);
+            if (hmRes.length > 0) {
+              halfHourCols = hmRes[0].columns;
+              halfHourRows = hmRes[0].values;
             }
 
-            // Remove archived rows from active SQLite db (they are preserved in the .sql archive)
-            db.run(`DELETE FROM bird_track_metrics WHERE chunk_metric_id IN (${chunkIds.join(', ')})`);
-            db.run(`DELETE FROM half_hour_metrics WHERE id IN (${chunkIds.join(', ')})`);
-            const exported = db.export();
-            fs.writeFileSync(dbPath, Buffer.from(exported));
+            const chunkIds = halfHourRows
+              .map((r) => Number(r[0]))
+              .filter((n) => Number.isFinite(n));
+
+            if (chunkIds.length > 0) {
+              const btRes = db.exec(
+                `SELECT * FROM bird_track_metrics WHERE chunk_metric_id IN (${chunkIds.join(', ')}) ORDER BY id ASC`,
+              );
+              if (btRes.length > 0) {
+                birdTrackCols = btRes[0].columns;
+                birdTrackRows = btRes[0].values;
+              }
+
+              // Remove archived rows from active SQLite db (they are preserved in the .sql archive)
+              db.run(`DELETE FROM bird_track_metrics WHERE chunk_metric_id IN (${chunkIds.join(', ')})`);
+              db.run(`DELETE FROM half_hour_metrics WHERE id IN (${chunkIds.join(', ')})`);
+              const exported = db.export();
+              try { fs.writeFileSync(dbPath, Buffer.from(exported)); } catch {}
+              try { fs.writeFileSync(path.join(os.tmpdir(), 'zampen_analytics.db'), Buffer.from(exported)); } catch {}
+            }
           }
         }
       } finally {
@@ -658,78 +687,160 @@ export async function restoreDataFromSql(params: {
   let restoredMetricsRows = 0;
   let restoredBirdRows = 0;
 
-  // Restore SQLite rows into analytics/zampen_analytics.db if present
+  // Restore SQLite rows into analytics/zampen_analytics.db
   const dbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
-  if (fs.existsSync(dbPath)) {
+  const tmpDbPath = path.join(os.tmpdir(), 'zampen_analytics.db');
+  try {
+    const SQL = await initSqlJs();
+    let db: any = null;
+    if (fs.existsSync(dbPath)) {
+      db = new SQL.Database(fs.readFileSync(dbPath));
+    } else if (fs.existsSync(tmpDbPath)) {
+      db = new SQL.Database(fs.readFileSync(tmpDbPath));
+    } else {
+      db = new SQL.Database();
+    }
+
     try {
-      const SQL = await initSqlJs();
-      const buf = fs.readFileSync(dbPath);
-      const db = new SQL.Database(buf);
+      db.run(`
+        CREATE TABLE IF NOT EXISTS half_hour_metrics (
+          id INTEGER PRIMARY KEY,
+          job_id INTEGER,
+          date_slot TEXT,
+          hour_slot TEXT,
+          chunk_index INTEGER,
+          chunk_start TEXT,
+          chunk_end TEXT,
+          temp_avg_c REAL,
+          temp_min_c REAL,
+          temp_max_c REAL,
+          humidity_avg_pct REAL,
+          humidity_min_pct REAL,
+          humidity_max_pct REAL,
+          ammonia_ppm_avg REAL,
+          ammonia_ppm_max REAL,
+          lux_avg REAL,
+          thi_avg REAL,
+          heat_stress_level TEXT,
+          unique_birds_tracked INTEGER,
+          avg_birds_in_frame REAL,
+          flock_mobility_px_s REAL,
+          feeding_time_total_s REAL,
+          feeding_bouts INTEGER,
+          reduced_eating_events INTEGER,
+          reduced_eating_index REAL,
+          drinking_time_total_s REAL,
+          drinking_bouts INTEGER,
+          drinking_frequency_per_bird REAL,
+          inactivity_time_total_s REAL,
+          inactivity_pct REAL,
+          lethargic_birds_flagged INTEGER,
+          feather_pecking_events INTEGER,
+          agitation_score REAL,
+          created_at TEXT,
+          sensor_data_available INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS bird_track_metrics (
+          id INTEGER PRIMARY KEY,
+          chunk_metric_id INTEGER,
+          track_id INTEGER,
+          bird_label TEXT,
+          bird_type TEXT,
+          feeding_s REAL,
+          feeding_bouts INTEGER,
+          reduced_eating_flag INTEGER,
+          drinking_s REAL,
+          drinking_bouts INTEGER,
+          inactivity_s REAL,
+          is_lethargic INTEGER,
+          pecking_aggressor_count INTEGER,
+          pecking_victim_count INTEGER,
+          avg_velocity_px_s REAL
+        );
+      `);
 
-      try {
-        if (extracted.payload?.halfHourMetrics?.columns?.length && extracted.payload.halfHourMetrics.values?.length) {
-          const cols = extracted.payload.halfHourMetrics.columns.map((c) => `"${c}"`).join(', ');
-          for (const row of extracted.payload.halfHourMetrics.values) {
-            const vals = row.map(sqlLiteral).join(', ');
-            db.run(`INSERT OR REPLACE INTO half_hour_metrics (${cols}) VALUES (${vals});`);
-            restoredMetricsRows++;
-          }
+      if (extracted.payload?.halfHourMetrics?.columns?.length && extracted.payload.halfHourMetrics.values?.length) {
+        const cols = extracted.payload.halfHourMetrics.columns.map((c) => `"${c}"`).join(', ');
+        for (const row of extracted.payload.halfHourMetrics.values) {
+          const vals = row.map(sqlLiteral).join(', ');
+          db.run(`INSERT OR REPLACE INTO half_hour_metrics (${cols}) VALUES (${vals});`);
+          restoredMetricsRows++;
         }
-        if (extracted.payload?.birdTrackMetrics?.columns?.length && extracted.payload.birdTrackMetrics.values?.length) {
-          const cols = extracted.payload.birdTrackMetrics.columns.map((c) => `"${c}"`).join(', ');
-          for (const row of extracted.payload.birdTrackMetrics.values) {
-            const vals = row.map(sqlLiteral).join(', ');
-            db.run(`INSERT OR REPLACE INTO bird_track_metrics (${cols}) VALUES (${vals});`);
-            restoredBirdRows++;
-          }
+      }
+      if (extracted.payload?.birdTrackMetrics?.columns?.length && extracted.payload.birdTrackMetrics.values?.length) {
+        const cols = extracted.payload.birdTrackMetrics.columns.map((c) => `"${c}"`).join(', ');
+        for (const row of extracted.payload.birdTrackMetrics.values) {
+          const vals = row.map(sqlLiteral).join(', ');
+          db.run(`INSERT OR REPLACE INTO bird_track_metrics (${cols}) VALUES (${vals});`);
+          restoredBirdRows++;
         }
+      }
 
-        // Fallback: if no base64 payload comment was present, execute INSERT statements directly
-        if (restoredMetricsRows === 0 && restoredBirdRows === 0) {
-          const insertLines = sqlContent
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(
-              (l) =>
-                /^INSERT\s+(OR\s+REPLACE\s+)?INTO\s+(half_hour_metrics|bird_track_metrics)\b/i.test(l),
-            );
-          for (const stmt of insertLines) {
+      // Fallback: if no base64 payload comment was present, execute INSERT statements directly
+      if (restoredMetricsRows === 0 && restoredBirdRows === 0) {
+        const insertLines = sqlContent
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(
+            (l) =>
+              /^INSERT\s+(OR\s+REPLACE\s+)?INTO\s+(half_hour_metrics|bird_track_metrics)\b/i.test(l),
+          );
+        for (const stmt of insertLines) {
+          try {
             db.run(stmt);
             if (/half_hour_metrics/i.test(stmt)) restoredMetricsRows++;
             if (/bird_track_metrics/i.test(stmt)) restoredBirdRows++;
-          }
+          } catch {}
         }
-
-        if (restoredMetricsRows > 0 || restoredBirdRows > 0) {
-          const exported = db.export();
-          fs.writeFileSync(dbPath, Buffer.from(exported));
-        }
-      } finally {
-        db.close();
       }
-    } catch (err) {
-      console.warn('Warning while restoring SQL rows into zampen_analytics.db:', err);
-    }
-  }
 
-  // Update manifest: remove restoredDates from archivedDates and mark archive as restored
-  const manifest = await syncManifestFromCloud();
-  const restoredSet = new Set(restoredDates);
-  manifest.archivedDates = manifest.archivedDates.filter((d) => !restoredSet.has(d));
+      if (restoredMetricsRows > 0 || restoredBirdRows > 0) {
+        const exported = db.export();
+        try { fs.writeFileSync(dbPath, Buffer.from(exported)); } catch {}
+        try { fs.writeFileSync(tmpDbPath, Buffer.from(exported)); } catch {}
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.warn('Warning while restoring SQL rows into zampen_analytics.db:', err);
+  }
 
   const nowIso = new Date().toISOString();
   const startDate = extracted.meta?.startDate || restoredDates[0];
   const endDate = extracted.meta?.endDate || restoredDates[restoredDates.length - 1];
+  const isAllDataArchive =
+    extracted.meta?.scope === 'all' ||
+    /all_data/i.test(fileName) ||
+    /all_data/i.test(targetFileName);
+
   const scope: ArchiveScope =
     extracted.meta?.scope ||
-    (restoredDates.length === 1 ? '1d' : restoredDates.length <= 7 ? '7d' : '30d');
+    (isAllDataArchive ? 'all' : restoredDates.length === 1 ? '1d' : restoredDates.length <= 7 ? '7d' : '30d');
   const scopeLabel =
     extracted.meta?.scopeLabel ||
-    (scope === '1d'
-      ? 'Entire Day (1 Day)'
-      : scope === '7d'
-        ? 'Entire 7 Days'
-        : 'Entire 30 Days');
+    (scope === 'all'
+      ? 'Wipe All Data (Full System Archive)'
+      : scope === '1d'
+        ? 'Entire Day (1 Day)'
+        : scope === '7d'
+          ? 'Entire 7 Days'
+          : 'Entire 30 Days');
+
+  // Update manifest: remove restoredDates from archivedDates and mark archive as restored
+  const manifest = await syncManifestFromCloud();
+  if (isAllDataArchive) {
+    manifest.archivedDates = [];
+  } else {
+    const restoredSet = new Set(restoredDates);
+    if (extracted.meta?.dates) {
+      for (const d of extracted.meta.dates) restoredSet.add(d);
+    }
+    if (startDate && endDate && startDate <= endDate) {
+      for (const d of enumerateDates(startDate, endDate)) restoredSet.add(d);
+    }
+    manifest.archivedDates = manifest.archivedDates.filter((d) => !restoredSet.has(d));
+  }
 
   const updatedMeta: ArchiveMetadata = {
     archiveId: extracted.meta?.archiveId || `arch_restored_${startDate}_${endDate}`,
@@ -753,6 +864,7 @@ export async function restoreDataFromSql(params: {
 
   manifest.archives[targetFileName] = updatedMeta;
   await writeArchiveManifestAsync(manifest);
+  clearManifestCache();
 
   return {
     restoredDates,

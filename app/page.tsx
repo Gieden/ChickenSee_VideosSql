@@ -1299,6 +1299,7 @@ export default function DashboardPage() {
 
   const [results, setResults] = useState<BehaviorResult[]>([]);
   const [behaviorResultsCount, setBehaviorResultsCount] = useState<number>(0);
+  const [dataVersion, setDataVersion] = useState<number>(0);
   const [loadingResults, setLoadingResults] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [selectedReportProfile, setSelectedReportProfile] =
@@ -1464,6 +1465,7 @@ export default function DashboardPage() {
 
   async function refreshAll() {
     setIsRefreshing(true);
+    setDataVersion((v) => v + 1);
     await Promise.all([
       fetchResults(),
       activeTab === 'database'
@@ -2624,7 +2626,7 @@ export default function DashboardPage() {
 
         {/* RESULTS TAB */}
         {activeTab === 'results' && (
-          <BehaviorResultsTab />
+          <BehaviorResultsTab key={dataVersion} />
         )}
 
         {/* DETECTION QUEUE TAB */}

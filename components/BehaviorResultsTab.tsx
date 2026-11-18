@@ -537,7 +537,7 @@ export default function BehaviorResultsTab() {
       try {
         setIsLoading(true);
         setLoadError(null);
-        const url = refreshKey ? '/api/behavior-results?refresh=true' : '/api/behavior-results';
+        const url = `/api/behavior-results?refresh=true&t=${Date.now()}`;
         const res = await fetch(url, { cache: 'no-store' });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -610,6 +610,15 @@ export default function BehaviorResultsTab() {
   const latestRecorded = recordedDates.length ? recordedDates[recordedDates.length - 1] : '2026-11-17';
   const earliestRecorded = recordedDates.length ? recordedDates[0] : '2026-11-01';
 
+  // Automatically keep single date and range filters aligned with currently recorded active dates
+  useEffect(() => {
+    if (recordedDates.length > 0) {
+      setSingleDate((prev) => (prev && recordedLookup.has(prev) ? prev : latestRecorded));
+      setRangeStart((prev) => (prev && recordedLookup.has(prev) ? prev : earliestRecorded));
+      setRangeEnd((prev) => (prev && recordedLookup.has(prev) ? prev : latestRecorded));
+    }
+  }, [recordedDates, recordedLookup, latestRecorded, earliestRecorded]);
+
   const today = todayIso();
   const anchor = clockAnchor || today;
   const yesterday = addDays(today, -1);
@@ -636,11 +645,14 @@ export default function BehaviorResultsTab() {
       return intervals.filter((i) => i.date === selectedPreset);
     }
     if (dateFilterMode === 'single') {
-      return singleDate ? intervals.filter((i) => i.date === singleDate) : [];
+      const targetDate = singleDate && recordedLookup.has(singleDate) ? singleDate : latestRecorded;
+      return targetDate ? intervals.filter((i) => i.date === targetDate) : [];
     }
-    if (!rangeStart || !rangeEnd) return [];
-    return intervals.filter((i) => i.date >= rangeStart && i.date <= rangeEnd);
-  }, [intervals, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, recordedLookup, yesterday]);
+    const s = rangeStart && recordedLookup.has(rangeStart) ? rangeStart : earliestRecorded;
+    const e = rangeEnd && recordedLookup.has(rangeEnd) ? rangeEnd : latestRecorded;
+    if (!s || !e) return [];
+    return intervals.filter((i) => i.date >= s && i.date <= e);
+  }, [intervals, dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, recordedLookup, yesterday, latestRecorded, earliestRecorded]);
 
   // Consolidate intervals by unique date into full-day summaries (07:00 AM - 05:00 PM)
   const consolidatedChartIntervals = useMemo(() => {
@@ -1648,7 +1660,9 @@ export default function BehaviorResultsTab() {
               type="button"
               onClick={() => {
                 setDateFilterMode('single');
-                if (!singleDate) setSingleDate('2026-11-01');
+                if (!singleDate || !recordedLookup.has(singleDate)) {
+                  setSingleDate(latestRecorded);
+                }
               }}
               className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 dateFilterMode === 'single'
@@ -1662,8 +1676,8 @@ export default function BehaviorResultsTab() {
               type="button"
               onClick={() => {
                 setDateFilterMode('range');
-                setRangeStart('2026-11-01');
-                setRangeEnd('2026-11-09');
+                if (!rangeStart || !recordedLookup.has(rangeStart)) setRangeStart(earliestRecorded);
+                if (!rangeEnd || !recordedLookup.has(rangeEnd)) setRangeEnd(latestRecorded);
               }}
               className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 dateFilterMode === 'range'

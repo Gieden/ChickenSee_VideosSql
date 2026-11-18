@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { AUTH_COOKIE_NAME, getSession, isAdmin } from '@/lib/auth';
 import { listArchiveFilesAsync, readArchiveSqlFileContent, restoreDataFromSql } from '@/lib/data-archive';
+import { clearBehaviorResultsCache } from '@/lib/behavior-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
       sqlContent,
       restoredBy: session.username,
     });
+
+    clearBehaviorResultsCache();
 
     const updated = await listArchiveFilesAsync();
 

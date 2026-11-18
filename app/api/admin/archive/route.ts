@@ -12,6 +12,7 @@ import {
 import { listSyncedDatabases } from '@/lib/supabase-storage';
 import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 import { normalizeIsoDate } from '@/lib/date-range';
+import { clearBehaviorResultsCache } from '@/lib/behavior-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -152,13 +153,20 @@ export async function POST(req: NextRequest) {
       createdBy: session!.username,
     });
 
+    clearBehaviorResultsCache();
+
     const updated = await listArchiveFilesAsync();
+
+    // Prevent oversized responses if full archive SQL exceeds 2MB; frontend falls back to /api/admin/archive/download
+    const safeSqlContent = result.sqlContent && result.sqlContent.length <= 2 * 1024 * 1024
+      ? result.sqlContent
+      : '';
 
     return NextResponse.json({
       success: true,
       archive: result.archive,
       sqlPreview: result.sqlPreview,
-      sqlContent: result.sqlContent,
+      sqlContent: safeSqlContent,
       archivedDates: updated.archivedDates,
       activeDates: await discoverActiveDates(new Set(updated.archivedDates)),
       files: updated.files,
