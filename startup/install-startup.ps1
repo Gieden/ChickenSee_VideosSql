@@ -63,11 +63,27 @@ if ($NodePackageExitCode -ne 0) {
 }
 
 $IconPath = Join-Path $ProjectRoot "favicon.ico"
-
+$RootLauncherBat = Join-Path $ProjectRoot "Start-ChickenSee.bat"
+$ProjectRootShortcut = Join-Path $ProjectRoot "ChickenSee Startup.lnk"
+$StartupDirShortcut = Join-Path $PSScriptRoot "ChickenSee Startup.lnk"
 $DesktopAppStartupShortcut = Join-Path $StartupFolder "ChickenSee Control Center.lnk"
 
 $Shell = New-Object -ComObject WScript.Shell
 $CommandPrompt = (Get-Command cmd.exe -ErrorAction Stop).Source
+
+# 0. Attachable Startup Shortcut inside Project Root & startup/ folder
+foreach ($TargetLnk in @($ProjectRootShortcut, $StartupDirShortcut)) {
+    $Attachable = $Shell.CreateShortcut($TargetLnk)
+    $Attachable.TargetPath = $CommandPrompt
+    $Attachable.Arguments = "/c `"`"$RootLauncherBat`"`""
+    $Attachable.WorkingDirectory = $ProjectRoot
+    $Attachable.WindowStyle = 7
+    $Attachable.Description = "Attachable startup shortcut for ChickenSee Detection Worker, API, Sync Agent, and Control Center"
+    if (Test-Path $IconPath) {
+        $Attachable.IconLocation = "$IconPath,0"
+    }
+    $Attachable.Save()
+}
 
 # 1. Background Supervisor Startup Shortcut
 $Shortcut = $Shell.CreateShortcut($ShortcutPath)

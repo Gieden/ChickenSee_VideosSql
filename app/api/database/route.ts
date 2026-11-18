@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import { downloadStorageFile, listSyncedDatabases, SyncedFileMeta } from '@/lib/supabase-storage';
+import { downloadStorageFile, formatDateGroupingFromIso, listSyncedDatabases, SyncedFileMeta } from '@/lib/supabase-storage';
 import {
   openDatabaseFromBytes,
   getDatabaseTables,
@@ -99,8 +99,33 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    let derivedDateKey = dbMeta.dateKey;
+    let derivedDateLabel = dbMeta.dateLabel;
+    let derivedSessionTime = dbMeta.sessionTime;
+    const folderHasDate = /\d{4}\s*[-_]\s*\d{2}\s*[-_]\s*\d{2}/.test(dbMeta.sessionFolder || '');
+
+    if (avg?.startedAt) {
+      const startGrouping = formatDateGroupingFromIso(avg.startedAt);
+      if (!folderHasDate) {
+        derivedDateKey = startGrouping.dateKey;
+        derivedDateLabel = startGrouping.dateLabel;
+      }
+      if (avg.endedAt) {
+        const endGrouping = formatDateGroupingFromIso(avg.endedAt);
+        derivedSessionTime =
+          startGrouping.sessionTime !== endGrouping.sessionTime
+            ? `${startGrouping.sessionTime} – ${endGrouping.sessionTime}`
+            : startGrouping.sessionTime;
+      } else {
+        derivedSessionTime = startGrouping.sessionTime;
+      }
+    }
+
     enrichedFiles.push({
       ...dbMeta,
+      dateKey: derivedDateKey,
+      dateLabel: derivedDateLabel,
+      sessionTime: derivedSessionTime,
       averages: avg,
     });
   }
@@ -123,41 +148,45 @@ export async function GET(req: NextRequest) {
   const groupedByDate: DateGroupedSensors[] = Array.from(groupsMap.values()).map((g) => {
     let unifiedFile: (SyncedFileMeta & { averages: SensorAverages }) | undefined;
 
+    // Only create a unified multi-session summary when there are genuinely 2+ distinct recording sessions on this date
     if (g.files.length > 1) {
       const template = g.files[0];
-      const isNov17 = g.dateKey === '2026-11-17';
       const totalReadings = g.files.reduce((sum, f) => sum + (f.averages?.totalReadings || 0), 0);
-      const avgTemp = g.files.reduce((sum, f) => sum + (f.averages?.avgTemperature ?? 32.2), 0) / g.files.length;
-      const avgHum = g.files.reduce((sum, f) => sum + (f.averages?.avgHumidity ?? 61.6), 0) / g.files.length;
-      const avgNh3 = g.files.reduce((sum, f) => sum + (f.averages?.avgAmmoniaPpm ?? 0.00004), 0) / g.files.length;
-      const avgSnd = g.files.reduce((sum, f) => sum + (f.averages?.avgSoundDb ?? 76.3), 0) / g.files.length;
+      const validTemps = g.files.map((f) => f.averages?.avgTemperature).filter((v): v is number => v !== null && v !== undefined);
+      const validHums = g.files.map((f) => f.averages?.avgHumidity).filter((v): v is number => v !== null && v !== undefined);
+      const validNh3s = g.files.map((f) => f.averages?.avgAmmoniaPpm).filter((v): v is number => v !== null && v !== undefined);
+      const validSnds = g.files.map((f) => f.averages?.avgSoundDb).filter((v): v is number => v !== null && v !== undefined);
+
+      const avgTemp = validTemps.length ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length : null;
+      const avgHum = validHums.length ? validHums.reduce((a, b) => a + b, 0) / validHums.length : null;
+      const avgNh3 = validNh3s.length ? validNh3s.reduce((a, b) => a + b, 0) / validNh3s.length : null;
+      const avgSnd = validSnds.length ? validSnds.reduce((a, b) => a + b, 0) / validSnds.length : null;
 
       const minTemps = g.files.map((f) => f.averages?.minTemperature).filter((v): v is number => v !== null && v !== undefined);
       const maxTemps = g.files.map((f) => f.averages?.maxTemperature).filter((v): v is number => v !== null && v !== undefined);
       const minHums = g.files.map((f) => f.averages?.minHumidity).filter((v): v is number => v !== null && v !== undefined);
       const maxHums = g.files.map((f) => f.averages?.maxHumidity).filter((v): v is number => v !== null && v !== undefined);
+      const minNh3s = g.files.map((f) => f.averages?.minAmmoniaPpm).filter((v): v is number => v !== null && v !== undefined);
+      const maxNh3s = g.files.map((f) => f.averages?.maxAmmoniaPpm).filter((v): v is number => v !== null && v !== undefined);
       const minSnds = g.files.map((f) => f.averages?.minSoundDb).filter((v): v is number => v !== null && v !== undefined);
       const maxSnds = g.files.map((f) => f.averages?.maxSoundDb).filter((v): v is number => v !== null && v !== undefined);
 
-      const timeRange = isNov17 || g.files.length >= 10
-        ? '7:00 AM – 5:00 PM'
-        : (g.files[0].sessionTime && g.files[g.files.length - 1].sessionTime && g.files[0].sessionTime !== g.files[g.files.length - 1].sessionTime
-            ? `${g.files[g.files.length - 1].sessionTime} – ${g.files[0].sessionTime}`
-            : (g.files[0].sessionTime || '7:00 AM – 5:00 PM'));
+      const earliestSession = g.files[g.files.length - 1];
+      const latestSession = g.files[0];
+      const timeRange =
+        earliestSession.sessionTime && latestSession.sessionTime && earliestSession.sessionTime !== latestSession.sessionTime
+          ? `${earliestSession.sessionTime} – ${latestSession.sessionTime}`
+          : (latestSession.sessionTime || 'Recorded Sessions');
 
-      const sessionFolder = isNov17
-        ? '12 Paired Hourly Folders (7:00 AM – 5:00 PM)'
-        : `${g.files.length} Paired Recording Folders (${g.dateLabel})`;
-
-      const sessionLabel = isNov17
-        ? 'rec_2026-11-17_unified (12 Folders · 6:00 AM–5:00 PM)'
-        : `rec_${g.dateKey}_unified (${g.files.length} Folders Unified)`;
+      const sessionFolder = `${g.files.length} Paired Recording Folders (${g.dateLabel})`;
+      const sessionLabel = `rec_${g.dateKey}_unified (${g.files.length} Folders Unified)`;
+      const totalDurationSeconds = g.files.reduce((sum, f) => sum + (f.averages?.durationSeconds || 0), 0);
 
       unifiedFile = {
         url: template.url || '',
         pathname: 'sensors.sqlite',
         storagePath: `databases/rec_${g.dateKey}_unified/sensors.sqlite`,
-        size: g.files.reduce((sum, f) => sum + f.size, 0) || 75448320,
+        size: g.files.reduce((sum, f) => sum + f.size, 0),
         uploadedAt: template.uploadedAt || new Date().toISOString(),
         sessionLabel,
         dateKey: g.dateKey,
@@ -166,25 +195,28 @@ export async function GET(req: NextRequest) {
         sessionFolder,
         localPath: template.localPath,
         averages: {
-          totalReadings: totalReadings || (isNov17 ? 540012 : 861),
-          avgTemperature: Number(avgTemp.toFixed(1)),
-          avgHumidity: Number(avgHum.toFixed(1)),
-          avgAmmoniaPpm: Number(avgNh3.toFixed(5)),
-          avgSoundDb: Number(avgSnd.toFixed(1)),
-          minTemperature: minTemps.length ? Math.min(...minTemps) : 30.2,
-          maxTemperature: maxTemps.length ? Math.max(...maxTemps) : 36.3,
-          minHumidity: minHums.length ? Math.min(...minHums) : 52.0,
-          maxHumidity: maxHums.length ? Math.max(...maxHums) : 65.0,
-          minAmmoniaPpm: 0,
-          maxAmmoniaPpm: 0.0001,
-          minSoundDb: minSnds.length ? Math.min(...minSnds) : 71.0,
-          maxSoundDb: maxSnds.length ? Math.max(...maxSnds) : 99.2,
-          thi: Number((avgTemp - (0.55 - 0.0055 * avgHum) * (avgTemp - 14.5)).toFixed(1)),
-          durationSeconds: isNov17 || g.files.length >= 10 ? 36000 : (g.files.reduce((sum, f) => sum + (f.averages?.durationSeconds || 0), 0) || 3600),
-          frameCount: g.files.reduce((sum, f) => sum + (f.averages?.frameCount || 0), 0) || 300000,
+          totalReadings,
+          avgTemperature: avgTemp !== null ? Number(avgTemp.toFixed(1)) : null,
+          avgHumidity: avgHum !== null ? Number(avgHum.toFixed(1)) : null,
+          avgAmmoniaPpm: avgNh3 !== null ? Number(avgNh3.toFixed(5)) : null,
+          avgSoundDb: avgSnd !== null ? Number(avgSnd.toFixed(1)) : null,
+          minTemperature: minTemps.length ? Math.min(...minTemps) : null,
+          maxTemperature: maxTemps.length ? Math.max(...maxTemps) : null,
+          minHumidity: minHums.length ? Math.min(...minHums) : null,
+          maxHumidity: maxHums.length ? Math.max(...maxHums) : null,
+          minAmmoniaPpm: minNh3s.length ? Math.min(...minNh3s) : null,
+          maxAmmoniaPpm: maxNh3s.length ? Math.max(...maxNh3s) : null,
+          minSoundDb: minSnds.length ? Math.min(...minSnds) : null,
+          maxSoundDb: maxSnds.length ? Math.max(...maxSnds) : null,
+          thi:
+            avgTemp !== null && avgHum !== null
+              ? Number((avgTemp - (0.55 - 0.0055 * avgHum) * (avgTemp - 14.5)).toFixed(1))
+              : null,
+          durationSeconds: totalDurationSeconds > 0 ? totalDurationSeconds : null,
+          frameCount: g.files.reduce((sum, f) => sum + (f.averages?.frameCount || 0), 0) || null,
           videoFile: `${g.files.length} paired videos (${timeRange})`,
-          startedAt: template.averages?.startedAt || `${g.dateKey}T07:00:00.000Z`,
-          endedAt: template.averages?.endedAt || `${g.dateKey}T17:00:00.000Z`,
+          startedAt: earliestSession.averages?.startedAt || null,
+          endedAt: latestSession.averages?.endedAt || null,
         },
       };
     }

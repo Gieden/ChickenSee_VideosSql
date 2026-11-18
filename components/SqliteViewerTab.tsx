@@ -1052,7 +1052,11 @@ export default function SqliteViewerTab() {
                     onChange={(event) => handleHourSelection(event.target.value)}
                     className="min-w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   >
-                    <option value="all">All hours ({selectedSession.sessionTime || '7:00 AM – 5:00 PM'})</option>
+                    <option value="all">
+                      {modalHourOptions.length <= 1
+                        ? `Recorded session (${modalHourOptions[0]?.label || selectedSession.sessionTime || 'Single video'})`
+                        : `All recorded hours (${selectedSession.sessionTime})`}
+                    </option>
                     {modalHourOptions.map((option) => (
                       <option key={option.key} value={option.key}>
                         {option.label} ({option.totalReadings.toLocaleString()} readings)

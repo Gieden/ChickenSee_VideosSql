@@ -40,16 +40,18 @@ import {
   Users,
   ShieldCheck,
   FolderOpen,
+  Settings,
 } from 'lucide-react';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
+import AdminSettingsTab from '@/components/AdminSettingsTab';
 import SqliteViewerTab from '@/components/SqliteViewerTab';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
-type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff';
+type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff' | 'settings';
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sensors', 'staff'];
+const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sensors', 'staff', 'settings'];
 
 interface QueueItem {
   item_id: string;
@@ -1223,9 +1225,9 @@ export default function DashboardPage() {
 
   const isAdminUser = sessionUser?.role === 'admin';
 
-  // Staff users have no access to the Staff Accounts tab.
+  // Staff users have no access to the Staff Accounts or Settings tabs.
   useEffect(() => {
-    if (sessionUser && sessionUser.role !== 'admin' && activeTab === 'staff') {
+    if (sessionUser && sessionUser.role !== 'admin' && (activeTab === 'staff' || activeTab === 'settings')) {
       handleTabChange('results');
     }
   }, [sessionUser, activeTab, handleTabChange]);
@@ -2584,11 +2586,18 @@ export default function DashboardPage() {
               </span>
             </button>
             {isAdminUser && (
-              <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-                <Users className="h-4 w-4" />
-                <span>Staff Accounts</span>
-                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
-              </button>
+              <>
+                <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+                  <Users className="h-4 w-4" />
+                  <span>Staff Accounts</span>
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
+                </button>
+                <button onClick={() => handleTabChange('settings')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'settings' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+                  <Settings className="h-4 w-4" />
+                  <span>Settings</span>
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
+                </button>
+              </>
             )}
           </nav>
         </div>
@@ -2851,6 +2860,11 @@ export default function DashboardPage() {
         {/* STAFF ACCOUNTS TAB (administrators only) */}
         {isAdminUser && activeTab === 'staff' && (
           <StaffAccountsTab currentUsername={sessionUser?.username} />
+        )}
+
+        {/* SETTINGS TAB (administrators only — Data Retention, SQL Archive & Restore) */}
+        {isAdminUser && activeTab === 'settings' && (
+          <AdminSettingsTab currentUsername={sessionUser?.username} onDataChanged={refreshAll} />
         )}
 
       </main>

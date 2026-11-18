@@ -269,6 +269,22 @@ class DatabaseManager:
                 and self.file_version_matches(job, signature)
             )
 
+    def recover_interrupted_jobs(self) -> int:
+        """Resets any stale PROCESSING jobs left over from a previous interrupted worker session back to QUEUED."""
+        with self.get_session() as session:
+            stale_jobs = session.query(ProcessingJob).filter(
+                ProcessingJob.status == JobStatus.PROCESSING
+            ).all()
+            count = len(stale_jobs)
+            for job in stale_jobs:
+                job.status = JobStatus.QUEUED
+                job.progress_frames = 0
+                for metric in list(job.half_hour_metrics):
+                    session.delete(metric)
+            if count > 0:
+                session.commit()
+            return count
+
     def lease_job(
         self,
         filename: str,
@@ -283,23 +299,30 @@ class DatabaseManager:
             if not job:
                 job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
                 if job and job.video_path != filepath:
-                    suffix = hashlib.sha256(filepath.encode("utf-8")).hexdigest()[:12]
+                    parent_name = Path(filepath).parent.name
+                    suffix = hashlib.sha256(filepath.encode("utf-8")).hexdigest()[:8]
                     path_obj = Path(filename)
-                    filename = f"{path_obj.stem}_{suffix}{path_obj.suffix}"
+                    if parent_name and parent_name.lower().startswith("rec_"):
+                        filename = f"{parent_name}_{path_obj.stem}{path_obj.suffix}"
+                    else:
+                        filename = f"{path_obj.stem}_{suffix}{path_obj.suffix}"
                     job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
+                    if job and job.video_path != filepath:
+                        filename = f"{path_obj.stem}_{suffix}{path_obj.suffix}"
+                        job = session.query(ProcessingJob).filter_by(video_filename=filename).first()
             if job:
                 if job.status in (JobStatus.COMPLETED, JobStatus.CANCELLED):
                     if signature is None or self.file_version_matches(job, signature):
                         return None
-                    for metric in job.half_hour_metrics:
-                        session.delete(metric)
-                    job.date_slot = start_dt.strftime("%Y-%m-%d")
-                    job.hour_slot = start_dt.strftime("%H:00")
-                    job.start_time = start_dt
-                    job.end_time = end_dt
-                    job.frames_processed = 0
-                    job.processing_time_s = 0.0
-                    job.completed_at = None
+                for metric in list(job.half_hour_metrics):
+                    session.delete(metric)
+                job.date_slot = start_dt.strftime("%Y-%m-%d")
+                job.hour_slot = start_dt.strftime("%H:00")
+                job.start_time = start_dt
+                job.end_time = end_dt
+                job.frames_processed = 0
+                job.processing_time_s = 0.0
+                job.completed_at = None
                 job.status = JobStatus.PROCESSING
                 job.error_message = None
                 job.progress_frames = 0

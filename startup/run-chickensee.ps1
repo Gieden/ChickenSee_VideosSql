@@ -14,28 +14,30 @@ if (-not (Test-Path $AgentDependencies -PathType Container)) {
     throw "Sync-agent dependencies are missing. Run 'npm ci' in $AgentDir first."
 }
 
-$StorageRoot = $null
+$FallbackStorage = Join-Path $ProjectRoot "local-storage"
+$StorageRoot = $FallbackStorage
 $AgentEnv = Join-Path $AgentDir ".env"
 if (Test-Path $AgentEnv -PathType Leaf) {
     foreach ($Line in Get-Content $AgentEnv) {
         if ($Line -match '^\s*CHICKENSEE_LOCAL_STORAGE\s*=\s*(.*?)\s*$') {
-            $StorageRoot = $Matches[1].Trim('"').Trim("'")
+            $Candidate = $Matches[1].Trim('"').Trim("'")
+            if ($Candidate -and $Candidate -ne "./local-storage" -and $Candidate -ne "local-storage" -and (-not ($Candidate -replace '\\','/').EndsWith('/ChickenSee_Local_Storage'))) {
+                if ([System.IO.Path]::IsPathRooted($Candidate)) {
+                    $StorageRoot = $Candidate
+                } else {
+                    $StorageRoot = Join-Path $ProjectRoot $Candidate
+                }
+            }
             break
         }
     }
 }
-$FallbackStorage = Join-Path $ProjectRoot "local-storage"
 $LogDir = $null
-if ($StorageRoot) {
-    try {
-        $TestLogDir = Join-Path $StorageRoot "logs"
-        New-Item -Path $TestLogDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
-        $LogDir = $TestLogDir
-    } catch {
-        $StorageRoot = $FallbackStorage
-    }
-}
-if (-not $LogDir) {
+try {
+    $TestLogDir = Join-Path $StorageRoot "logs"
+    New-Item -Path $TestLogDir -ItemType Directory -Force -ErrorAction Stop | Out-Null
+    $LogDir = $TestLogDir
+} catch {
     $StorageRoot = $FallbackStorage
     $LogDir = Join-Path $StorageRoot "logs"
     New-Item -Path $LogDir -ItemType Directory -Force | Out-Null
@@ -116,6 +118,10 @@ function Find-ExistingServiceProcess {
         "sync-agent" { '(?i)\bwatcher\.js\b' }
         "analytics-api" { '(?i)\s-m\s+analytics\.api(?:\s|$)' }
         "analytics-worker" { '(?i)\s-m\s+analytics\.worker(?:\s|$)' }
+        "sensor-streamer" { '(?i)sensor_live_streamer\.py' }
+    }
+    if (-not $CommandPattern) {
+        return $null
     }
     $Matches = @(
         $CandidateProcesses |
@@ -124,11 +130,15 @@ function Find-ExistingServiceProcess {
             }
     )
     if ($Matches.Count -gt 1) {
-        $Ids = ($Matches | ForEach-Object { $_.ProcessId }) -join ", "
-        throw "Multiple $($Service.Name) processes already exist (PIDs $Ids). Stop duplicates before starting ChickenSee."
+        # Keep the first process and terminate stale duplicates so startup never aborts
+        for ($i = 1; $i -lt $Matches.Count; $i++) {
+            try {
+                Stop-Process -Id $Matches[$i].ProcessId -Force -ErrorAction SilentlyContinue
+            } catch {}
+        }
     }
-    if ($Matches.Count -eq 1) {
-        return Get-Process -Id $Matches[0].ProcessId -ErrorAction Stop
+    if ($Matches.Count -ge 1) {
+        return Get-Process -Id $Matches[0].ProcessId -ErrorAction SilentlyContinue
     }
     return $null
 }

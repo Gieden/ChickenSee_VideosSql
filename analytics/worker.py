@@ -112,6 +112,9 @@ class ZampenAnalyticsWorker:
         
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
         cleanup_orphaned_detected_files(VIDEOS_DIR)
+        recovered = DB.recover_interrupted_jobs()
+        if recovered > 0:
+            print(f"[WORKER] Recovered {recovered} interrupted PROCESSING job(s) back to QUEUED.")
         self._start_filesystem_watcher()
 
     def _start_filesystem_watcher(self):
@@ -260,8 +263,11 @@ class ZampenAnalyticsWorker:
         for p in mp4_files:
             filename = p.name
             stem = p.stem.lower()
-            # Skip videos we already wrote as annotated output
-            if stem.endswith("_detected") or "_detected" in stem:
+            # Skip videos we already wrote as annotated output or staging files inside local-storage
+            if stem.endswith("_detected") or "_detected" in stem or ".processing" in stem:
+                continue
+            p_norm = str(p.resolve()).replace("\\", "/").lower()
+            if "/local-storage/" in p_norm or "/chickensee_local_storage/" in p_norm or "/archive/" in p_norm:
                 continue
 
             # Skip if already processed in DB
@@ -555,7 +561,13 @@ class ZampenAnalyticsWorker:
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
         stride = max(1, self.cfg.frame_stride)
         writer, detected_path, staging_path = self._open_detected_writer(
-            filename, src_w, src_h, fps, stride, target_date=datetime.date.today()
+            filename,
+            src_w,
+            src_h,
+            fps,
+            stride,
+            target_date=start_dt.date() if start_dt else datetime.date.today(),
+            video_path=video_path,
         )
         if writer is None or detected_path is None or staging_path is None:
             cap.release()
@@ -976,6 +988,30 @@ class ZampenAnalyticsWorker:
             )
         return frames_processed, elapsed_s
 
+    @staticmethod
+    def _build_unique_output_stem(filename: str, video_path: Optional[str] = None) -> str:
+        """
+        Builds a unique output stem so multiple camera session folders containing 'video.mp4'
+        each produce their own distinct '*_detected.mp4' file instead of overwriting a single file.
+        """
+        stem = Path(filename).stem
+        if not video_path:
+            return stem
+        try:
+            resolved = Path(video_path).resolve()
+            parent_name = resolved.parent.name
+            generic_parents = {"data", "videos", "test", "cam01", "cam02", "chicks", "agent"}
+            if parent_name and parent_name.lower() not in generic_parents:
+                clean_parent = re.sub(r"[^a-zA-Z0-9_-]+", "_", parent_name).strip("_")
+                if clean_parent and not stem.lower().startswith(clean_parent.lower()):
+                    return f"{clean_parent}_{stem}"
+            if stem.lower() in {"video", "recording", "clip", "output", "stream"}:
+                short_hash = hashlib.sha256(str(resolved).encode("utf-8")).hexdigest()[:8]
+                return f"{stem}_{short_hash}"
+        except Exception:
+            pass
+        return stem
+
     def _open_detected_writer(
         self,
         filename: str,
@@ -984,10 +1020,11 @@ class ZampenAnalyticsWorker:
         fps: float,
         stride: int,
         target_date: Optional[datetime.date] = None,
+        video_path: Optional[str] = None,
     ) -> Tuple[Optional[cv2.VideoWriter], Optional[str], Optional[str]]:
         """Writes to a staging file inside a date-formatted folder so sync only sees a completed annotated video."""
         date_dir = get_dated_videos_dir(target_date)
-        stem = Path(filename).stem
+        stem = self._build_unique_output_stem(filename, video_path)
         out_path = str(date_dir / f"{stem}_detected.mp4")
         staging_path = str(date_dir / f"{stem}_detected.processing.mp4")
         if os.path.isfile(staging_path):

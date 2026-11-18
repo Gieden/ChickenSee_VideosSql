@@ -13,13 +13,21 @@ from typing import Any, Optional
 
 
 def _configured_local_root() -> str:
-    fallback = (Path(__file__).resolve().parent / "local-storage").resolve()
+    project_root = Path(__file__).resolve().parent
+    fallback = (project_root / "local-storage").resolve()
 
     def _try_path(p_str: str) -> Optional[str]:
+        if not p_str:
+            return None
+        norm = p_str.replace("\\", "/").strip()
+        # Standardize legacy external ChickenSee_Local_Storage or relative local-storage to <project_root>/local-storage
+        if norm in ("./local-storage", "local-storage") or norm.endswith("/ChickenSee_Local_Storage"):
+            fallback.mkdir(parents=True, exist_ok=True)
+            return str(fallback)
         try:
             p = Path(p_str).expanduser()
             if not p.is_absolute():
-                p = (Path(__file__).resolve().parent / p).resolve()
+                p = (project_root / p).resolve()
             p.mkdir(parents=True, exist_ok=True)
             return str(p.resolve())
         except Exception:

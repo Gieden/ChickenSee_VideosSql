@@ -755,13 +755,19 @@ export default function BehaviorResultsTab() {
           throw new Error('The behavior results API returned an invalid response.');
         }
         if (!active) return;
+        const archivedSet = new Set<string>(
+          Array.isArray(data.archivedDates) ? data.archivedDates : [],
+        );
         if (data.intervals.length > 0) {
           setIntervals(data.intervals);
           setAvailableDates(data.availableDates);
         } else {
-          // Keep authentic default dataset if API database has no records
-          setIntervals(DEFAULT_SAMPLE_INTERVALS);
-          setAvailableDates(DEFAULT_SAMPLE_INTERVALS.map((i) => i.date));
+          // Keep authentic default dataset excluding any archived dates
+          const unarchivedSamples = DEFAULT_SAMPLE_INTERVALS.filter(
+            (i) => !archivedSet.has(i.date),
+          );
+          setIntervals(unarchivedSamples);
+          setAvailableDates(unarchivedSamples.map((i) => i.date));
         }
         setIsRealData(true);
       } catch (err) {
@@ -1161,7 +1167,9 @@ export default function BehaviorResultsTab() {
     });
   }, [consolidatedChartIntervals, logSearchQuery, selectedBirdId]);
 
-  // Export CSV function for daily summary correlation log
+  const safeBirdSlug = selectedBird.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+  // 1. Export CSV function for daily summary correlation log
   const handleExportCsv = () => {
     const headers = [
       'Interval',
@@ -1178,7 +1186,7 @@ export default function BehaviorResultsTab() {
       'Potential_Stress_Factors',
     ];
 
-    const rows = consolidatedChartIntervals.map((i) => {
+    const rows = filteredLogEntries.map((i) => {
       const counts = i.behaviorsByBird[selectedBirdId] || {
         reducedFeeding: 0,
         reducedDrinking: 0,
@@ -1208,10 +1216,538 @@ export default function BehaviorResultsTab() {
       'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const link = document.createElement('a');
     link.href = encodeURI(csvContent);
-    link.download = `behavior_results_${selectedBird.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}.csv`;
+    link.download = `behavior_results_${safeBirdSlug}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // 2. Export Word (.doc) function
+  const handleExportWord = () => {
+    const rowsHtml = filteredLogEntries
+      .map((i) => {
+        const counts = i.behaviorsByBird[selectedBirdId] || {
+          reducedFeeding: 0,
+          reducedDrinking: 0,
+          prolongedInactivity: 0,
+          featherPecking: 0,
+        };
+        const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+        const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+        const stress = getDailyPotentialStressFactors(i, counts);
+        return `
+          <tr>
+            <td style="padding:8px;border:1px solid #cbd5e1;"><strong>${i.intervalLabel}</strong><br/><span style="color:#64748b;font-size:10pt;">${i.fullTimeLabel}</span></td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${selectedBird.name}</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">RFA: ${counts.reducedFeeding} | RDA: ${counts.reducedDrinking} | ISO: ${iso} | LOC: ${loc}</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.tempC, 1)} °C</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.humidityPct, 0)} %</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.ammoniaPpm, 1)} ppm</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.soundDb, 1)} dBA</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;"><strong>${stress.headline}</strong><br/><span style="color:#475569;font-size:10pt;">${stress.detail}</span></td>
+          </tr>`;
+      })
+      .join('');
+
+    const docHtml = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+      <head><meta charset="utf-8"><title>ChickenSee Behavior &amp; Telemetry Report</title></head>
+      <body style="font-family:Calibri,Arial,sans-serif;color:#0f172a;">
+        <h2 style="margin-bottom:4px;">ChickenSee — Detailed Telemetry &amp; Behavior Correlation Report</h2>
+        <p style="color:#475569;margin-top:0;"><strong>Profile:</strong> ${selectedBird.name} (${selectedBird.role}) &nbsp;|&nbsp; <strong>Range:</strong> ${dateRangeLabel}</p>
+        <p style="color:#475569;"><strong>Averages:</strong> Temp ${telemetryStats.tempAvg} °C · Humidity ${telemetryStats.humAvg} % · Ammonia ${telemetryStats.ammoniaAvg} ppm · Sound ${telemetryStats.soundAvg} dBA</p>
+        <table style="border-collapse:collapse;width:100%;font-size:10.5pt;">
+          <thead>
+            <tr style="background:#f1f5f9;text-align:left;">
+              <th style="padding:8px;border:1px solid #cbd5e1;">INTERVAL &amp; TIME</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">PROFILE</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">BEHAVIOR EVENTS</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">TEMP (°C)</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">HUMIDITY (%)</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">AMMONIA (PPM)</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">SOUND (dBA)</th>
+              <th style="padding:8px;border:1px solid #cbd5e1;">POTENTIAL STRESS FACTORS</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </body>
+    </html>`;
+
+    const blob = new Blob(['\ufeff', docHtml], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `behavior_results_${safeBirdSlug}.doc`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  // 3. Export PDF (.pdf) function (Vector table PDF 1.4 generator with exact column coordinates & borders)
+  const handleExportPdf = () => {
+    const sanitizePdfText = (str: string) =>
+      str
+        .replace(/[·•]/g, '-')
+        .replace(/[—–]/g, '-')
+        .replace(/°/g, ' deg ')
+        .replace(/[^\x20-\x7E]/g, '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\(/g, '\\(')
+        .replace(/\)/g, '\\)');
+
+    const pageW = 842; // A4 Landscape width (pt)
+    const pageH = 595; // A4 Landscape height (pt)
+    const marginX = 24;
+    const tableW = pageW - marginX * 2; // 794 pt
+
+    // Exact column boundaries (sum = 794 pt) with expanded 204pt width for POTENTIAL STRESS FACTORS
+    const columns = [
+      { key: 'interval', label: 'INTERVAL & TIME', x: 24, w: 118 },
+      { key: 'profile', label: 'PROFILE', x: 142, w: 84 },
+      { key: 'events', label: 'BEHAVIOR EVENTS', x: 226, w: 164 },
+      { key: 'temp', label: 'TEMP (C)', x: 390, w: 50 },
+      { key: 'hum', label: 'HUM (%)', x: 440, w: 52 },
+      { key: 'nh3', label: 'NH3 (PPM)', x: 492, w: 62 },
+      { key: 'sound', label: 'SOUND (dBA)', x: 554, w: 60 },
+      { key: 'stress', label: 'POTENTIAL STRESS FACTORS', x: 614, w: 204 },
+    ];
+
+    const rowsPerPage = 12;
+    const rowH = 34;
+    const entries = filteredLogEntries.length > 0 ? filteredLogEntries : [];
+    const totalPages = Math.max(1, Math.ceil(entries.length / rowsPerPage));
+
+    const drawText = (
+      ops: string[],
+      text: string,
+      x: number,
+      y: number,
+      size: number,
+      bold = false,
+      rgb: [number, number, number] = [0.06, 0.09, 0.16],
+    ) => {
+      ops.push('BT');
+      ops.push(`${rgb[0].toFixed(3)} ${rgb[1].toFixed(3)} ${rgb[2].toFixed(3)} rg`);
+      ops.push(`${bold ? '/F2' : '/F1'} ${size} Tf`);
+      ops.push(`1 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)} Tm`);
+      ops.push(`(${sanitizePdfText(text)}) Tj`);
+      ops.push('ET');
+    };
+
+    const drawRect = (
+      ops: string[],
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      fillRgb?: [number, number, number],
+      strokeRgb?: [number, number, number],
+      lineWidth = 0.6,
+    ) => {
+      ops.push('q');
+      ops.push(`${lineWidth} w`);
+      if (fillRgb) {
+        ops.push(`${fillRgb[0].toFixed(3)} ${fillRgb[1].toFixed(3)} ${fillRgb[2].toFixed(3)} rg`);
+      }
+      if (strokeRgb) {
+        ops.push(`${strokeRgb[0].toFixed(3)} ${strokeRgb[1].toFixed(3)} ${strokeRgb[2].toFixed(3)} RG`);
+      }
+      const mode = fillRgb && strokeRgb ? 'B' : fillRgb ? 'f' : 'S';
+      ops.push(`${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re ${mode}`);
+      ops.push('Q');
+    };
+
+    const drawLine = (
+      ops: string[],
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      strokeRgb: [number, number, number] = [0.88, 0.91, 0.94],
+      lineWidth = 0.5,
+    ) => {
+      ops.push('q');
+      ops.push(`${lineWidth} w`);
+      ops.push(`${strokeRgb[0].toFixed(3)} ${strokeRgb[1].toFixed(3)} ${strokeRgb[2].toFixed(3)} RG`);
+      ops.push(`${x1.toFixed(1)} ${y1.toFixed(1)} m ${x2.toFixed(1)} ${y2.toFixed(1)} l S`);
+      ops.push('Q');
+    };
+
+    const pageStreams: string[] = [];
+
+    for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+      const ops: string[] = [];
+      const pageEntries = entries.slice(pageIdx * rowsPerPage, (pageIdx + 1) * rowsPerPage);
+
+      // Top orange accent bar
+      drawRect(ops, marginX, pageH - 28, tableW, 4, [0.92, 0.35, 0.05]);
+
+      // Report Title & Metadata Header
+      drawText(
+        ops,
+        'ChickenSee - Detailed Telemetry & Behavior Correlation Report',
+        marginX,
+        pageH - 46,
+        14,
+        true,
+        [0.06, 0.09, 0.16],
+      );
+      drawText(
+        ops,
+        `Page ${pageIdx + 1} of ${totalPages}`,
+        pageW - marginX - 65,
+        pageH - 46,
+        9,
+        false,
+        [0.4, 0.45, 0.53],
+      );
+
+      drawText(
+        ops,
+        `Profile: ${selectedBird.name} (${selectedBird.role})   |   Date Range: ${dateRangeLabel}`,
+        marginX,
+        pageH - 63,
+        9.5,
+        false,
+        [0.28, 0.33, 0.41],
+      );
+      drawText(
+        ops,
+        `Summary Averages:   Temp ${telemetryStats.tempAvg} C   |   Humidity ${telemetryStats.humAvg}%   |   Ammonia ${telemetryStats.ammoniaAvg} ppm   |   Sound ${telemetryStats.soundAvg} dBA`,
+        marginX,
+        pageH - 77,
+        9,
+        false,
+        [0.28, 0.33, 0.41],
+      );
+
+      // Table Header Bar
+      const headerTop = pageH - 92;
+      const headerH = 24;
+      const headerBottom = headerTop - headerH;
+      drawRect(ops, marginX, headerBottom, tableW, headerH, [0.95, 0.96, 0.98], [0.82, 0.85, 0.9], 0.8);
+
+      columns.forEach((col, cIdx) => {
+        if (cIdx > 0) {
+          drawLine(ops, col.x, headerBottom, col.x, headerTop, [0.85, 0.88, 0.92], 0.6);
+        }
+        drawText(ops, col.label, col.x + 5, headerBottom + 8, 7.5, true, [0.35, 0.4, 0.48]);
+      });
+
+      // Table Rows
+      let currentTop = headerBottom;
+      pageEntries.forEach((interval, rIdx) => {
+        const rowBottom = currentTop - rowH;
+        const bgRgb: [number, number, number] =
+          rIdx % 2 === 0 ? [1, 1, 1] : [0.975, 0.98, 0.99];
+        drawRect(ops, marginX, rowBottom, tableW, rowH, bgRgb, [0.88, 0.91, 0.94], 0.5);
+
+        // Vertical column dividers for each row
+        columns.forEach((col, cIdx) => {
+          if (cIdx > 0) {
+            drawLine(ops, col.x, rowBottom, col.x, currentTop, [0.91, 0.93, 0.96], 0.5);
+          }
+        });
+
+        const counts = interval.behaviorsByBird[selectedBirdId] || {
+          reducedFeeding: 0,
+          reducedDrinking: 0,
+          prolongedInactivity: 0,
+          featherPecking: 0,
+        };
+        const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+        const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+        const stress = getDailyPotentialStressFactors(interval, counts);
+
+        // Col 1: INTERVAL & TIME (2 lines inside column 1)
+        const cleanFullTime = interval.fullTimeLabel.replace(/[·•]/g, '-');
+        drawText(ops, interval.intervalLabel.slice(0, 24), columns[0].x + 5, currentTop - 13, 8.5, true, [0.06, 0.09, 0.16]);
+        drawText(ops, cleanFullTime.slice(0, 29), columns[0].x + 5, currentTop - 25, 6.8, false, [0.4, 0.45, 0.53]);
+
+        // Col 2: PROFILE (2 lines inside column 2)
+        drawText(ops, selectedBird.name.slice(0, 18), columns[1].x + 5, currentTop - 13, 8, true, [0.12, 0.16, 0.23]);
+        drawText(ops, selectedBird.role.slice(0, 20), columns[1].x + 5, currentTop - 25, 6.8, false, [0.4, 0.45, 0.53]);
+
+        // Col 3: BEHAVIOR EVENTS (4 clean badge pills inside column 3)
+        const badges = [
+          { text: `RFA:${counts.reducedFeeding}`, bg: [1.0, 0.96, 0.93] as [number, number, number], border: [0.99, 0.83, 0.65] as [number, number, number], fg: [0.76, 0.25, 0.05] as [number, number, number] },
+          { text: `RDA:${counts.reducedDrinking}`, bg: [0.94, 0.96, 1.0] as [number, number, number], border: [0.75, 0.85, 0.99] as [number, number, number], fg: [0.11, 0.31, 0.85] as [number, number, number] },
+          { text: `ISO:${iso}`, bg: [0.93, 0.99, 0.96] as [number, number, number], border: [0.65, 0.95, 0.82] as [number, number, number], fg: [0.02, 0.47, 0.34] as [number, number, number] },
+          { text: `LOC:${loc}`, bg: [0.98, 0.95, 1.0] as [number, number, number], border: [0.91, 0.83, 1.0] as [number, number, number], fg: [0.49, 0.13, 0.81] as [number, number, number] },
+        ];
+        badges.forEach((b, bIdx) => {
+          const bx = columns[2].x + 4 + bIdx * 40;
+          const by = rowBottom + 9;
+          drawRect(ops, bx, by, 38, 16, b.bg, b.border, 0.5);
+          drawText(ops, b.text.slice(0, 7), bx + 3.5, by + 5, 7, true, b.fg);
+        });
+
+        // Col 4: TEMP (C)
+        const tempTxt = interval.tempC !== null && interval.tempC !== undefined ? `${formatMetric(interval.tempC, 1)} C` : '- C';
+        drawText(ops, tempTxt, columns[3].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
+
+        // Col 5: HUMIDITY (%)
+        const humTxt = interval.humidityPct !== null && interval.humidityPct !== undefined ? `${formatMetric(interval.humidityPct, 0)} %` : '- %';
+        drawText(ops, humTxt, columns[4].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
+
+        // Col 6: AMMONIA (PPM)
+        const nh3Txt = interval.ammoniaPpm !== null && interval.ammoniaPpm !== undefined ? `${formatMetric(interval.ammoniaPpm, 1)} ppm` : '- ppm';
+        drawText(ops, nh3Txt, columns[5].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
+
+        // Col 7: SOUND (dBA)
+        const sndTxt = interval.soundDb !== null && interval.soundDb !== undefined ? `${formatMetric(interval.soundDb, 1)} dBA` : '- dBA';
+        drawText(ops, sndTxt, columns[6].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
+
+        // Col 8: POTENTIAL STRESS FACTORS (with automatic word-wrap so long details never cut off)
+        drawText(ops, stress.headline.slice(0, 48), columns[7].x + 5, currentTop - 11, 7.2, true, [0.12, 0.16, 0.23]);
+        if (stress.detail.length <= 50) {
+          drawText(ops, stress.detail, columns[7].x + 5, currentTop - 23, 6.5, false, [0.35, 0.4, 0.48]);
+        } else {
+          const splitAt = stress.detail.lastIndexOf(' ', 50);
+          const idxSplit = splitAt > 20 ? splitAt : 50;
+          const line1 = stress.detail.slice(0, idxSplit).trim();
+          const line2 = stress.detail.slice(idxSplit).trim().slice(0, 52);
+          drawText(ops, line1, columns[7].x + 5, currentTop - 20.5, 6.3, false, [0.35, 0.4, 0.48]);
+          drawText(ops, line2, columns[7].x + 5, currentTop - 28.5, 6.3, false, [0.35, 0.4, 0.48]);
+        }
+
+        currentTop = rowBottom;
+      });
+
+      // Footer
+      drawText(
+        ops,
+        `Generated by ChickenSee Portal  |  Note: Stress assessments apply strictly to full-day summaries (07:00 AM - 05:00 PM).`,
+        marginX,
+        18,
+        7.5,
+        false,
+        [0.5, 0.55, 0.62],
+      );
+
+      pageStreams.push(ops.join('\n'));
+    }
+
+    // Assemble multi-page PDF 1.4 document
+    // Object 1: Catalog, Object 2: Pages, Object 3: Helvetica, Object 4: Helvetica-Bold
+    // Then for each page i: Page object + Content stream object
+    const objects: string[] = [];
+    const pageObjIds: number[] = [];
+    for (let i = 0; i < pageStreams.length; i++) {
+      pageObjIds.push(5 + i * 2);
+    }
+
+    objects.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+    objects.push(
+      `2 0 obj\n<< /Type /Pages /Kids [${pageObjIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageStreams.length} >>\nendobj\n`,
+    );
+    objects.push('3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+    objects.push('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n');
+
+    pageStreams.forEach((streamBody, idx) => {
+      const pageObjId = 5 + idx * 2;
+      const contentObjId = pageObjId + 1;
+      objects.push(
+        `${pageObjId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${contentObjId} 0 R >>\nendobj\n`,
+      );
+      objects.push(
+        `${contentObjId} 0 obj\n<< /Length ${streamBody.length} >>\nstream\n${streamBody}\nendstream\nendobj\n`,
+      );
+    });
+
+    let pdf = '%PDF-1.4\n';
+    const offsets: number[] = [0];
+    for (const obj of objects) {
+      offsets.push(pdf.length);
+      pdf += obj;
+    }
+    const xrefStart = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (let idx = 1; idx < offsets.length; idx++) {
+      pdf += `${String(offsets[idx]).padStart(10, '0')} 00000 n \n`;
+    }
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    const blob = new Blob([pdf], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `behavior_results_${safeBirdSlug}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  // 4. Export PNG (.png) function (High-resolution 2x canvas table & summary render with full column width)
+  const handleExportPng = () => {
+    const rowCount = Math.max(1, filteredLogEntries.length);
+    const width = 1600;
+    const rowHeight = 62;
+    const headerHeight = 148;
+    const height = headerHeight + rowCount * rowHeight + 44;
+    const canvas = document.createElement('canvas');
+    canvas.width = width * 2;
+    canvas.height = height * 2;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(2, 2);
+
+    // Background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    // Header banner
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 20px Inter, Arial, sans-serif';
+    ctx.fillText('Detailed Telemetry & Behavior Correlation Log', 28, 38);
+
+    ctx.fillStyle = '#475569';
+    ctx.font = '13px Inter, Arial, sans-serif';
+    ctx.fillText(
+      `Profile: ${selectedBird.name} (${selectedBird.role})   ·   Filter: ${dateRangeLabel}   ·   Avg Temp: ${telemetryStats.tempAvg} °C   ·   Avg Humidity: ${telemetryStats.humAvg}%   ·   Avg NH3: ${telemetryStats.ammoniaAvg} ppm   ·   Avg Sound: ${telemetryStats.soundAvg} dBA`,
+      28,
+      64,
+    );
+
+    // Table header bar
+    const tableTop = 86;
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(20, tableTop, width - 40, 42);
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, tableTop, width - 40, 42);
+
+    const cols = [
+      { label: 'INTERVAL & TIME', x: 34 },
+      { label: 'PROFILE', x: 240 },
+      { label: 'BEHAVIOR EVENTS', x: 390 },
+      { label: 'TEMP (°C)', x: 665 },
+      { label: 'HUMIDITY (%)', x: 760 },
+      { label: 'AMMONIA (PPM)', x: 870 },
+      { label: 'SOUND (dBA)', x: 985 },
+      { label: 'POTENTIAL STRESS FACTORS', x: 1090 },
+    ];
+    ctx.fillStyle = '#64748b';
+    ctx.font = 'bold 11px Inter, Arial, sans-serif';
+    cols.forEach((c) => ctx.fillText(c.label, c.x, tableTop + 25));
+
+    const wrapCanvasText = (text: string, maxWidth: number): string[] => {
+      if (ctx.measureText(text).width <= maxWidth) return [text];
+      const words = text.split(' ');
+      const lines: string[] = [];
+      let current = '';
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (ctx.measureText(candidate).width <= maxWidth) {
+          current = candidate;
+        } else {
+          if (current) lines.push(current);
+          current = word;
+        }
+      }
+      if (current) lines.push(current);
+      return lines.slice(0, 2);
+    };
+
+    // Rows
+    filteredLogEntries.forEach((interval, idx) => {
+      const y = tableTop + 42 + idx * rowHeight;
+      ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+      ctx.fillRect(20, y, width - 40, rowHeight);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(20, y + rowHeight);
+      ctx.lineTo(width - 20, y + rowHeight);
+      ctx.stroke();
+
+      const counts = interval.behaviorsByBird[selectedBirdId] || {
+        reducedFeeding: 0,
+        reducedDrinking: 0,
+        prolongedInactivity: 0,
+        featherPecking: 0,
+      };
+      const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
+      const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
+      const stress = getDailyPotentialStressFactors(interval, counts);
+
+      // Col 1: Interval & Time
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 12px Inter, Arial, sans-serif';
+      ctx.fillText(interval.intervalLabel, 34, y + 24);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px Inter, Arial, sans-serif';
+      ctx.fillText(interval.fullTimeLabel, 34, y + 43);
+
+      // Col 2: Profile
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 12px Inter, Arial, sans-serif';
+      ctx.fillText(selectedBird.name, 240, y + 25);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px Inter, Arial, sans-serif';
+      ctx.fillText(selectedBird.role, 240, y + 42);
+
+      // Col 3: Behavior Events (spaced pill badges so multi-digit numbers never collide)
+      const pills = [
+        { text: `RFA: ${counts.reducedFeeding}`, bg: '#fff7ed', border: '#fed7aa', fg: '#c2410c' },
+        { text: `RDA: ${counts.reducedDrinking}`, bg: '#eff6ff', border: '#bfdbfe', fg: '#1d4ed8' },
+        { text: `ISO: ${iso}`, bg: '#ecfdf5', border: '#a7f3d0', fg: '#047857' },
+        { text: `LOC: ${loc}`, bg: '#faf5ff', border: '#e9d5ff', fg: '#7e22ce' },
+      ];
+      pills.forEach((pill, pIdx) => {
+        const px = 390 + pIdx * 65;
+        const py = y + 18;
+        ctx.fillStyle = pill.bg;
+        ctx.strokeStyle = pill.border;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(px, py, 60, 24, 5);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = pill.fg;
+        ctx.font = 'bold 10.5px monospace';
+        ctx.fillText(pill.text, px + 6, py + 15.5);
+      });
+
+      // Cols 4-7: Sensor Readings
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '12px monospace';
+      ctx.fillText(`${formatMetric(interval.tempC, 1)} °C`, 665, y + 34);
+      ctx.fillText(`${formatMetric(interval.humidityPct, 0)} %`, 760, y + 34);
+      ctx.fillText(`${formatMetric(interval.ammoniaPpm, 1)} ppm`, 870, y + 34);
+      ctx.fillText(`${formatMetric(interval.soundDb, 1)} dBA`, 985, y + 34);
+
+      // Col 8: Potential Stress Factors (475px available width + automatic word wrap)
+      const stressMaxW = width - 34 - 1090; // 476px
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 12px Inter, Arial, sans-serif';
+      ctx.fillText(stress.headline, 1090, y + 22);
+
+      ctx.fillStyle = '#475569';
+      ctx.font = '11px Inter, Arial, sans-serif';
+      const detailLines = wrapCanvasText(stress.detail, stressMaxW);
+      detailLines.forEach((line, lIdx) => {
+        ctx.fillText(line, 1090, y + 39 + lIdx * 14);
+      });
+    });
+
+    // Outer table border
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, tableTop, width - 40, 42 + rowCount * rowHeight);
+
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `behavior_results_${safeBirdSlug}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }, 'image/png');
   };
 
   // ─────────────────────────── DUAL AXIS SVG CHART CONFIGURATION ───────────────────────────
@@ -2206,14 +2742,48 @@ export default function BehaviorResultsTab() {
               />
             </div>
 
-            {/* Export CSV Button */}
-            <button
-              onClick={handleExportCsv}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:bg-slate-50"
-            >
-              <Download className="h-3.5 w-3.5 text-slate-400" />
-              <span>Export CSV</span>
-            </button>
+            {/* Export Options: PNG, PDF, Word, CSV */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleExportPng}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-orange-300 hover:bg-orange-50/60 hover:text-orange-700"
+                title="Export report table as high-resolution PNG image"
+              >
+                <Download className="h-3.5 w-3.5 text-slate-400" />
+                <span>Export PNG</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-orange-300 hover:bg-orange-50/60 hover:text-orange-700"
+                title="Export report table as PDF document"
+              >
+                <Download className="h-3.5 w-3.5 text-slate-400" />
+                <span>Export PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportWord}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-orange-300 hover:bg-orange-50/60 hover:text-orange-700"
+                title="Export report table as Microsoft Word (.doc) document"
+              >
+                <Download className="h-3.5 w-3.5 text-slate-400" />
+                <span>Export Word</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs transition hover:border-orange-300 hover:bg-orange-50/60 hover:text-orange-700"
+                title="Export report table as CSV spreadsheet"
+              >
+                <Download className="h-3.5 w-3.5 text-slate-400" />
+                <span>Export CSV</span>
+              </button>
+            </div>
           </div>
         </div>
 

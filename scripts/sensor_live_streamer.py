@@ -29,8 +29,36 @@ HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
     "Content-Type": "application/json",
-    "Prefer": "return=representation,resolution=merge-duplicates",
+    "Prefer": "return=representation",
 }
+
+
+def has_active_hardware_stream(max_age_seconds: float = 15.0) -> bool:
+    """
+    Returns True if real hardware telemetry has been recorded within max_age_seconds.
+    Prevents the simulated streamer from injecting synthetic ~29°C packets on top of
+    real ~40°C hardware sensor readings.
+    """
+    if os.getenv("FORCE_SIMULATED_SENSOR_STREAM", "0") == "1":
+        return False
+    query_url = f"{REST_ENDPOINT}?select=id,recorded_at,ammonia_ppm&order=id.desc&limit=1"
+    req = urllib.request.Request(query_url, headers=HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data and len(data) > 0:
+                row = data[0]
+                rec_str = str(row.get("recorded_at") or "").replace("Z", "+00:00")
+                if rec_str:
+                    rec_dt = datetime.datetime.fromisoformat(rec_str)
+                    if rec_dt.tzinfo is None:
+                        rec_dt = rec_dt.replace(tzinfo=datetime.timezone.utc)
+                    age_s = (datetime.datetime.now(datetime.timezone.utc) - rec_dt).total_seconds()
+                    if 0 <= age_s <= max_age_seconds:
+                        return True
+    except Exception:
+        pass
+    return False
 
 
 def generate_telemetry_packet(hour_fraction: float) -> dict:
@@ -140,6 +168,12 @@ def run_streamer(interval_s: float = 3.0):
                 prune_previous_day_logs(RETENTION_HOURS)
                 last_prune_time = time.time()
                 last_prune_date = now.date()
+
+            # Yield to live hardware sensor if real hardware packets are actively streaming
+            if has_active_hardware_stream(max_age_seconds=15.0):
+                current_id = fetch_latest_id()
+                time.sleep(interval_s)
+                continue
 
             hour_fraction = now.hour + (now.minute / 60.0) + (now.second / 3600.0)
             

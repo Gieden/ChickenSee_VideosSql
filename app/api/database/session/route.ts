@@ -134,20 +134,8 @@ export async function GET(req: NextRequest) {
     const db = await openDatabaseFromBytes(await content.arrayBuffer());
     const tables = getDatabaseTables(db);
 
-    // 1. Calculate sensor averages & summary metadata
+    // 1. Calculate sensor averages & summary metadata directly from the real SQLite database
     const averages = calculateSensorAverages(db, hourRange);
-    const isUnifiedTarget = targetFile.includes('unified');
-    if (isUnifiedTarget && !hourRange) {
-      if (selectedDbMeta.dateKey === '2026-11-17') {
-        averages.durationSeconds = 36000;
-        averages.videoFile = '12 paired videos (7:00 AM – 5:00 PM)';
-        if (averages.totalReadings > 0) {
-          averages.totalReadings = 540012;
-        }
-      }
-    } else if (hourRange) {
-      averages.durationSeconds = 3600;
-    }
 
     // 2. Query downsampled telemetry points for the dynamic chart
     const chartPoints = queryDownsampledSensorData(db, 150, hourRange);

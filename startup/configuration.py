@@ -73,8 +73,10 @@ def read_agent_settings(project_root: Path = PROJECT_ROOT) -> Dict[str, object]:
             default_data_dir.mkdir(parents=True, exist_ok=True)
             directories.append(str(default_data_dir))
 
-    # Resolve storage root safely
+    # Resolve storage root safely (standardized to <project_root>/local-storage)
     raw_storage = env_values.get("CHICKENSEE_LOCAL_STORAGE", str(default_storage_root))
+    if raw_storage.replace("\\", "/").strip().endswith("/ChickenSee_Local_Storage"):
+        raw_storage = str(default_storage_root)
     storage_path = Path(raw_storage).expanduser()
     if not storage_path.is_absolute():
         storage_path = (project_root / storage_path).resolve()

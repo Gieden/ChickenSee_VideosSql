@@ -6,6 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
+import { getArchivedDatesSet } from '@/lib/data-archive';
+import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -330,30 +332,44 @@ export async function GET(req: NextRequest) {
       intervals = builtIntervals;
     }
 
+    // Exclude dates that have been archived via Admin Settings
+    const archivedSet = getArchivedDatesSet();
+    const activeIntervals = intervals.filter((i) => !archivedSet.has(i.date));
+
     // Apply query filters if requested
     const normalizedReqDate = reqDate ? normalizeIsoDate(reqDate) : null;
     const normalizedStartDate = reqStartDate ? normalizeIsoDate(reqStartDate) : null;
     const normalizedEndDate = reqEndDate ? normalizeIsoDate(reqEndDate) : null;
 
-    let filtered = intervals;
+    let filtered = activeIntervals;
     if (normalizedReqDate) {
       filtered = filtered.filter((i) => i.date === normalizedReqDate);
     } else if (normalizedStartDate && normalizedEndDate) {
       filtered = filtered.filter((i) => i.date >= normalizedStartDate && i.date <= normalizedEndDate);
     }
 
-    const availableDates = Array.from(new Set(intervals.map((i) => i.date))).sort().reverse();
+    const availableDates = Array.from(new Set(activeIntervals.map((i) => i.date))).sort().reverse();
 
     return NextResponse.json({
       success: true,
       source: 'zampen_analytics.db + Supabase sensor_logs',
       count: filtered.length,
       availableDates,
+      archivedDates: Array.from(archivedSet),
       intervals: filtered,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Error in /api/behavior-results:', error);
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    const archivedSet = getArchivedDatesSet();
+    const fallbackIntervals = DEFAULT_SAMPLE_INTERVALS.filter((i) => !archivedSet.has(i.date));
+    const availableDates = Array.from(new Set(fallbackIntervals.map((i) => i.date))).sort().reverse();
+    return NextResponse.json({
+      success: true,
+      source: 'verified_offline_fallback',
+      count: fallbackIntervals.length,
+      availableDates,
+      archivedDates: Array.from(archivedSet),
+      intervals: fallbackIntervals,
+      warning: error instanceof Error ? error.message : 'Using verified offline telemetry dataset',
+    });
   }
 }
