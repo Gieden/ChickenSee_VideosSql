@@ -9,7 +9,7 @@ import {
   listArchiveFilesAsync,
 } from '@/lib/data-archive';
 import { listSyncedDatabases } from '@/lib/supabase-storage';
-import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
+import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 import { normalizeIsoDate } from '@/lib/date-range';
 
 export const runtime = 'nodejs';
@@ -61,9 +61,27 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Also include dates from data/results/queue_status.json so Vercel deployments see all recorded session dates
+    const queueDates: string[] = [];
+    const queueSnapPath = path.join(process.cwd(), 'data', 'results', 'queue_status.json');
+    if (fs.existsSync(queueSnapPath)) {
+      try {
+        const snap = JSON.parse(fs.readFileSync(queueSnapPath, 'utf-8'));
+        if (Array.isArray(snap?.items)) {
+          for (const item of snap.items) {
+            const rawD = String(item?.completed_at || item?.created_at || '').slice(0, 10);
+            const norm = normalizeIsoDate(rawD);
+            if (norm) queueDates.push(norm);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const archivedSet = new Set(archiveState.archivedDates);
 
-    const activeDates = Array.from(new Set([...dbDates, ...analyticsDates, ...sampleDates]))
+    const activeDates = Array.from(new Set([...dbDates, ...analyticsDates, ...queueDates, ...sampleDates]))
       .filter((d) => !archivedSet.has(d))
       .sort()
       .reverse();

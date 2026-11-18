@@ -157,6 +157,26 @@ try {
     }
     Add-Content -Path $SupervisorLog -Value "[$(Get-Date -Format o)] ChickenSee startup supervisor started."
 
+    # Ensure ChickenSee Control Center GUI is also launched on startup if not already open
+    try {
+        $DesktopAppScript = Join-Path $PSScriptRoot "chickensee_desktop.py"
+        if (Test-Path $DesktopAppScript -PathType Leaf) {
+            $ExistingGui = Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine -Filter "Name = 'python.exe' or Name = 'pythonw.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -match '(?i)chickensee_desktop\.py' }
+            if (-not $ExistingGui) {
+                $PythonW = Join-Path (Split-Path -Parent $Python) "pythonw.exe"
+                if (Test-Path $PythonW -PathType Leaf) {
+                    $GuiProc = Start-Process -FilePath $PythonW -ArgumentList @("`"$DesktopAppScript`"") -WorkingDirectory $ProjectRoot -PassThru
+                } else {
+                    $GuiProc = Start-Process -FilePath $Python -ArgumentList @("`"$DesktopAppScript`"") -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
+                }
+                Add-Content -Path $SupervisorLog -Value "[$(Get-Date -Format o)] Launched ChickenSee Control Center GUI, PID $($GuiProc.Id)."
+            }
+        }
+    } catch {
+        Add-Content -Path $SupervisorLog -Value "[$(Get-Date -Format o)] Could not auto-launch ChickenSee Control Center GUI: $($_.Exception.Message)"
+    }
+
     $CandidateProcesses = Get-CandidateProcesses
     $ExistingProcesses = @{}
     foreach ($Service in $Services) {

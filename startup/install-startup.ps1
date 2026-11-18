@@ -131,12 +131,14 @@ try {
     Write-Host "Could not configure StartupDelayInMSec in registry: $($_.Exception.Message)" -ForegroundColor Yellow
 }
 
-# 5. Register instant Run key in Windows Registry for immediate session startup
+# 5. Register instant Run keys in Windows Registry for immediate session startup (both Supervisor AND Control Center GUI)
 try {
     $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
     $RunCommand = "`"$CommandPrompt`" /c `"`"$LauncherPath`"`""
+    $GuiRunCommand = "`"$PythonWindowed`" `"$DesktopAppPath`""
     Set-ItemProperty -Path $RunKey -Name "ChickenSee" -Value $RunCommand -Type String -Force
-    Write-Host "Real-time logon registry entry configured in HKCU Run key." -ForegroundColor Cyan
+    Set-ItemProperty -Path $RunKey -Name "ChickenSeeControlCenter" -Value $GuiRunCommand -Type String -Force
+    Write-Host "Real-time logon registry entries (Supervisor + Control Center GUI) configured in HKCU Run key." -ForegroundColor Cyan
 } catch {
     Write-Host "Could not write Run key in registry: $($_.Exception.Message)" -ForegroundColor Yellow
 }

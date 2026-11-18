@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "archivedDates": [],
+  "archives": {
+    "chickensee_archive_1day_2026-10-04.sql": {
+      "archiveId": "arch_1day_2026-10-04_2026-10-04",
+      "fileName": "chickensee_archive_1day_2026-10-04.sql",
+      "scope": "1d",
+      "scopeLabel": "Entire Day (1 Day)",
+      "referenceDate": "2026-10-04",
+      "startDate": "2026-10-04",
+      "endDate": "2026-10-04",
+      "dates": [
+        "2026-10-04",
+        "2026-10-15",
+        "2026-10-17",
+        "2026-10-18",
+        "2026-10-19",
+        "2026-10-20",
+        "2026-11-04",
+        "2026-11-16"
+      ],
+      "createdAt": "2026-11-18T03:17:10.793Z",
+      "createdBy": "admin@gmail.com",
+      "metricsRowCount": 10,
+      "birdTrackRowCount": 234,
+      "sensorSessionCount": 1,
+      "behaviorIntervalCount": 10,
+      "status": "restored",
+      "restoredAt": "2026-11-18T03:17:25.229Z",
+      "restoredBy": "admin@gmail.com"
+    }
+  }
+}

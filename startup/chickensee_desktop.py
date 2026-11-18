@@ -273,6 +273,13 @@ class ChickenSeeDesktop:
         try:
             _initial_procs = find_service_processes()
             self._update_power_buttons(_initial_procs)
+            # If services are not running yet when Control Center opens on boot, auto-start the supervisor
+            if not any(_initial_procs.get(k) for k in ("sync-agent", "analytics-api", "analytics-worker", "supervisor")):
+                try:
+                    storage_root = Path(str(self.settings.get("storage_root") or DEFAULT_STORAGE_ROOT))
+                    start_supervisor(PROJECT_ROOT, storage_root)
+                except Exception:
+                    pass
         except Exception:
             pass
         self._refresh_status()

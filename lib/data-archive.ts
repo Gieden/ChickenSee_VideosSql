@@ -4,7 +4,7 @@ import path from 'path';
 import initSqlJs from 'sql.js';
 import { createClient } from '@supabase/supabase-js';
 import { addDays, enumerateDates, normalizeIsoDate, todayIso } from '@/lib/date-range';
-import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
+import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 
 export type ArchiveScope = '1d' | '7d' | '30d';
 

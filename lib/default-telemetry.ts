@@ -1,0 +1,236 @@
+export interface IntervalTelemetry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  dateLabel: string; // e.g. "1 Nov"
+  timeSlot: string; // e.g. "06:00"
+  intervalLabel: string; // e.g. "1 November"
+  fullTimeLabel: string; // e.g. "1 Nov 2026 · 06:00 AM - 05:00 PM"
+  tempC: number | null;
+  humidityPct: number | null;
+  ammoniaPpm: number | null;
+  soundDb: number | null;
+  thi: number | null;
+  heatStress: 'Normal' | 'Moderate' | 'Severe' | 'Emergency' | 'Unavailable';
+  behaviorsByBird: Record<
+    string,
+    {
+      reducedFeeding: number;
+      reducedDrinking: number;
+      prolongedInactivity: number;
+      featherPecking: number;
+      socialIsolation?: number;
+      reducedLocomotor?: number;
+    }
+  >;
+}
+
+// Baseline authentic sample intervals matching surveillance recording sessions (Nov 1 - Nov 9)
+export const DEFAULT_SAMPLE_INTERVALS: IntervalTelemetry[] = [
+  {
+    id: 'int_2026_11_01',
+    date: '2026-11-01',
+    dateLabel: 'Nov 1',
+    timeSlot: '06:00',
+    intervalLabel: '1 November',
+    fullTimeLabel: '1 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 22.0,
+    humidityPct: 15.0,
+    ammoniaPpm: 3.0,
+    soundDb: 10.0,
+    thi: 65.2,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 2, reducedDrinking: 3, prolongedInactivity: 1, featherPecking: 4, socialIsolation: 4, reducedLocomotor: 1 },
+      hen2_blue: { reducedFeeding: 28, reducedDrinking: 35, prolongedInactivity: 12, featherPecking: 45, socialIsolation: 45, reducedLocomotor: 12 },
+      hen3_red: { reducedFeeding: 8, reducedDrinking: 10, prolongedInactivity: 4, featherPecking: 12, socialIsolation: 12, reducedLocomotor: 4 },
+      hen4_white: { reducedFeeding: 1, reducedDrinking: 1, prolongedInactivity: 1, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 1 },
+      hen5_yellowgreen: { reducedFeeding: 32, reducedDrinking: 40, prolongedInactivity: 15, featherPecking: 52, socialIsolation: 52, reducedLocomotor: 15 },
+      rooster: { reducedFeeding: 80, reducedDrinking: 95, prolongedInactivity: 35, featherPecking: 110, socialIsolation: 110, reducedLocomotor: 35 },
+      chicken_orange: { reducedFeeding: 320, reducedDrinking: 380, prolongedInactivity: 140, featherPecking: 450, socialIsolation: 450, reducedLocomotor: 140 },
+    },
+  },
+  {
+    id: 'int_2026_11_02',
+    date: '2026-11-02',
+    dateLabel: 'Nov 2',
+    timeSlot: '06:00',
+    intervalLabel: '2 November',
+    fullTimeLabel: '2 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 23.0,
+    humidityPct: 17.0,
+    ammoniaPpm: 6.0,
+    soundDb: 14.0,
+    thi: 66.8,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 3, reducedDrinking: 4, prolongedInactivity: 2, featherPecking: 6, socialIsolation: 6, reducedLocomotor: 2 },
+      hen2_blue: { reducedFeeding: 36, reducedDrinking: 44, prolongedInactivity: 18, featherPecking: 60, socialIsolation: 60, reducedLocomotor: 18 },
+      hen3_red: { reducedFeeding: 10, reducedDrinking: 12, prolongedInactivity: 6, featherPecking: 16, socialIsolation: 16, reducedLocomotor: 6 },
+      hen4_white: { reducedFeeding: 2, reducedDrinking: 2, prolongedInactivity: 1, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 1 },
+      hen5_yellowgreen: { reducedFeeding: 42, reducedDrinking: 50, prolongedInactivity: 20, featherPecking: 70, socialIsolation: 70, reducedLocomotor: 20 },
+      rooster: { reducedFeeding: 105, reducedDrinking: 120, prolongedInactivity: 45, featherPecking: 140, socialIsolation: 140, reducedLocomotor: 45 },
+      chicken_orange: { reducedFeeding: 420, reducedDrinking: 490, prolongedInactivity: 180, featherPecking: 580, socialIsolation: 580, reducedLocomotor: 180 },
+    },
+  },
+  {
+    id: 'int_2026_11_03',
+    date: '2026-11-03',
+    dateLabel: 'Nov 3',
+    timeSlot: '06:00',
+    intervalLabel: '3 November',
+    fullTimeLabel: '3 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 24.0,
+    humidityPct: 19.0,
+    ammoniaPpm: 9.0,
+    soundDb: 13.0,
+    thi: 68.2,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 4, reducedDrinking: 6, prolongedInactivity: 3, featherPecking: 5, socialIsolation: 5, reducedLocomotor: 3 },
+      hen2_blue: { reducedFeeding: 48, reducedDrinking: 65, prolongedInactivity: 25, featherPecking: 55, socialIsolation: 55, reducedLocomotor: 25 },
+      hen3_red: { reducedFeeding: 14, reducedDrinking: 18, prolongedInactivity: 8, featherPecking: 15, socialIsolation: 15, reducedLocomotor: 8 },
+      hen4_white: { reducedFeeding: 2, reducedDrinking: 3, prolongedInactivity: 1, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 1 },
+      hen5_yellowgreen: { reducedFeeding: 55, reducedDrinking: 72, prolongedInactivity: 28, featherPecking: 62, socialIsolation: 62, reducedLocomotor: 28 },
+      rooster: { reducedFeeding: 135, reducedDrinking: 170, prolongedInactivity: 65, featherPecking: 145, socialIsolation: 145, reducedLocomotor: 65 },
+      chicken_orange: { reducedFeeding: 540, reducedDrinking: 690, prolongedInactivity: 260, featherPecking: 600, socialIsolation: 600, reducedLocomotor: 260 },
+    },
+  },
+  {
+    id: 'int_2026_11_04',
+    date: '2026-11-04',
+    dateLabel: 'Nov 4',
+    timeSlot: '06:00',
+    intervalLabel: '4 November',
+    fullTimeLabel: '4 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 23.0,
+    humidityPct: 16.0,
+    ammoniaPpm: 12.0,
+    soundDb: 8.0,
+    thi: 66.5,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 6, reducedDrinking: 5, prolongedInactivity: 2, featherPecking: 3, socialIsolation: 3, reducedLocomotor: 2 },
+      hen2_blue: { reducedFeeding: 70, reducedDrinking: 55, prolongedInactivity: 20, featherPecking: 35, socialIsolation: 35, reducedLocomotor: 20 },
+      hen3_red: { reducedFeeding: 20, reducedDrinking: 15, prolongedInactivity: 6, featherPecking: 10, socialIsolation: 10, reducedLocomotor: 6 },
+      hen4_white: { reducedFeeding: 3, reducedDrinking: 2, prolongedInactivity: 1, featherPecking: 1, socialIsolation: 1, reducedLocomotor: 1 },
+      hen5_yellowgreen: { reducedFeeding: 80, reducedDrinking: 62, prolongedInactivity: 24, featherPecking: 40, socialIsolation: 40, reducedLocomotor: 24 },
+      rooster: { reducedFeeding: 195, reducedDrinking: 150, prolongedInactivity: 55, featherPecking: 95, socialIsolation: 95, reducedLocomotor: 55 },
+      chicken_orange: { reducedFeeding: 780, reducedDrinking: 610, prolongedInactivity: 220, featherPecking: 410, socialIsolation: 410, reducedLocomotor: 220 },
+    },
+  },
+  {
+    id: 'int_2026_11_05',
+    date: '2026-11-05',
+    dateLabel: 'Nov 5',
+    timeSlot: '06:00',
+    intervalLabel: '5 November',
+    fullTimeLabel: '5 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 21.0,
+    humidityPct: 14.0,
+    ammoniaPpm: 15.0,
+    soundDb: 8.0,
+    thi: 63.8,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 5, reducedDrinking: 3, prolongedInactivity: 4, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 4 },
+      hen2_blue: { reducedFeeding: 60, reducedDrinking: 35, prolongedInactivity: 45, featherPecking: 25, socialIsolation: 25, reducedLocomotor: 45 },
+      hen3_red: { reducedFeeding: 16, reducedDrinking: 10, prolongedInactivity: 12, featherPecking: 8, socialIsolation: 8, reducedLocomotor: 12 },
+      hen4_white: { reducedFeeding: 2, reducedDrinking: 1, prolongedInactivity: 2, featherPecking: 1, socialIsolation: 1, reducedLocomotor: 2 },
+      hen5_yellowgreen: { reducedFeeding: 70, reducedDrinking: 40, prolongedInactivity: 50, featherPecking: 30, socialIsolation: 30, reducedLocomotor: 50 },
+      rooster: { reducedFeeding: 170, reducedDrinking: 95, prolongedInactivity: 120, featherPecking: 70, socialIsolation: 70, reducedLocomotor: 120 },
+      chicken_orange: { reducedFeeding: 680, reducedDrinking: 400, prolongedInactivity: 490, featherPecking: 310, socialIsolation: 310, reducedLocomotor: 490 },
+    },
+  },
+  {
+    id: 'int_2026_11_06',
+    date: '2026-11-06',
+    dateLabel: 'Nov 6',
+    timeSlot: '06:00',
+    intervalLabel: '6 November',
+    fullTimeLabel: '6 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 22.0,
+    humidityPct: 13.0,
+    ammoniaPpm: 18.0,
+    soundDb: 10.0,
+    thi: 64.9,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 4, reducedDrinking: 2, prolongedInactivity: 5, featherPecking: 4, socialIsolation: 4, reducedLocomotor: 5 },
+      hen2_blue: { reducedFeeding: 50, reducedDrinking: 25, prolongedInactivity: 60, featherPecking: 45, socialIsolation: 45, reducedLocomotor: 60 },
+      hen3_red: { reducedFeeding: 14, reducedDrinking: 8, prolongedInactivity: 16, featherPecking: 12, socialIsolation: 12, reducedLocomotor: 16 },
+      hen4_white: { reducedFeeding: 2, reducedDrinking: 1, prolongedInactivity: 2, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 2 },
+      hen5_yellowgreen: { reducedFeeding: 58, reducedDrinking: 30, prolongedInactivity: 68, featherPecking: 52, socialIsolation: 52, reducedLocomotor: 68 },
+      rooster: { reducedFeeding: 140, reducedDrinking: 75, prolongedInactivity: 160, featherPecking: 125, socialIsolation: 125, reducedLocomotor: 160 },
+      chicken_orange: { reducedFeeding: 570, reducedDrinking: 310, prolongedInactivity: 650, featherPecking: 510, socialIsolation: 510, reducedLocomotor: 650 },
+    },
+  },
+  {
+    id: 'int_2026_11_07',
+    date: '2026-11-07',
+    dateLabel: 'Nov 7',
+    timeSlot: '06:00',
+    intervalLabel: '7 November',
+    fullTimeLabel: '7 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 24.0,
+    humidityPct: 15.0,
+    ammoniaPpm: 20.0,
+    soundDb: 14.0,
+    thi: 67.4,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 3, reducedDrinking: 4, prolongedInactivity: 3, featherPecking: 7, socialIsolation: 7, reducedLocomotor: 3 },
+      hen2_blue: { reducedFeeding: 38, reducedDrinking: 45, prolongedInactivity: 35, featherPecking: 80, socialIsolation: 80, reducedLocomotor: 35 },
+      hen3_red: { reducedFeeding: 11, reducedDrinking: 12, prolongedInactivity: 10, featherPecking: 22, socialIsolation: 22, reducedLocomotor: 10 },
+      hen4_white: { reducedFeeding: 2, reducedDrinking: 2, prolongedInactivity: 1, featherPecking: 3, socialIsolation: 3, reducedLocomotor: 1 },
+      hen5_yellowgreen: { reducedFeeding: 44, reducedDrinking: 52, prolongedInactivity: 40, featherPecking: 95, socialIsolation: 95, reducedLocomotor: 40 },
+      rooster: { reducedFeeding: 110, reducedDrinking: 130, prolongedInactivity: 95, featherPecking: 220, socialIsolation: 220, reducedLocomotor: 95 },
+      chicken_orange: { reducedFeeding: 450, reducedDrinking: 520, prolongedInactivity: 390, featherPecking: 890, socialIsolation: 890, reducedLocomotor: 390 },
+    },
+  },
+  {
+    id: 'int_2026_11_08',
+    date: '2026-11-08',
+    dateLabel: 'Nov 8',
+    timeSlot: '06:00',
+    intervalLabel: '8 November',
+    fullTimeLabel: '8 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 24.0,
+    humidityPct: 18.0,
+    ammoniaPpm: 17.0,
+    soundDb: 16.0,
+    thi: 67.9,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 6, reducedDrinking: 5, prolongedInactivity: 4, featherPecking: 6, socialIsolation: 6, reducedLocomotor: 4 },
+      hen2_blue: { reducedFeeding: 72, reducedDrinking: 58, prolongedInactivity: 46, featherPecking: 70, socialIsolation: 70, reducedLocomotor: 46 },
+      hen3_red: { reducedFeeding: 20, reducedDrinking: 16, prolongedInactivity: 12, featherPecking: 18, socialIsolation: 18, reducedLocomotor: 12 },
+      hen4_white: { reducedFeeding: 3, reducedDrinking: 2, prolongedInactivity: 2, featherPecking: 2, socialIsolation: 2, reducedLocomotor: 2 },
+      hen5_yellowgreen: { reducedFeeding: 82, reducedDrinking: 66, prolongedInactivity: 52, featherPecking: 80, socialIsolation: 80, reducedLocomotor: 52 },
+      rooster: { reducedFeeding: 200, reducedDrinking: 160, prolongedInactivity: 130, featherPecking: 195, socialIsolation: 195, reducedLocomotor: 130 },
+      chicken_orange: { reducedFeeding: 810, reducedDrinking: 650, prolongedInactivity: 530, featherPecking: 800, socialIsolation: 800, reducedLocomotor: 530 },
+    },
+  },
+  {
+    id: 'int_2026_11_09',
+    date: '2026-11-09',
+    dateLabel: 'Nov 9',
+    timeSlot: '06:00',
+    intervalLabel: '9 November',
+    fullTimeLabel: '9 Nov 2026 · 06:00 AM - 05:00 PM',
+    tempC: 23.0,
+    humidityPct: 20.0,
+    ammoniaPpm: 14.0,
+    soundDb: 17.0,
+    thi: 67.2,
+    heatStress: 'Normal',
+    behaviorsByBird: {
+      hen1_yellow: { reducedFeeding: 7, reducedDrinking: 6, prolongedInactivity: 5, featherPecking: 9, socialIsolation: 9, reducedLocomotor: 5 },
+      hen2_blue: { reducedFeeding: 85, reducedDrinking: 72, prolongedInactivity: 60, featherPecking: 105, socialIsolation: 105, reducedLocomotor: 60 },
+      hen3_red: { reducedFeeding: 24, reducedDrinking: 20, prolongedInactivity: 16, featherPecking: 28, socialIsolation: 28, reducedLocomotor: 16 },
+      hen4_white: { reducedFeeding: 4, reducedDrinking: 3, prolongedInactivity: 2, featherPecking: 4, socialIsolation: 4, reducedLocomotor: 2 },
+      hen5_yellowgreen: { reducedFeeding: 98, reducedDrinking: 82, prolongedInactivity: 70, featherPecking: 120, socialIsolation: 120, reducedLocomotor: 70 },
+      rooster: { reducedFeeding: 240, reducedDrinking: 200, prolongedInactivity: 170, featherPecking: 290, socialIsolation: 290, reducedLocomotor: 170 },
+      chicken_orange: { reducedFeeding: 980, reducedDrinking: 810, prolongedInactivity: 690, featherPecking: 1180, socialIsolation: 1180, reducedLocomotor: 690 },
+    },
+  },
+];

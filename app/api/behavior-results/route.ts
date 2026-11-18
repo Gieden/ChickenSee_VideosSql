@@ -7,7 +7,7 @@ import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
-import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
+import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

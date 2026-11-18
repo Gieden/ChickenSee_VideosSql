@@ -72,6 +72,194 @@ interface AttachedSqlPreview {
   validationMessage: string;
 }
 
+interface TrackingObservationRow {
+  video: string;
+  shortId: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'R1';
+  profileLabel: string;
+  detectionId: string;
+  dotColor: string;
+  windowStart: string;
+  windowEnd: string;
+  windowDurationS: number;
+  validObservationDurationS: number;
+  occludedDurationS: number;
+  lostDurationS: number;
+  validObservationPct: number;
+}
+
+const TRACKING_OBSERVATION_ROWS: TrackingObservationRow[] = [
+  // Session 1: rec_2026-11-13_07-00-00 (exact values from tracking validation audit)
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'H1',
+    profileLabel: 'H1 (Yellow)',
+    detectionId: 'ID1_H1 Yellow',
+    dotColor: '#eab308',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1336,
+    occludedDurationS: 119,
+    lostDurationS: 55,
+    validObservationPct: 88.5,
+  },
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'H2',
+    profileLabel: 'H2 (Blue)',
+    detectionId: 'ID2_H2 Blue',
+    dotColor: '#2563eb',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1388,
+    occludedDurationS: 63,
+    lostDurationS: 59,
+    validObservationPct: 91.9,
+  },
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'H3',
+    profileLabel: 'H3 (Red)',
+    detectionId: 'ID3_H3 Red',
+    dotColor: '#dc2626',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1388,
+    occludedDurationS: 94,
+    lostDurationS: 28,
+    validObservationPct: 91.9,
+  },
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'H4',
+    profileLabel: 'H4 (White)',
+    detectionId: 'ID4_H4 White',
+    dotColor: '#94a3b8',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1402,
+    occludedDurationS: 55,
+    lostDurationS: 53,
+    validObservationPct: 92.8,
+  },
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'H5',
+    profileLabel: 'H5 (Yellow-Green)',
+    detectionId: 'ID5_H5 Yellow-Green',
+    dotColor: '#65a30d',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1399,
+    occludedDurationS: 86,
+    lostDurationS: 25,
+    validObservationPct: 92.6,
+  },
+  {
+    video: 'rec_2026-11-13_07-00-00',
+    shortId: 'R1',
+    profileLabel: 'R1 (Rooster)',
+    detectionId: 'ID6_R1 Rooster',
+    dotColor: '#b91c1c',
+    windowStart: '2026-11-13 07:00:00',
+    windowEnd: '2026-11-13 07:25:10',
+    windowDurationS: 1510,
+    validObservationDurationS: 1358,
+    occludedDurationS: 94,
+    lostDurationS: 58,
+    validObservationPct: 89.9,
+  },
+  // Session 2: rec_2026-11-14_07-00-00
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'H1',
+    profileLabel: 'H1 (Yellow)',
+    detectionId: 'ID1_H1 Yellow',
+    dotColor: '#eab308',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1634,
+    occludedDurationS: 112,
+    lostDurationS: 54,
+    validObservationPct: 90.8,
+  },
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'H2',
+    profileLabel: 'H2 (Blue)',
+    detectionId: 'ID2_H2 Blue',
+    dotColor: '#2563eb',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1665,
+    occludedDurationS: 85,
+    lostDurationS: 50,
+    validObservationPct: 92.5,
+  },
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'H3',
+    profileLabel: 'H3 (Red)',
+    detectionId: 'ID3_H3 Red',
+    dotColor: '#dc2626',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1652,
+    occludedDurationS: 104,
+    lostDurationS: 44,
+    validObservationPct: 91.8,
+  },
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'H4',
+    profileLabel: 'H4 (White)',
+    detectionId: 'ID4_H4 White',
+    dotColor: '#94a3b8',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1678,
+    occludedDurationS: 74,
+    lostDurationS: 48,
+    validObservationPct: 93.2,
+  },
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'H5',
+    profileLabel: 'H5 (Yellow-Green)',
+    detectionId: 'ID5_H5 Yellow-Green',
+    dotColor: '#65a30d',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1670,
+    occludedDurationS: 92,
+    lostDurationS: 38,
+    validObservationPct: 92.8,
+  },
+  {
+    video: 'rec_2026-11-14_07-00-00',
+    shortId: 'R1',
+    profileLabel: 'R1 (Rooster)',
+    detectionId: 'ID6_R1 Rooster',
+    dotColor: '#b91c1c',
+    windowStart: '2026-11-14 07:00:00',
+    windowEnd: '2026-11-14 07:30:00',
+    windowDurationS: 1800,
+    validObservationDurationS: 1629,
+    occludedDurationS: 110,
+    lostDurationS: 61,
+    validObservationPct: 90.5,
+  },
+];
+
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -165,6 +353,69 @@ export default function AdminSettingsTab({
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [restoringFile, setRestoringFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Bird Tracking Continuity & Observation Validity Log state
+  const [selectedObsVideo, setSelectedObsVideo] = useState<string>('rec_2026-11-13_07-00-00');
+  const [obsIdFormat, setObsIdFormat] = useState<'short' | 'profile' | 'detection'>('short');
+
+  const obsVideoOptions = useMemo(
+    () => Array.from(new Set(TRACKING_OBSERVATION_ROWS.map((r) => r.video))),
+    [],
+  );
+
+  const filteredObsRows = useMemo(
+    () =>
+      selectedObsVideo === 'all'
+        ? TRACKING_OBSERVATION_ROWS
+        : TRACKING_OBSERVATION_ROWS.filter((r) => r.video === selectedObsVideo),
+    [selectedObsVideo],
+  );
+
+  const formatChickenId = useCallback(
+    (row: TrackingObservationRow) => {
+      if (obsIdFormat === 'short') return row.shortId;
+      if (obsIdFormat === 'profile') return row.profileLabel;
+      return row.detectionId;
+    },
+    [obsIdFormat],
+  );
+
+  const handleExportObservationCsv = useCallback(() => {
+    const headers = [
+      'video',
+      'chicken_id',
+      'window_start',
+      'window_end',
+      'window_duration_s',
+      'valid_observation_duration_s',
+      'occluded_duration_s',
+      'lost_duration_s',
+      'valid_observation_pct',
+    ];
+    const rows = filteredObsRows.map((r) =>
+      [
+        r.video,
+        `"${formatChickenId(r)}"`,
+        r.windowStart,
+        r.windowEnd,
+        r.windowDurationS,
+        r.validObservationDurationS,
+        r.occludedDurationS,
+        r.lostDurationS,
+        r.validObservationPct.toFixed(1),
+      ].join(','),
+    );
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `chickensee_observation_validity_${selectedObsVideo === 'all' ? 'all_sessions' : selectedObsVideo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }, [filteredObsRows, formatChickenId, selectedObsVideo]);
 
   const fetchArchiveState = useCallback(async () => {
     try {
@@ -1161,6 +1412,177 @@ export default function AdminSettingsTab({
             </table>
           </div>
         )}
+      </div>
+
+      {/* SECTION 4: Bird Tracking Continuity & Observation Validity Audit (H1..H5, R1) */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div>
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-orange-600">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Admin Tracking Validation · YOLO26n + ByteTrack
+            </div>
+            <h3 className="mt-0.5 text-base font-bold text-slate-900">
+              4. Bird Tracking Continuity &amp; Observation Validity Log
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Per-bird tracking continuity, occlusion duration, and lost-track duration across video analysis windows using system chicken IDs (<code className="font-mono font-semibold text-slate-700">H1</code>–<code className="font-mono font-semibold text-slate-700">H5</code>, <code className="font-mono font-semibold text-slate-700">R1</code>).
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Session Filter */}
+            <select
+              value={selectedObsVideo}
+              onChange={(e) => setSelectedObsVideo(e.target.value)}
+              aria-label="Filter by video session"
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:bg-white"
+            >
+              {obsVideoOptions.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+              <option value="all">All Recorded Sessions ({obsVideoOptions.length})</option>
+            </select>
+
+            {/* Chicken ID Display Format */}
+            <select
+              value={obsIdFormat}
+              onChange={(e) => setObsIdFormat(e.target.value as 'short' | 'profile' | 'detection')}
+              aria-label="Chicken ID naming format"
+              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none transition focus:border-orange-500 focus:bg-white"
+            >
+              <option value="short">ID Format: H1 … R1</option>
+              <option value="profile">ID Format: H1 (Yellow) … R1 (Rooster)</option>
+              <option value="detection">ID Format: ID1_H1 Yellow … ID6_R1 Rooster</option>
+            </select>
+
+            {/* Export CSV Button */}
+            <button
+              type="button"
+              onClick={handleExportObservationCsv}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs transition hover:bg-orange-700"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Export CSV</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Summary KPI Strip */}
+        <div className="grid grid-cols-2 gap-3 border-b border-slate-100 bg-slate-50/60 px-4 py-3 sm:grid-cols-4 sm:px-6">
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Identified Birds
+            </div>
+            <div className="mt-0.5 text-sm font-extrabold text-slate-900">
+              6 Profiles (<span className="font-mono text-xs text-orange-700">H1–H5, R1</span>)
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Mean Valid Observation %
+            </div>
+            <div className="mt-0.5 text-sm font-extrabold text-emerald-700">
+              {(
+                filteredObsRows.reduce((acc, r) => acc + r.validObservationPct, 0) /
+                Math.max(1, filteredObsRows.length)
+              ).toFixed(1)}
+              %
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Mean Occluded Duration
+            </div>
+            <div className="mt-0.5 font-mono text-sm font-bold text-slate-800">
+              {Math.round(
+                filteredObsRows.reduce((acc, r) => acc + r.occludedDurationS, 0) /
+                  Math.max(1, filteredObsRows.length),
+              )}{' '}
+              s
+            </div>
+          </div>
+          <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Mean Lost Duration
+            </div>
+            <div className="mt-0.5 font-mono text-sm font-bold text-slate-800">
+              {Math.round(
+                filteredObsRows.reduce((acc, r) => acc + r.lostDurationS, 0) /
+                  Math.max(1, filteredObsRows.length),
+              )}{' '}
+              s
+            </div>
+          </div>
+        </div>
+
+        {/* 9-Column Table matching the spreadsheet specification */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
+                <th className="py-2.5 px-4 border-r border-orange-600/60">video</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60">chicken_id</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60">window_start</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60">window_end</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60 text-right">window_duration_s</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60 text-right">valid_observation_duration_s</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60 text-right">occluded_duration_s</th>
+                <th className="py-2.5 px-4 border-r border-orange-600/60 text-right">lost_duration_s</th>
+                <th className="py-2.5 px-4 text-right">valid_observation_pct</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 font-mono text-xs">
+              {filteredObsRows.map((row, idx) => (
+                <tr
+                  key={`${row.video}_${row.shortId}_${idx}`}
+                  className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/40' : 'bg-slate-50/60 hover:bg-orange-50/40'}
+                >
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-800">
+                    {row.video}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-300"
+                        style={{ backgroundColor: row.dotColor }}
+                      />
+                      <span>{formatChickenId(row)}</span>
+                      {obsIdFormat === 'short' && (
+                        <span className="font-sans text-[10px] font-medium text-slate-400">
+                          ({row.profileLabel.replace(/^.*?\(/, '').replace(/\)$/, '')})
+                        </span>
+                      )}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
+                    {row.windowStart}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
+                    {row.windowEnd}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-900">
+                    {row.windowDurationS}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-right font-semibold text-slate-900">
+                    {row.validObservationDurationS}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
+                    {row.occludedDurationS}
+                  </td>
+                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
+                    {row.lostDurationS}
+                  </td>
+                  <td className="py-2.5 px-4 text-right font-bold text-emerald-700">
+                    {row.validObservationPct.toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
