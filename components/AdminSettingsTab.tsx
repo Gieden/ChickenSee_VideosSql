@@ -14,7 +14,9 @@ import {
   FileCode,
   FolderArchive,
   HardDrive,
+  KeyRound,
   Loader2,
+  Lock,
   Paperclip,
   RefreshCw,
   RotateCcw,
@@ -22,6 +24,7 @@ import {
   ShieldCheck,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   WEEKDAY_LETTERS,
@@ -34,8 +37,9 @@ import {
   shiftMonthKey,
   todayIso,
 } from '@/lib/date-range';
+import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 
-type ArchiveScope = '1d' | '7d' | '30d';
+type ArchiveScope = '1d' | '7d' | '30d' | 'all';
 
 interface ArchiveFileEntry {
   archiveId: string;
@@ -74,6 +78,8 @@ interface AttachedSqlPreview {
 
 interface TrackingObservationRow {
   video: string;
+  jobId?: number;
+  chunkIndex?: number;
   shortId: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'R1';
   profileLabel: string;
   detectionId: string;
@@ -86,179 +92,6 @@ interface TrackingObservationRow {
   lostDurationS: number;
   validObservationPct: number;
 }
-
-const TRACKING_OBSERVATION_ROWS: TrackingObservationRow[] = [
-  // Session 1: rec_2026-11-13_07-00-00 (exact values from tracking validation audit)
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'H1',
-    profileLabel: 'H1 (Yellow)',
-    detectionId: 'ID1_H1 Yellow',
-    dotColor: '#eab308',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1336,
-    occludedDurationS: 119,
-    lostDurationS: 55,
-    validObservationPct: 88.5,
-  },
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'H2',
-    profileLabel: 'H2 (Blue)',
-    detectionId: 'ID2_H2 Blue',
-    dotColor: '#2563eb',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1388,
-    occludedDurationS: 63,
-    lostDurationS: 59,
-    validObservationPct: 91.9,
-  },
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'H3',
-    profileLabel: 'H3 (Red)',
-    detectionId: 'ID3_H3 Red',
-    dotColor: '#dc2626',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1388,
-    occludedDurationS: 94,
-    lostDurationS: 28,
-    validObservationPct: 91.9,
-  },
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'H4',
-    profileLabel: 'H4 (White)',
-    detectionId: 'ID4_H4 White',
-    dotColor: '#94a3b8',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1402,
-    occludedDurationS: 55,
-    lostDurationS: 53,
-    validObservationPct: 92.8,
-  },
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'H5',
-    profileLabel: 'H5 (Yellow-Green)',
-    detectionId: 'ID5_H5 Yellow-Green',
-    dotColor: '#65a30d',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1399,
-    occludedDurationS: 86,
-    lostDurationS: 25,
-    validObservationPct: 92.6,
-  },
-  {
-    video: 'rec_2026-11-13_07-00-00',
-    shortId: 'R1',
-    profileLabel: 'R1 (Rooster)',
-    detectionId: 'ID6_R1 Rooster',
-    dotColor: '#b91c1c',
-    windowStart: '2026-11-13 07:00:00',
-    windowEnd: '2026-11-13 07:25:10',
-    windowDurationS: 1510,
-    validObservationDurationS: 1358,
-    occludedDurationS: 94,
-    lostDurationS: 58,
-    validObservationPct: 89.9,
-  },
-  // Session 2: rec_2026-11-14_07-00-00
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'H1',
-    profileLabel: 'H1 (Yellow)',
-    detectionId: 'ID1_H1 Yellow',
-    dotColor: '#eab308',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1634,
-    occludedDurationS: 112,
-    lostDurationS: 54,
-    validObservationPct: 90.8,
-  },
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'H2',
-    profileLabel: 'H2 (Blue)',
-    detectionId: 'ID2_H2 Blue',
-    dotColor: '#2563eb',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1665,
-    occludedDurationS: 85,
-    lostDurationS: 50,
-    validObservationPct: 92.5,
-  },
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'H3',
-    profileLabel: 'H3 (Red)',
-    detectionId: 'ID3_H3 Red',
-    dotColor: '#dc2626',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1652,
-    occludedDurationS: 104,
-    lostDurationS: 44,
-    validObservationPct: 91.8,
-  },
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'H4',
-    profileLabel: 'H4 (White)',
-    detectionId: 'ID4_H4 White',
-    dotColor: '#94a3b8',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1678,
-    occludedDurationS: 74,
-    lostDurationS: 48,
-    validObservationPct: 93.2,
-  },
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'H5',
-    profileLabel: 'H5 (Yellow-Green)',
-    detectionId: 'ID5_H5 Yellow-Green',
-    dotColor: '#65a30d',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1670,
-    occludedDurationS: 92,
-    lostDurationS: 38,
-    validObservationPct: 92.8,
-  },
-  {
-    video: 'rec_2026-11-14_07-00-00',
-    shortId: 'R1',
-    profileLabel: 'R1 (Rooster)',
-    detectionId: 'ID6_R1 Rooster',
-    dotColor: '#b91c1c',
-    windowStart: '2026-11-14 07:00:00',
-    windowEnd: '2026-11-14 07:30:00',
-    windowDurationS: 1800,
-    validObservationDurationS: 1629,
-    occludedDurationS: 110,
-    lostDurationS: 61,
-    validObservationPct: 90.5,
-  },
-];
 
 function formatBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 B';
@@ -334,12 +167,14 @@ export default function AdminSettingsTab({
 }) {
   const [archiveFolder, setArchiveFolder] = useState<string>('Archive');
   const [archivedDates, setArchivedDates] = useState<string[]>([]);
-  const [activeDates, setActiveDates] = useState<string[]>([]);
+  const [activeDates, setActiveDates] = useState<string[]>(() =>
+    DEFAULT_SAMPLE_INTERVALS.map((i) => i.date).slice().reverse(),
+  );
   const [archiveFiles, setArchiveFiles] = useState<ArchiveFileEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [referenceDate, setReferenceDate] = useState<string>('2026-11-17');
+  const [referenceDate, setReferenceDate] = useState<string>('2026-11-09');
   const [calendarOpen, setCalendarOpen] = useState<boolean>(false);
   const [calendarMonth, setCalendarMonth] = useState<string>(() => '2026-11');
   const calendarPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -348,27 +183,56 @@ export default function AdminSettingsTab({
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Admin Password Security Confirmation Modal state
+  const [pendingConfirmScope, setPendingConfirmScope] = useState<ArchiveScope | null>(null);
+  const [confirmAdminPassword, setConfirmAdminPassword] = useState<string>('');
+  const [confirmModalError, setConfirmModalError] = useState<string | null>(null);
+
   // Attachable SQL file state for restore
   const [attachedPreview, setAttachedPreview] = useState<AttachedSqlPreview | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
   const [restoringFile, setRestoringFile] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Bird Tracking Continuity & Observation Validity Log state
-  const [selectedObsVideo, setSelectedObsVideo] = useState<string>('rec_2026-11-13_07-00-00');
+  // Bird Tracking Continuity & Observation Validity Log state (loaded dynamically from /api/admin/tracking-validity)
+  const [obsRows, setObsRows] = useState<TrackingObservationRow[]>([]);
+  const [obsLoading, setObsLoading] = useState<boolean>(true);
+  const [selectedObsVideo, setSelectedObsVideo] = useState<string>('all');
   const [obsIdFormat, setObsIdFormat] = useState<'short' | 'profile' | 'detection'>('short');
 
+  const fetchTrackingValidity = useCallback(async () => {
+    try {
+      setObsLoading(true);
+      const res = await fetch('/api/admin/tracking-validity', { cache: 'no-store' });
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.rows)) {
+        setObsRows(data.rows);
+        if (data.rows.length > 0 && selectedObsVideo === 'all') {
+          setSelectedObsVideo(data.rows[0].video);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load tracking validity metrics:', err);
+    } finally {
+      setObsLoading(false);
+    }
+  }, [selectedObsVideo]);
+
+  useEffect(() => {
+    fetchTrackingValidity();
+  }, [fetchTrackingValidity]);
+
   const obsVideoOptions = useMemo(
-    () => Array.from(new Set(TRACKING_OBSERVATION_ROWS.map((r) => r.video))),
-    [],
+    () => Array.from(new Set(obsRows.map((r) => r.video))),
+    [obsRows],
   );
 
   const filteredObsRows = useMemo(
     () =>
       selectedObsVideo === 'all'
-        ? TRACKING_OBSERVATION_ROWS
-        : TRACKING_OBSERVATION_ROWS.filter((r) => r.video === selectedObsVideo),
-    [selectedObsVideo],
+        ? obsRows
+        : obsRows.filter((r) => r.video === selectedObsVideo),
+    [obsRows, selectedObsVideo],
   );
 
   const formatChickenId = useCallback(
@@ -516,6 +380,10 @@ export default function AdminSettingsTab({
     const activeIn7 = dates7.filter((d) => activeDatesSet.has(d));
     const activeIn30 = dates30.filter((d) => activeDatesSet.has(d));
 
+    const sortedAllActive = [...activeDates].sort();
+    const earliestAll = sortedAllActive[0] || start30;
+    const latestAll = sortedAllActive[sortedAllActive.length - 1] || ref;
+
     return {
       '1d': {
         scope: '1d' as ArchiveScope,
@@ -553,37 +421,67 @@ export default function AdminSettingsTab({
         description:
           'Archives a full 30-day window ending on the reference date into a date-stamped SQL file inside Archive/.',
       },
+      'all': {
+        scope: 'all' as ArchiveScope,
+        title: 'Secured Wipe All Data (Full Archive)',
+        badge: 'Full System Wipe + SQL',
+        rangeText: sortedAllActive.length > 0 ? `${earliestAll} → ${latestAll}` : 'All Dates',
+        fileName: `chickensee_archive_all_data_${earliestAll}_to_${latestAll}.sql`,
+        totalDays: Math.max(1, sortedAllActive.length),
+        availableDaysCount: sortedAllActive.length,
+        availableDatesList: sortedAllActive,
+        description:
+          'Requires Admin Password confirmation. Wipes all active dates from the portal and exports a complete, restorable full-system SQL snapshot into Archive/.',
+      },
     };
-  }, [referenceDate, activeDatesSet]);
+  }, [referenceDate, activeDatesSet, activeDates]);
 
-  async function handleArchiveByScope(scope: ArchiveScope) {
+  function openArchivePasswordModal(scope: ArchiveScope) {
+    setConfirmAdminPassword('');
+    setConfirmModalError(null);
+    setPendingConfirmScope(scope);
+  }
+
+  async function handleConfirmArchiveWithPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!pendingConfirmScope) return;
+    if (!confirmAdminPassword.trim()) {
+      setConfirmModalError('Please enter your administrator password to confirm.');
+      return;
+    }
+
+    const scope = pendingConfirmScope;
     const preview = scopePreviews[scope];
-    const confirmed = window.confirm(
-      `Archive and delete ${preview.title.toLowerCase()} (${preview.rangeText})?\n\n` +
-        `This will NOT permanently wipe the data. The system will generate:\n` +
-        `Archive/${preview.fileName}\n\n` +
-        `You can restore it anytime from the Archive folder or by attaching the .sql file.`,
-    );
-    if (!confirmed) return;
 
     try {
       setArchivingScope(scope);
+      setConfirmModalError(null);
       setActionError(null);
       setActionNotice(null);
 
       const res = await fetch('/api/admin/archive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope, referenceDate }),
+        body: JSON.stringify({
+          scope,
+          referenceDate,
+          adminPassword: confirmAdminPassword,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+        const msg = data.error || `HTTP ${res.status}`;
+        setConfirmModalError(msg);
+        return;
       }
 
       const createdFile: ArchiveFileEntry | undefined = data.archive;
+      setPendingConfirmScope(null);
+      setConfirmAdminPassword('');
       setActionNotice(
-        `Archived ${preview.rangeText} into Archive/${createdFile?.fileName || preview.fileName}. Data can be restored anytime.`,
+        scope === 'all'
+          ? `Full system data wiped and safely backed up into Archive/${createdFile?.fileName || preview.fileName}. You can restore all data anytime below.`
+          : `Archived ${preview.rangeText} into Archive/${createdFile?.fileName || preview.fileName}. Data can be restored anytime.`,
       );
 
       if (autoDownloadSql && createdFile?.fileName) {
@@ -1031,21 +929,32 @@ export default function AdminSettingsTab({
           </label>
         </div>
 
-        {/* 3 Deletion Scope Cards */}
-        <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {(['1d', '7d', '30d'] as const).map((scopeKey) => {
+        {/* 4 Deletion & Secured Wipe Scope Cards (1 Day, 7 Days, 30 Days, Wipe All Data) */}
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {(['1d', '7d', '30d', 'all'] as const).map((scopeKey) => {
             const card = scopePreviews[scopeKey];
             const isBusy = archivingScope === scopeKey;
+            const isWipeAll = scopeKey === 'all';
 
             return (
               <div
                 key={scopeKey}
-                className="flex flex-col justify-between rounded-xl border border-slate-200 bg-slate-50/50 p-4 transition hover:border-orange-200 hover:bg-white hover:shadow-xs"
+                className={`flex flex-col justify-between rounded-xl border p-4 transition hover:bg-white hover:shadow-xs ${
+                  isWipeAll
+                    ? 'border-red-200 bg-red-50/30 hover:border-red-300'
+                    : 'border-slate-200 bg-slate-50/50 hover:border-orange-200'
+                }`}
               >
                 <div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-0.5 text-[11px] font-bold text-orange-800">
-                      <Clock className="h-3 w-3" />
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                        isWipeAll
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-orange-100 text-orange-800'
+                      }`}
+                    >
+                      {isWipeAll ? <Lock className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                       {card.badge}
                     </span>
                     <span className="font-mono text-[11px] font-semibold text-slate-600">
@@ -1074,7 +983,9 @@ export default function AdminSettingsTab({
                       />
                       <span>
                         {card.availableDaysCount > 0
-                          ? `${card.availableDaysCount} of ${card.totalDays} day${card.totalDays === 1 ? '' : 's'} has data`
+                          ? isWipeAll
+                            ? `All ${card.availableDaysCount} active day${card.availableDaysCount === 1 ? '' : 's'} ready`
+                            : `${card.availableDaysCount} of ${card.totalDays} day${card.totalDays === 1 ? '' : 's'} has data`
                           : 'No data available in this range'}
                       </span>
                     </span>
@@ -1095,9 +1006,13 @@ export default function AdminSettingsTab({
 
                 <button
                   type="button"
-                  onClick={() => handleArchiveByScope(scopeKey)}
+                  onClick={() => openArchivePasswordModal(scopeKey)}
                   disabled={archivingScope !== null || card.availableDaysCount === 0}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-white shadow-xs transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isWipeAll
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-orange-600 hover:bg-orange-700'
+                  }`}
                 >
                   {isBusy ? (
                     <>
@@ -1108,13 +1023,15 @@ export default function AdminSettingsTab({
                     <span>No Data Available in Range</span>
                   ) : (
                     <>
-                      <Trash2 className="h-3.5 w-3.5" />
+                      {isWipeAll ? <KeyRound className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
                       <span>
                         {scopeKey === '1d'
                           ? 'Delete & Archive Entire Day'
                           : scopeKey === '7d'
                             ? `Delete & Archive 7 Days (${card.availableDaysCount}d)`
-                            : `Delete & Archive 30 Days (${card.availableDaysCount}d)`}
+                            : scopeKey === '30d'
+                              ? `Delete & Archive 30 Days (${card.availableDaysCount}d)`
+                              : `Secured Wipe All Data (${card.availableDaysCount}d)`}
                       </span>
                     </>
                   )}
@@ -1124,6 +1041,140 @@ export default function AdminSettingsTab({
           })}
         </div>
       </div>
+
+      {/* Admin Password Security Confirmation Modal */}
+      {pendingConfirmScope && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+          onClick={() => {
+            if (!archivingScope) setPendingConfirmScope(null);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-confirm-modal-title"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                    pendingConfirmScope === 'all'
+                      ? 'bg-red-100 text-red-600'
+                      : 'bg-orange-100 text-orange-600'
+                  }`}
+                >
+                  <KeyRound className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 id="archive-confirm-modal-title" className="text-base font-bold text-slate-900">
+                    {pendingConfirmScope === 'all'
+                      ? 'Confirm Secured Wipe All Data'
+                      : `Confirm ${scopePreviews[pendingConfirmScope].title}`}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Administrator password verification required
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingConfirmScope(null)}
+                disabled={archivingScope !== null}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-1.5">
+              <div>
+                <span className="font-semibold text-slate-800">Target Range:</span>{' '}
+                <span className="font-mono font-bold text-slate-900">
+                  {scopePreviews[pendingConfirmScope].rangeText}
+                </span>{' '}
+                ({scopePreviews[pendingConfirmScope].availableDaysCount} active day
+                {scopePreviews[pendingConfirmScope].availableDaysCount === 1 ? '' : 's'})
+              </div>
+              <div>
+                <span className="font-semibold text-slate-800">SQL Restore Backup:</span>{' '}
+                <span className="break-all font-mono text-[11px] font-semibold text-orange-700">
+                  Archive/{scopePreviews[pendingConfirmScope].fileName}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 pt-1">
+                This action will not permanently destroy your records — a dated <code className="font-mono">.sql</code> restore file will be saved in <code className="font-mono">Archive/</code> so you can restore it anytime.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmArchiveWithPassword} className="mt-4 space-y-3">
+              <div>
+                <label
+                  htmlFor="confirm-admin-password"
+                  className="block text-xs font-bold uppercase tracking-wider text-slate-500"
+                >
+                  Enter Admin Password to Confirm
+                </label>
+                <input
+                  id="confirm-admin-password"
+                  type="password"
+                  value={confirmAdminPassword}
+                  onChange={(e) => setConfirmAdminPassword(e.target.value)}
+                  placeholder="Enter your administrator password…"
+                  autoFocus
+                  required
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-orange-500 focus:bg-white focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+
+              {confirmModalError && (
+                <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{confirmModalError}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingConfirmScope(null)}
+                  disabled={archivingScope !== null}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={archivingScope !== null}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-xs transition disabled:opacity-50 ${
+                    pendingConfirmScope === 'all'
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-orange-600 hover:bg-orange-700'
+                  }`}
+                >
+                  {archivingScope !== null ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      <span>Verifying &amp; Archiving…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-3.5 w-3.5" />
+                      <span>
+                        {pendingConfirmScope === 'all'
+                          ? 'Confirm & Wipe All Data (with SQL Backup)'
+                          : 'Confirm & Archive to SQL'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* SECTION 2: Attach Dated SQL File to Restore Data */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -1458,11 +1509,23 @@ export default function AdminSettingsTab({
               <option value="detection">ID Format: ID1_H1 Yellow … ID6_R1 Rooster</option>
             </select>
 
+            {/* Refresh Tracking Validity */}
+            <button
+              type="button"
+              onClick={fetchTrackingValidity}
+              disabled={obsLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${obsLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+
             {/* Export CSV Button */}
             <button
               type="button"
               onClick={handleExportObservationCsv}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs transition hover:bg-orange-700"
+              disabled={filteredObsRows.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs transition hover:bg-orange-700 disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
@@ -1535,7 +1598,23 @@ export default function AdminSettingsTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 font-mono text-xs">
-              {filteredObsRows.map((row, idx) => (
+              {obsLoading && filteredObsRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center font-sans text-xs text-slate-500">
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-orange-600" />
+                      Computing per-bird tracking continuity &amp; observation validity from database…
+                    </span>
+                  </td>
+                </tr>
+              ) : filteredObsRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center font-sans text-xs text-slate-400">
+                    No completed video tracking windows found yet.
+                  </td>
+                </tr>
+              ) : (
+                filteredObsRows.map((row, idx) => (
                 <tr
                   key={`${row.video}_${row.shortId}_${idx}`}
                   className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/40' : 'bg-slate-50/60 hover:bg-orange-50/40'}
@@ -1579,7 +1658,8 @@ export default function AdminSettingsTab({
                     {row.validObservationPct.toFixed(1)}
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>

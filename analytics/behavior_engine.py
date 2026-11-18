@@ -64,6 +64,11 @@ class BirdTrackState:
     pecking_aggressor_count: int = 0
     pecking_victim_count: int = 0
 
+    # 5. Tracking Continuity & Observation Validity (frame-by-frame accumulation)
+    valid_observation_s: float = 0.0
+    occluded_s: float = 0.0
+    unobserved_streak_s: float = 0.0
+
 
 @dataclass
 class BehaviorChunkSummary:
@@ -157,10 +162,12 @@ class BehaviorAnalysisEngine:
         # -------------------------------------------------------------
         # Step 1: Update Kinematics & States for each Tracked Bird
         # -------------------------------------------------------------
+        seen_track_ids = set()
         for bird in current_birds:
             tid = bird.track_id
             if tid is None:
                 continue
+            seen_track_ids.add(tid)
 
             if tid not in self.bird_states:
                 self.bird_states[tid] = BirdTrackState(
@@ -173,6 +180,13 @@ class BehaviorAnalysisEngine:
 
             state = self.bird_states[tid]
             state.label = bird.bird_label
+
+            # Accumulate frame-level observation validity & short-gap occlusion recovery
+            if state.unobserved_streak_s > 0.0:
+                if state.unobserved_streak_s <= 6.0:
+                    state.occluded_s += state.unobserved_streak_s
+                state.unobserved_streak_s = 0.0
+            state.valid_observation_s += dt
 
             # Kinematic velocity calculation (displacement / dt)
             velocity = 0.0
@@ -271,6 +285,11 @@ class BehaviorAnalysisEngine:
                     state.continuous_stationary_s = 0.0
             else:
                 state.continuous_stationary_s = 0.0
+
+        # Track unobserved streaks for previously registered birds absent in the current frame
+        for tid_prev, st_prev in self.bird_states.items():
+            if tid_prev not in seen_track_ids:
+                st_prev.unobserved_streak_s += dt
 
         # -------------------------------------------------------------
         # Step 2: 4. Social Isolation Tracking (Inter-Bird Spatial Dispersion)
@@ -392,11 +411,17 @@ class BehaviorAnalysisEngine:
         loco_thresh = getattr(self.cfg, "reduced_locomotor_threshold_pct", 78.0)
 
         bird_records = []
+        window_dur_s = max(1, round(monitored_s))
         for s in self.bird_states.values():
             feeding_pct = round((s.feeding_time_s / monitored_s) * 100.0, 2)
             drinking_pct = round((s.drinking_time_s / monitored_s) * 100.0, 2)
             isolation_pct = round((s.total_isolation_s / monitored_s) * 100.0, 2)
             locomotor_inactivity_pct = round((s.total_inactivity_s / monitored_s) * 100.0, 2)
+
+            valid_obs_s = min(window_dur_s, max(0, round(s.valid_observation_s)))
+            occl_s = min(max(0, window_dur_s - valid_obs_s), max(0, round(s.occluded_s)))
+            lost_s = max(0, window_dur_s - valid_obs_s - occl_s)
+            valid_obs_pct = round((valid_obs_s / window_dur_s) * 100.0, 1)
 
             flag_reduced_feeding = 1 if (s.reduced_feeding_events > 0 or feeding_pct <= feed_thresh) else 0
             flag_reduced_drinking = 1 if (s.reduced_drinking_events > 0 or drinking_pct <= drink_thresh) else 0
@@ -407,6 +432,11 @@ class BehaviorAnalysisEngine:
                 "track_id": s.track_id,
                 "bird_label": s.label,
                 "bird_type": s.bird_type,
+                "window_duration_s": window_dur_s,
+                "valid_observation_duration_s": valid_obs_s,
+                "occluded_duration_s": occl_s,
+                "lost_duration_s": lost_s,
+                "valid_observation_pct": valid_obs_pct,
                 # 1. Feeding Activity (Threshold: At or below 0.3%)
                 "feeding_activity_pct": feeding_pct,
                 "reduced_feeding_events": s.reduced_feeding_events,

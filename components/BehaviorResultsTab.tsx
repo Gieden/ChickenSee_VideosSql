@@ -867,7 +867,8 @@ export default function BehaviorResultsTab() {
   const dateRangeLabel = useMemo(() => {
     if (dateFilterMode === 'preset') {
       if (selectedPreset === 'all') {
-        return 'All recorded dates (1 Nov - 9 Nov 2026)';
+        if (!recordedDates.length) return 'No recorded dates';
+        return `All recorded dates (${formatRange(earliestRecorded, latestRecorded)})`;
       }
       return `${formatLongDay(selectedPreset)} · ${relativeDayLabel(selectedPreset, anchor)}`;
     }
@@ -875,9 +876,9 @@ export default function BehaviorResultsTab() {
       if (!singleDate) return 'No day selected';
       return `${formatLongDay(singleDate)} · ${relativeDayLabel(singleDate, anchor)}`;
     }
-    if (!rangeStart || !rangeEnd) return 'Custom Range (1 Nov - 9 Nov 2026)';
+    if (!rangeStart || !rangeEnd) return `Custom Range (${formatRange(earliestRecorded, latestRecorded)})`;
     return `Custom Range (${formatRange(rangeStart, rangeEnd)})`;
-  }, [dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, anchor]);
+  }, [dateFilterMode, selectedPreset, singleDate, rangeStart, rangeEnd, anchor, recordedDates.length, earliestRecorded, latestRecorded]);
 
   // Aggregate behavior counts for selected bird across filtered intervals
   const birdAggregates = useMemo(() => {
@@ -1614,8 +1615,8 @@ export default function BehaviorResultsTab() {
               <h2 className="text-base sm:text-lg font-bold text-slate-900">Telemetry &amp; Behavior Range Filter</h2>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Only days with recorded behavior or telemetry can be selected · {recordedDates.length || 20} days available
-              {latestRecorded ? ` (latest ${formatLongDay(latestRecorded)}).` : '.'}
+              Only days with recorded behavior or telemetry can be selected · {recordedDates.length} {recordedDates.length === 1 ? 'day' : 'days'} available
+              {recordedDates.length > 0 && latestRecorded ? ` (latest ${formatLongDay(latestRecorded)}).` : '.'}
             </p>
           </div>
 

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import initSqlJs from 'sql.js';
-import { AUTH_COOKIE_NAME, getSession, isAdmin } from '@/lib/auth';
+import { AUTH_COOKIE_NAME, getSession, isAdmin, verifyMasterAdminPassword } from '@/lib/auth';
+import { authenticateStaff } from '@/lib/staff-accounts';
 import {
   ArchiveScope,
   archiveDataByScope,
@@ -29,62 +30,63 @@ function requireAdmin(req: NextRequest) {
   return { session, response: null };
 }
 
+async function discoverActiveDates(archivedSet: Set<string>): Promise<string[]> {
+  const syncedDbs = await listSyncedDatabases({ includeArchived: false });
+  const dbDates = syncedDbs.map((d) => d.dateKey).filter((d): d is string => Boolean(d));
+  const sampleDates = DEFAULT_SAMPLE_INTERVALS.map((i) => i.date);
+
+  const analyticsDates: string[] = [];
+  const analyticsDbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
+  if (fs.existsSync(analyticsDbPath)) {
+    try {
+      const SQL = await initSqlJs();
+      const db = new SQL.Database(fs.readFileSync(analyticsDbPath));
+      try {
+        const res = db.exec('SELECT DISTINCT substr(date_slot, 1, 10) FROM half_hour_metrics ORDER BY date_slot DESC');
+        const rows = res?.[0]?.values || [];
+        for (const r of rows) {
+          const norm = normalizeIsoDate(String(r[0] || ''));
+          if (norm) analyticsDates.push(norm);
+        }
+      } finally {
+        db.close();
+      }
+    } catch {
+      // ignore if analytics db cannot be queried
+    }
+  }
+
+  const queueDates: string[] = [];
+  const queueSnapPath = path.join(process.cwd(), 'data', 'results', 'queue_status.json');
+  if (fs.existsSync(queueSnapPath)) {
+    try {
+      const snap = JSON.parse(fs.readFileSync(queueSnapPath, 'utf-8'));
+      if (Array.isArray(snap?.items)) {
+        for (const item of snap.items) {
+          const rawD = String(item?.completed_at || item?.created_at || '').slice(0, 10);
+          const norm = normalizeIsoDate(rawD);
+          if (norm) queueDates.push(norm);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return Array.from(new Set([...dbDates, ...analyticsDates, ...queueDates, ...sampleDates]))
+    .filter((d) => !archivedSet.has(d))
+    .sort()
+    .reverse();
+}
+
 export async function GET(req: NextRequest) {
   const { response } = requireAdmin(req);
   if (response) return response;
 
   try {
     const archiveState = await listArchiveFilesAsync();
-    const syncedDbs = await listSyncedDatabases({ includeArchived: false });
-    const dbDates = syncedDbs.map((d) => d.dateKey).filter((d): d is string => Boolean(d));
-    const sampleDates = DEFAULT_SAMPLE_INTERVALS.map((i) => i.date);
-
-    // Also include all dates recorded in analytics/zampen_analytics.db
-    const analyticsDates: string[] = [];
-    const analyticsDbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
-    if (fs.existsSync(analyticsDbPath)) {
-      try {
-        const SQL = await initSqlJs();
-        const db = new SQL.Database(fs.readFileSync(analyticsDbPath));
-        try {
-          const res = db.exec('SELECT DISTINCT substr(date_slot, 1, 10) FROM half_hour_metrics ORDER BY date_slot DESC');
-          const rows = res?.[0]?.values || [];
-          for (const r of rows) {
-            const norm = normalizeIsoDate(String(r[0] || ''));
-            if (norm) analyticsDates.push(norm);
-          }
-        } finally {
-          db.close();
-        }
-      } catch {
-        // ignore if analytics db cannot be queried
-      }
-    }
-
-    // Also include dates from data/results/queue_status.json so Vercel deployments see all recorded session dates
-    const queueDates: string[] = [];
-    const queueSnapPath = path.join(process.cwd(), 'data', 'results', 'queue_status.json');
-    if (fs.existsSync(queueSnapPath)) {
-      try {
-        const snap = JSON.parse(fs.readFileSync(queueSnapPath, 'utf-8'));
-        if (Array.isArray(snap?.items)) {
-          for (const item of snap.items) {
-            const rawD = String(item?.completed_at || item?.created_at || '').slice(0, 10);
-            const norm = normalizeIsoDate(rawD);
-            if (norm) queueDates.push(norm);
-          }
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     const archivedSet = new Set(archiveState.archivedDates);
-
-    const activeDates = Array.from(new Set([...dbDates, ...analyticsDates, ...queueDates, ...sampleDates]))
-      .filter((d) => !archivedSet.has(d))
-      .sort()
-      .reverse();
+    const activeDates = await discoverActiveDates(archivedSet);
 
     return NextResponse.json({
       success: true,
@@ -109,19 +111,44 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const rawScope = String(body?.scope ?? '');
-    if (!['1d', '7d', '30d'].includes(rawScope)) {
+    if (!['1d', '7d', '30d', 'all'].includes(rawScope)) {
       return NextResponse.json(
-        { error: 'Invalid scope. Must be "1d" (Entire Day), "7d" (Entire 7 Days), or "30d" (Entire 30 Days).' },
+        { error: 'Invalid scope. Must be "1d", "7d", "30d", or "all".' },
         { status: 400 },
       );
     }
 
     const scope = rawScope as ArchiveScope;
     const referenceDate = body?.referenceDate ? String(body.referenceDate) : null;
+    const adminPassword = typeof body?.adminPassword === 'string' ? body.adminPassword : '';
+
+    // Verify admin password when wiping all data (or whenever password confirmation is supplied)
+    if (scope === 'all' || adminPassword !== '') {
+      if (!adminPassword) {
+        return NextResponse.json(
+          { error: 'Please enter your administrator password to confirm this action.' },
+          { status: 403 },
+        );
+      }
+      const isValidMaster = verifyMasterAdminPassword(adminPassword);
+      const staffMatch = !isValidMaster
+        ? await authenticateStaff(session!.username, adminPassword)
+        : null;
+      if (!isValidMaster && !staffMatch) {
+        return NextResponse.json(
+          { error: 'Incorrect administrator password. Data wipe & archive was cancelled.' },
+          { status: 403 },
+        );
+      }
+    }
+
+    const archiveState = await listArchiveFilesAsync();
+    const activeDates = await discoverActiveDates(new Set(archiveState.archivedDates));
 
     const result = await archiveDataByScope({
       scope,
       referenceDate,
+      allActiveDates: activeDates,
       createdBy: session!.username,
     });
 
@@ -133,6 +160,7 @@ export async function POST(req: NextRequest) {
       sqlPreview: result.sqlPreview,
       sqlContent: result.sqlContent,
       archivedDates: updated.archivedDates,
+      activeDates: await discoverActiveDates(new Set(updated.archivedDates)),
       files: updated.files,
     });
   } catch (error) {

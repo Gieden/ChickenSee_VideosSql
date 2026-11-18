@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { addDays, enumerateDates, normalizeIsoDate, todayIso } from '@/lib/date-range';
 import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 
-export type ArchiveScope = '1d' | '7d' | '30d';
+export type ArchiveScope = '1d' | '7d' | '30d' | 'all';
 
 export interface ArchiveMetadata {
   archiveId: string;
@@ -213,7 +213,11 @@ function sqlLiteral(val: unknown): string {
   return `'${str}'`;
 }
 
-export function computeScopeDateRange(scope: ArchiveScope, referenceDateInput?: string | null): {
+export function computeScopeDateRange(
+  scope: ArchiveScope,
+  referenceDateInput?: string | null,
+  allActiveDates?: string[],
+): {
   referenceDate: string;
   startDate: string;
   endDate: string;
@@ -222,6 +226,25 @@ export function computeScopeDateRange(scope: ArchiveScope, referenceDateInput?: 
   scopeSlug: string;
 } {
   const ref = (referenceDateInput && normalizeIsoDate(referenceDateInput)) || todayIso();
+
+  if (scope === 'all') {
+    const sampleDates = DEFAULT_SAMPLE_INTERVALS.map((i) => i.date);
+    const combined = Array.from(
+      new Set([...(allActiveDates || []), ...sampleDates].map((d) => normalizeIsoDate(d)).filter((d): d is string => Boolean(d))),
+    ).sort();
+    const startDate = combined[0] || addDays(ref, -29);
+    const endDate = combined[combined.length - 1] || ref;
+    const dates = combined.length > 0 ? combined : enumerateDates(startDate, endDate);
+    return {
+      referenceDate: endDate,
+      startDate,
+      endDate,
+      dates,
+      scopeLabel: 'Wipe All Data (Full System Archive)',
+      scopeSlug: 'all_data',
+    };
+  }
+
   const daysCount = scope === '1d' ? 1 : scope === '7d' ? 7 : 30;
   const startDate = daysCount === 1 ? ref : addDays(ref, -(daysCount - 1));
   const endDate = ref;
@@ -254,9 +277,17 @@ export function computeScopeDateRange(scope: ArchiveScope, referenceDateInput?: 
  * - 1 day:  chickensee_archive_1day_2026-11-17.sql
  * - 7 days: chickensee_archive_7days_2026-11-11_to_2026-11-17.sql
  * - 30 days: chickensee_archive_30days_2026-10-19_to_2026-11-17.sql
+ * - all data: chickensee_archive_all_data_2026-07-26_to_2026-11-17.sql
  */
 export function buildArchiveSqlFileName(scope: ArchiveScope, startDate: string, endDate: string): string {
-  const scopeSlug = scope === '1d' ? '1day' : scope === '7d' ? '7days' : '30days';
+  const scopeSlug =
+    scope === '1d'
+      ? '1day'
+      : scope === '7d'
+        ? '7days'
+        : scope === '30d'
+          ? '30days'
+          : 'all_data';
   const datePart = scope === '1d' || startDate === endDate
     ? startDate
     : `${startDate}_to_${endDate}`;
@@ -349,14 +380,15 @@ export function extractDateInfoFromSqlFile(fileName: string, sqlContent: string)
 export async function archiveDataByScope(params: {
   scope: ArchiveScope;
   referenceDate?: string | null;
+  allActiveDates?: string[];
   createdBy: string;
 }): Promise<{
   archive: ArchiveFileEntry;
   sqlPreview: string;
   sqlContent: string;
 }> {
-  const { scope, referenceDate, createdBy } = params;
-  const range = computeScopeDateRange(scope, referenceDate);
+  const { scope, referenceDate, allActiveDates, createdBy } = params;
+  const range = computeScopeDateRange(scope, referenceDate, allActiveDates);
   const archiveDir = getArchiveDir();
   const fileName = buildArchiveSqlFileName(scope, range.startDate, range.endDate);
   const filePath = path.join(archiveDir, fileName);

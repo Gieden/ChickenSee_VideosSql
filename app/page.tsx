@@ -1298,6 +1298,7 @@ export default function DashboardPage() {
   const [sessionModalError, setSessionModalError] = useState<string | null>(null);
 
   const [results, setResults] = useState<BehaviorResult[]>([]);
+  const [behaviorResultsCount, setBehaviorResultsCount] = useState<number>(0);
   const [loadingResults, setLoadingResults] = useState(false);
   const [resultsError, setResultsError] = useState<string | null>(null);
   const [selectedReportProfile, setSelectedReportProfile] =
@@ -1422,10 +1423,16 @@ export default function DashboardPage() {
     try {
       setLoadingResults(true);
       setResultsError(null);
-      const res = await fetch('/api/results');
+      const res = await fetch('/api/behavior-results?refresh=true', { cache: 'no-store' });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
+      if (Array.isArray(data.availableDates)) {
+        setBehaviorResultsCount(data.availableDates.length);
+      } else if (Array.isArray(data.intervals)) {
+        const distinctDays = new Set(data.intervals.map((i: { date: string }) => i.date));
+        setBehaviorResultsCount(distinctDays.size);
+      }
       setResults(Array.isArray(data.results) ? data.results : []);
     } catch (err: any) {
       setResultsError(err.message || 'Could not load uploaded analysis results.');
@@ -1457,9 +1464,14 @@ export default function DashboardPage() {
 
   async function refreshAll() {
     setIsRefreshing(true);
-    if (activeTab === 'database') await fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset);
-    else if (activeTab === 'results') await fetchResults();
-    else if (activeTab === 'queue') await fetchQueueStatus();
+    await Promise.all([
+      fetchResults(),
+      activeTab === 'database'
+        ? fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset)
+        : activeTab === 'queue'
+          ? fetchQueueStatus()
+          : Promise.resolve(),
+    ]);
     setTimeout(() => setIsRefreshing(false), 400);
   }
 
@@ -2560,7 +2572,7 @@ export default function DashboardPage() {
             <button onClick={() => handleTabChange('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <BarChart2 className="h-4 w-4" />
               <span>Behavior Results</span>
-              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{results.length}</span>
+              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">{behaviorResultsCount}</span>
             </button>
             <button onClick={() => handleTabChange('queue')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'queue' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <ListFilter className="h-4 w-4" />
