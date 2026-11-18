@@ -70,7 +70,7 @@ const SHEETS: SheetMeta[] = [
 
 export default function ResearchDatasetsTab() {
   const [activeSheet, setActiveSheet] = useState<ExcelSheetName>('behavior_events');
-  const [selectedVideo, setSelectedVideo] = useState<string>('all');
+  const [selectedVideo, setSelectedVideo] = useState<string>('rec_2026-11-13_07-00-00_060564__video');
   const [idFormat, setIdFormat] = useState<ChickenIdDisplayFormat>('short');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
@@ -479,10 +479,20 @@ export default function ResearchDatasetsTab() {
                 <option value="all">All Videos</option>
                 {videos.map((vid) => (
                   <option key={vid} value={vid}>
-                    {vid}
+                    {vid === 'rec_2026-11-13_07-00-00_060564__video' ? '★ ' + vid + ' (Raw Research Dataset)' : vid}
                   </option>
                 ))}
               </select>
+              {selectedVideo.includes('2026-11-13') ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                  <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                  Exact Research Data (ChickenSee-Raw-Data.xlsx)
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                  Analyzed Video Telemetry
+                </span>
+              )}
             </div>
           )}
 
