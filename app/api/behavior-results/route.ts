@@ -343,8 +343,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Exclude dates that have been archived via Admin Settings
-    await syncManifestFromCloud();
-    const archivedSet = getArchivedDatesSet();
+    const manifest = await syncManifestFromCloud();
+    const archivedSet = new Set(manifest.archivedDates);
     const activeIntervals = intervals.filter((i) => !archivedSet.has(i.date));
 
     // Apply query filters if requested
@@ -370,10 +370,14 @@ export async function GET(req: NextRequest) {
       intervals: filtered,
     });
   } catch (error: unknown) {
+    let cloudArchivedDates: string[] = [];
     try {
-      await syncManifestFromCloud();
-    } catch {}
-    const archivedSet = getArchivedDatesSet();
+      const manifest = await syncManifestFromCloud();
+      cloudArchivedDates = manifest.archivedDates;
+    } catch {
+      cloudArchivedDates = Array.from(getArchivedDatesSet());
+    }
+    const archivedSet = new Set(cloudArchivedDates);
     const fallbackIntervals = DEFAULT_SAMPLE_INTERVALS.filter((i) => !archivedSet.has(i.date));
     const availableDates = Array.from(new Set(fallbackIntervals.map((i) => i.date))).sort().reverse();
     return NextResponse.json({
