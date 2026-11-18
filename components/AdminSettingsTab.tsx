@@ -808,16 +808,14 @@ export default function AdminSettingsTab({
                           <span>{day.dayOfMonth}</span>
                           {hasActive && (
                             <span
-                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${
-                                isSelected ? 'bg-white' : 'bg-emerald-500'
-                              }`}
+                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-emerald-500'
+                                }`}
                             />
                           )}
                           {!hasActive && isArch && (
                             <span
-                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${
-                                isSelected ? 'bg-white' : 'bg-amber-500'
-                              }`}
+                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-amber-500'
+                                }`}
                             />
                           )}
                         </button>
@@ -901,11 +899,10 @@ export default function AdminSettingsTab({
                 key={d}
                 type="button"
                 onClick={() => setReferenceDate(d)}
-                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium transition ${
-                  referenceDate === d
-                    ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold'
-                    : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:border-emerald-400 hover:bg-white'
-                }`}
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium transition ${referenceDate === d
+                  ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold'
+                  : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:border-emerald-400 hover:bg-white'
+                  }`}
                 title={`${d} — Data Available`}
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
@@ -939,20 +936,18 @@ export default function AdminSettingsTab({
             return (
               <div
                 key={scopeKey}
-                className={`flex flex-col justify-between rounded-xl border p-4 transition hover:bg-white hover:shadow-xs ${
-                  isWipeAll
-                    ? 'border-red-200 bg-red-50/30 hover:border-red-300'
-                    : 'border-slate-200 bg-slate-50/50 hover:border-orange-200'
-                }`}
+                className={`flex flex-col justify-between rounded-xl border p-4 transition hover:bg-white hover:shadow-xs ${isWipeAll
+                  ? 'border-red-200 bg-red-50/30 hover:border-red-300'
+                  : 'border-slate-200 bg-slate-50/50 hover:border-orange-200'
+                  }`}
               >
                 <div>
                   <div className="flex items-center justify-between gap-2">
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
-                        isWipeAll
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-orange-100 text-orange-800'
-                      }`}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${isWipeAll
+                        ? 'bg-red-100 text-red-800'
+                        : 'bg-orange-100 text-orange-800'
+                        }`}
                     >
                       {isWipeAll ? <Lock className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
                       {card.badge}
@@ -969,17 +964,15 @@ export default function AdminSettingsTab({
 
                   {/* Data Availability Status for this Scope */}
                   <div
-                    className={`mt-3 flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${
-                      card.availableDaysCount > 0
-                        ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
-                        : 'border-rose-200 bg-rose-50/70 text-rose-700'
-                    }`}
+                    className={`mt-3 flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${card.availableDaysCount > 0
+                      ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                      : 'border-rose-200 bg-rose-50/70 text-rose-700'
+                      }`}
                   >
                     <span className="flex items-center gap-1.5">
                       <span
-                        className={`h-2 w-2 rounded-full ${
-                          card.availableDaysCount > 0 ? 'bg-emerald-500' : 'bg-rose-500'
-                        }`}
+                        className={`h-2 w-2 rounded-full ${card.availableDaysCount > 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                          }`}
                       />
                       <span>
                         {card.availableDaysCount > 0
@@ -1062,11 +1055,10 @@ export default function AdminSettingsTab({
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <div
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                    pendingConfirmScope === 'all'
-                      ? 'bg-red-100 text-red-600'
-                      : 'bg-orange-100 text-orange-600'
-                  }`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${pendingConfirmScope === 'all'
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-orange-100 text-orange-600'
+                    }`}
                 >
                   <KeyRound className="h-5 w-5" />
                 </div>
@@ -1150,11 +1142,10 @@ export default function AdminSettingsTab({
                 <button
                   type="submit"
                   disabled={archivingScope !== null}
-                  className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-xs transition disabled:opacity-50 ${
-                    pendingConfirmScope === 'all'
-                      ? 'bg-red-600 hover:bg-red-700'
-                      : 'bg-orange-600 hover:bg-orange-700'
-                  }`}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-xs transition disabled:opacity-50 ${pendingConfirmScope === 'all'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-orange-600 hover:bg-orange-700'
+                    }`}
                 >
                   {archivingScope !== null ? (
                     <>
@@ -1203,11 +1194,10 @@ export default function AdminSettingsTab({
               const file = e.dataTransfer.files?.[0] || null;
               handleSelectSqlFile(file);
             }}
-            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${
-              isDraggingFile
-                ? 'border-orange-500 bg-orange-50/50'
-                : 'border-slate-200 bg-slate-50/60 hover:border-orange-300 hover:bg-slate-50'
-            }`}
+            className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition ${isDraggingFile
+              ? 'border-orange-500 bg-orange-50/50'
+              : 'border-slate-200 bg-slate-50/60 hover:border-orange-300 hover:bg-slate-50'
+              }`}
           >
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-orange-100 text-orange-600">
               <Paperclip className="h-5 w-5" />
@@ -1285,11 +1275,10 @@ export default function AdminSettingsTab({
                 </div>
 
                 <div
-                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${
-                    attachedPreview.isValidDateStamped
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                      : 'border-amber-200 bg-amber-50 text-amber-800'
-                  }`}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${attachedPreview.isValidDateStamped
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}
                 >
                   {attachedPreview.isValidDateStamped ? (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
@@ -1564,7 +1553,7 @@ export default function AdminSettingsTab({
             <div className="mt-0.5 font-mono text-sm font-bold text-slate-800">
               {Math.round(
                 filteredObsRows.reduce((acc, r) => acc + r.occludedDurationS, 0) /
-                  Math.max(1, filteredObsRows.length),
+                Math.max(1, filteredObsRows.length),
               )}{' '}
               s
             </div>
@@ -1576,7 +1565,7 @@ export default function AdminSettingsTab({
             <div className="mt-0.5 font-mono text-sm font-bold text-slate-800">
               {Math.round(
                 filteredObsRows.reduce((acc, r) => acc + r.lostDurationS, 0) /
-                  Math.max(1, filteredObsRows.length),
+                Math.max(1, filteredObsRows.length),
               )}{' '}
               s
             </div>
@@ -1617,49 +1606,49 @@ export default function AdminSettingsTab({
                 </tr>
               ) : (
                 filteredObsRows.map((row, idx) => (
-                <tr
-                  key={`${row.video}_${row.shortId}_${idx}`}
-                  className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/40' : 'bg-slate-50/60 hover:bg-orange-50/40'}
-                >
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-800">
-                    {row.video}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">
-                    <span className="inline-flex items-center gap-2">
-                      <span
-                        className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-300"
-                        style={{ backgroundColor: row.dotColor }}
-                      />
-                      <span>{formatChickenId(row)}</span>
-                      {obsIdFormat === 'short' && (
-                        <span className="font-sans text-[10px] font-medium text-slate-400">
-                          ({row.profileLabel.replace(/^.*?\(/, '').replace(/\)$/, '')})
-                        </span>
-                      )}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
-                    {row.windowStart}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
-                    {row.windowEnd}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-900">
-                    {row.windowDurationS}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-right font-semibold text-slate-900">
-                    {row.validObservationDurationS}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
-                    {row.occludedDurationS}
-                  </td>
-                  <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
-                    {row.lostDurationS}
-                  </td>
-                  <td className="py-2.5 px-4 text-right font-bold text-emerald-700">
-                    {row.validObservationPct.toFixed(1)}
-                  </td>
-                </tr>
+                  <tr
+                    key={`${row.video}_${row.shortId}_${idx}`}
+                    className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/40' : 'bg-slate-50/60 hover:bg-orange-50/40'}
+                  >
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-slate-800">
+                      {row.video}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 font-bold text-slate-900">
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-300"
+                          style={{ backgroundColor: row.dotColor }}
+                        />
+                        <span>{formatChickenId(row)}</span>
+                        {obsIdFormat === 'short' && (
+                          <span className="font-sans text-[10px] font-medium text-slate-400">
+                            ({row.profileLabel.replace(/^.*?\(/, '').replace(/\)$/, '')})
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
+                      {row.windowStart}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-slate-700">
+                      {row.windowEnd}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-900">
+                      {row.windowDurationS}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-right font-semibold text-slate-900">
+                      {row.validObservationDurationS}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
+                      {row.occludedDurationS}
+                    </td>
+                    <td className="py-2.5 px-4 border-r border-slate-200 text-right text-slate-700">
+                      {row.lostDurationS}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-bold text-emerald-700">
+                      {row.validObservationPct.toFixed(1)}
+                    </td>
+                  </tr>
                 ))
               )}
             </tbody>

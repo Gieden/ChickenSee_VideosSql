@@ -370,6 +370,9 @@ export async function GET(req: NextRequest) {
       intervals: filtered,
     });
   } catch (error: unknown) {
+    try {
+      await syncManifestFromCloud();
+    } catch {}
     const archivedSet = getArchivedDatesSet();
     const fallbackIntervals = DEFAULT_SAMPLE_INTERVALS.filter((i) => !archivedSet.has(i.date));
     const availableDates = Array.from(new Set(fallbackIntervals.map((i) => i.date))).sort().reverse();

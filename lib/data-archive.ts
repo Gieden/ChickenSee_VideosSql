@@ -96,18 +96,39 @@ export function readArchiveManifest(): ArchiveManifest {
     if (fs.existsSync(manifestPath)) {
       const raw = fs.readFileSync(manifestPath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<ArchiveManifest>;
+      const archives = parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {};
+
+      // If an archive is marked 'restored', ensure its dates are excluded from archivedDates
+      let hasRestoredAll = false;
+      const restoredDates = new Set<string>();
+      for (const arch of Object.values(archives)) {
+        if (arch && typeof arch === 'object' && arch.status === 'restored') {
+          if (arch.scope === 'all' || /all_data/i.test(arch.fileName || '')) {
+            hasRestoredAll = true;
+            break;
+          }
+          if (Array.isArray(arch.dates)) {
+            for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
+          }
+          if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
+            for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+              restoredDates.add(d);
+            }
+          }
+        }
+      }
+
+      const rawDates = Array.isArray(parsed.archivedDates) ? parsed.archivedDates : [];
+      const cleanDates = hasRestoredAll
+        ? []
+        : rawDates
+            .map((d) => String(d).slice(0, 10))
+            .filter((d) => Boolean(d) && !restoredDates.has(d));
+
       const result: ArchiveManifest = {
         version: 1,
-        archivedDates: Array.from(
-          new Set(
-            (Array.isArray(parsed.archivedDates) ? parsed.archivedDates : [])
-              .map((d) => String(d).slice(0, 10))
-              .filter(Boolean),
-          ),
-        ).sort(),
-        archives: {
-          ...(parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {}),
-        },
+        archivedDates: Array.from(new Set(cleanDates)).sort(),
+        archives,
       };
       cachedManifest = result;
       return result;
@@ -133,21 +154,55 @@ export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
       if (!error && data) {
         const raw = await data.text();
         const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
+        const archives = remote.archives && typeof remote.archives === 'object' ? remote.archives : {};
+
+        // Reconcile: If any archive has status 'restored', strip its dates from archivedDates
+        let hasRestoredAll = false;
+        const restoredDates = new Set<string>();
+        for (const arch of Object.values(archives)) {
+          if (arch && typeof arch === 'object' && arch.status === 'restored') {
+            if (arch.scope === 'all' || /all_data/i.test(arch.fileName || '')) {
+              hasRestoredAll = true;
+              break;
+            }
+            if (Array.isArray(arch.dates)) {
+              for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
+            }
+            if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
+              for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+                restoredDates.add(d);
+              }
+            }
+          }
+        }
+
+        const rawDates = Array.isArray(remote.archivedDates) ? remote.archivedDates : [];
+        const cleanDates = hasRestoredAll
+          ? []
+          : rawDates
+              .map((d) => String(d).slice(0, 10))
+              .filter((d) => Boolean(d) && !restoredDates.has(d));
+
         const result: ArchiveManifest = {
           version: 1,
-          archivedDates: Array.from(
-            new Set(
-              (Array.isArray(remote.archivedDates) ? remote.archivedDates : [])
-                .map((d) => String(d).slice(0, 10))
-                .filter(Boolean),
-            ),
-          ).sort(),
-          archives: remote.archives && typeof remote.archives === 'object' ? remote.archives : {},
+          archivedDates: Array.from(new Set(cleanDates)).sort(),
+          archives,
         };
         cachedManifest = result;
         try {
           fs.writeFileSync(getManifestPath(), JSON.stringify(result, null, 2), 'utf-8');
         } catch {}
+
+        // If stale dates belonging to restored archives were purged, heal remote cloud manifest immediately
+        if (cleanDates.length !== rawDates.length || (hasRestoredAll && rawDates.length > 0)) {
+          try {
+            await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
+              contentType: 'application/json',
+              upsert: true,
+            });
+          } catch {}
+        }
+
         return result;
       }
     } catch {
@@ -185,7 +240,27 @@ async function writeArchiveManifestAsync(manifest: ArchiveManifest): Promise<voi
  */
 export function getArchivedDatesSet(): Set<string> {
   const manifest = readArchiveManifest();
-  return new Set(manifest.archivedDates);
+  const archives = manifest.archives && typeof manifest.archives === 'object' ? manifest.archives : {};
+  const hasRestoredAll = Object.values(archives).some(
+    (a) => a && typeof a === 'object' && a.status === 'restored' && (a.scope === 'all' || /all_data/i.test(a.fileName || ''))
+  );
+  if (hasRestoredAll) {
+    return new Set<string>();
+  }
+  const restoredDates = new Set<string>();
+  for (const a of Object.values(archives)) {
+    if (a && typeof a === 'object' && a.status === 'restored') {
+      if (Array.isArray(a.dates)) {
+        for (const d of a.dates) restoredDates.add(String(d).slice(0, 10));
+      }
+      if (a.startDate && a.endDate && a.startDate <= a.endDate) {
+        for (const d of enumerateDates(a.startDate, a.endDate)) {
+          restoredDates.add(d);
+        }
+      }
+    }
+  }
+  return new Set((manifest.archivedDates || []).filter((d) => !restoredDates.has(d)));
 }
 
 /**
