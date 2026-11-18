@@ -33,12 +33,14 @@ local-storage/videos/
 runs/
 Archive/*.sql
 
-# Never push video files to GitHub
+# Never push video files or machine-specific shortcuts/build cache to GitHub
 *.mp4
 *.avi
 *.mov
 *.mkv
 *.webm
+*.lnk
+tsconfig.tsbuildinfo
 
 # Debug logs
 npm-debug.log*
