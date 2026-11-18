@@ -368,6 +368,7 @@ export async function GET(req: NextRequest) {
       availableDates,
       archivedDates: Array.from(archivedSet),
       intervals: filtered,
+      debugManifest: manifest,
     });
   } catch (error: unknown) {
     let cloudArchivedDates: string[] = [];
