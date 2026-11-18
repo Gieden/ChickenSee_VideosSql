@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
-import { getArchivedDatesSet } from '@/lib/data-archive';
+import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
 import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
 
 export const dynamic = 'force-dynamic';
@@ -333,6 +333,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Exclude dates that have been archived via Admin Settings
+    if (process.env.VERCEL) {
+      await syncManifestFromCloud();
+    }
     const archivedSet = getArchivedDatesSet();
     const activeIntervals = intervals.filter((i) => !archivedSet.has(i.date));
 

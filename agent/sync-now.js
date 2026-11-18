@@ -9,9 +9,16 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const SYNC_URL = process.env.VERCEL_SYNC_URL;
 const SYNC_SECRET = process.env.SYNC_SECRET;
-const LOCAL_STORAGE = process.env.CHICKENSEE_LOCAL_STORAGE || path.resolve(__dirname, '..', 'local-storage');
+const PROJECT_ROOT = path.resolve(__dirname, '..');
+const rawLocalStorage = (process.env.CHICKENSEE_LOCAL_STORAGE || '').trim();
+const LOCAL_STORAGE =
+  !rawLocalStorage || rawLocalStorage === './local-storage' || rawLocalStorage === 'local-storage'
+    ? path.resolve(PROJECT_ROOT, 'local-storage')
+    : path.isAbsolute(rawLocalStorage)
+      ? rawLocalStorage
+      : path.resolve(PROJECT_ROOT, rawLocalStorage);
 const RESULTS_DIR = path.join(LOCAL_STORAGE, 'results');
-const REPO_DATA_RESULTS = path.resolve(__dirname, '..', 'data', 'results');
+const REPO_DATA_RESULTS = path.resolve(PROJECT_ROOT, 'data', 'results');
 
 if (!fs.existsSync(REPO_DATA_RESULTS)) {
   fs.mkdirSync(REPO_DATA_RESULTS, { recursive: true });

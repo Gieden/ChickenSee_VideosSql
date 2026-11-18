@@ -6,7 +6,7 @@ import { AUTH_COOKIE_NAME, getSession, isAdmin } from '@/lib/auth';
 import {
   ArchiveScope,
   archiveDataByScope,
-  listArchiveFiles,
+  listArchiveFilesAsync,
 } from '@/lib/data-archive';
 import { listSyncedDatabases } from '@/lib/supabase-storage';
 import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   if (response) return response;
 
   try {
-    const archiveState = listArchiveFiles();
+    const archiveState = await listArchiveFilesAsync();
     const syncedDbs = await listSyncedDatabases({ includeArchived: false });
     const dbDates = syncedDbs.map((d) => d.dateKey).filter((d): d is string => Boolean(d));
     const sampleDates = DEFAULT_SAMPLE_INTERVALS.map((i) => i.date);
@@ -107,12 +107,13 @@ export async function POST(req: NextRequest) {
       createdBy: session!.username,
     });
 
-    const updated = listArchiveFiles();
+    const updated = await listArchiveFilesAsync();
 
     return NextResponse.json({
       success: true,
       archive: result.archive,
       sqlPreview: result.sqlPreview,
+      sqlContent: result.sqlContent,
       archivedDates: updated.archivedDates,
       files: updated.files,
     });

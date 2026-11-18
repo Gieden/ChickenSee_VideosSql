@@ -28,6 +28,17 @@ agent/directories.json
 agent/data/*
 !agent/data/.gitkeep
 /local-storage/
+local-storage/
+local-storage/videos/
+runs/
+Archive/*.sql
+
+# Never push video files to GitHub
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
 
 # Debug logs
 npm-debug.log*

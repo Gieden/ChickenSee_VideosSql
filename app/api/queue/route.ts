@@ -23,9 +23,13 @@ function getQueueFreshness(
   activeDetection: { captured_at?: string } | null,
   isProcessing: boolean,
 ) {
-  const freshnessTimestamp = isProcessing && activeDetection?.captured_at
-    ? activeDetection.captured_at
-    : updatedAt;
+  if (!isProcessing) {
+    return {
+      source_stale: false,
+      source_age_seconds: 0,
+    };
+  }
+  const freshnessTimestamp = activeDetection?.captured_at || updatedAt;
   const timestamp = Date.parse(String(freshnessTimestamp || ''));
   const ageSeconds = Number.isFinite(timestamp)
     ? Math.max(0, Math.floor((Date.now() - timestamp) / 1000))
@@ -239,14 +243,20 @@ async function getDirectLocalDbQueueResponse() {
     const active = mappedItems.find((item) => item.status === 'PROCESSING') || null;
     let activeDetection: any = null;
     if (active) {
-      const detPath = path.join('C:', 'Users', 'Kairi', 'Documents', 'ChickenSee_Local_Storage', 'results', 'detection_status.json');
-      if (fs.existsSync(detPath)) {
-        try {
-          const parsed = JSON.parse(fs.readFileSync(detPath, 'utf-8'));
-          if (parsed && parsed.job_id === active.job_id) {
-            activeDetection = parsed;
-          }
-        } catch {}
+      const candidateDetPaths = [
+        path.join(process.cwd(), 'local-storage', 'results', 'detection_status.json'),
+        path.join('C:', 'Users', 'Kairi', 'Documents', 'ChickenSee_Local_Storage', 'results', 'detection_status.json'),
+      ];
+      for (const detPath of candidateDetPaths) {
+        if (fs.existsSync(detPath)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(detPath, 'utf-8'));
+            if (parsed && parsed.job_id === active.job_id) {
+              activeDetection = parsed;
+              break;
+            }
+          } catch {}
+        }
       }
     }
 
@@ -297,8 +307,28 @@ export async function GET(req: NextRequest) {
 
   // The queue has a fixed storage path, so fetch it directly instead of relying on listing.
   try {
-    const content = await downloadStorageFile('results/queue_status.json');
-    const storedData = JSON.parse(await content.text());
+    let storedData: any = null;
+    const localSnapshotCandidates = [
+      path.join(process.cwd(), 'local-storage', 'results', 'queue_status.json'),
+      path.join(process.cwd(), 'data', 'results', 'queue_status.json'),
+    ];
+    for (const snapPath of localSnapshotCandidates) {
+      if (fs.existsSync(snapPath)) {
+        try {
+          const candidate = JSON.parse(fs.readFileSync(snapPath, 'utf-8'));
+          if (candidate && Array.isArray(candidate.items) && candidate.items.length > 0) {
+            storedData = candidate;
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    if (!storedData) {
+      const content = await downloadStorageFile('results/queue_status.json');
+      storedData = JSON.parse(await content.text());
+    }
+
     const storedSummary = storedData.summary && typeof storedData.summary === 'object'
       ? storedData.summary
       : {};
@@ -320,7 +350,9 @@ export async function GET(req: NextRequest) {
       historyWarning = 'Some queue history could not be recovered from synchronized analysis reports.';
     }
 
-    // Demote stale PROCESSING ghost items if newer jobs have already completed
+    // Demote stale PROCESSING ghost items if newer jobs have completed or if the snapshot is >120s old
+    const snapshotUpdatedMs = Date.parse(String(storedData.updated_at || ''));
+    const snapshotAgeMs = Number.isFinite(snapshotUpdatedMs) ? Date.now() - snapshotUpdatedMs : Infinity;
     const latestCompletedMs = items.reduce((latest, it) => {
       if (String(it.status || '').toUpperCase() !== 'COMPLETED') return latest;
       const ms = Date.parse(String(it.completed_at || it.created_at || ''));
@@ -329,10 +361,17 @@ export async function GET(req: NextRequest) {
     for (const item of items) {
       if (String(item.status || '').toUpperCase() === 'PROCESSING') {
         const createdMs = Date.parse(String(item.created_at || ''));
-        if (Number.isFinite(createdMs) && latestCompletedMs > createdMs + 60_000) {
-          item.status = 'COMPLETED';
-          item.progress_percent = 100;
-          item.completed_at = item.completed_at || item.created_at;
+        const itemAgeMs = Number.isFinite(createdMs) ? Date.now() - createdMs : snapshotAgeMs;
+        if (
+          snapshotAgeMs > 120_000 ||
+          itemAgeMs > 30 * 60_000 ||
+          (Number.isFinite(createdMs) && latestCompletedMs > createdMs + 60_000)
+        ) {
+          item.status = Number(item.progress_percent) >= 100 ? 'COMPLETED' : 'CANCELLED';
+          if (item.status === 'COMPLETED') {
+            item.progress_percent = 100;
+            item.completed_at = item.completed_at || item.created_at || storedData.updated_at;
+          }
         }
       }
     }
@@ -343,6 +382,9 @@ export async function GET(req: NextRequest) {
     summary.completed = Math.max(summary.completed, completedItems);
     summary.processing = items.filter(
       (item) => String(item.status || '').toUpperCase() === 'PROCESSING',
+    ).length;
+    summary.cancelled = items.filter(
+      (item) => String(item.status || '').toUpperCase() === 'CANCELLED',
     ).length;
     const activeAndPendingItems = items.filter((item) =>
       ['PROCESSING', 'QUEUED', 'WAITING'].includes(String(item.status || '').toUpperCase()),
@@ -356,42 +398,31 @@ export async function GET(req: NextRequest) {
         - Date.parse(String(first.completed_at || first.created_at || '')),
       );
     const mergedItems = [...activeAndPendingItems, ...historyItems];
-    const activeVideo = storedData.active_video || null;
-    const activeDetection = storedData.active_detection || null;
+    const activeProcessingItem = activeAndPendingItems.find(
+      (it) => String(it.status || '').toUpperCase() === 'PROCESSING',
+    );
+    const activeVideo = activeProcessingItem ? (activeProcessingItem.video_filename || storedData.active_video || null) : null;
+    const activeDetection = activeProcessingItem ? (storedData.active_detection || null) : null;
+    const isActuallyProcessing = Boolean(activeProcessingItem && summary.processing > 0);
     const freshness = getQueueFreshness(
       typeof storedData.updated_at === 'string' ? storedData.updated_at : null,
       activeDetection,
-      Boolean(activeVideo || summary.processing > 0),
+      isActuallyProcessing,
     );
-
-    if (activeVideo && summary.processing === 0) {
-      summary.processing = 1;
-    }
 
     return NextResponse.json({
       ...storedData,
       source: 'supabase',
-      updated_at: storedData.updated_at || null,
+      updated_at: storedData.updated_at || new Date().toISOString(),
       ...freshness,
-      is_queueing: (summary.processing + summary.queued + summary.waiting) > 0
-        || storedData.is_queueing === true,
+      is_queueing: (summary.processing + summary.queued + summary.waiting) > 0,
       active_video: activeVideo,
-      active_progress: storedData.active_progress ?? null,
-      active_frames: storedData.active_frames ?? null,
+      active_progress: activeProcessingItem ? (activeProcessingItem.progress_percent ?? storedData.active_progress ?? null) : null,
+      active_frames: activeProcessingItem ? (activeProcessingItem.frames ?? storedData.active_frames ?? null) : null,
       active_detection: activeDetection,
       history_warning: historyWarning,
       summary,
-      items: mergedItems.length > 0 || !activeVideo
-        ? mergedItems
-        : [{
-          item_id: 'active-sync',
-          video_filename: activeVideo,
-          status: 'PROCESSING',
-          progress_percent: storedData.active_progress ?? null,
-          frames: storedData.active_frames ?? '—',
-          details: null,
-          created_at: storedData.updated_at || null,
-        }],
+      items: mergedItems,
     }, {
       headers: { 'Cache-Control': 'no-store, max-age=0' },
     });

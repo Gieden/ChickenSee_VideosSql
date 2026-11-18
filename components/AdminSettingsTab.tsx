@@ -6,6 +6,8 @@ import {
   Archive,
   Calendar,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Database,
   Download,
@@ -21,7 +23,17 @@ import {
   Trash2,
   Upload,
 } from 'lucide-react';
-import { addDays } from '@/lib/date-range';
+import {
+  WEEKDAY_LETTERS,
+  addDays,
+  buildMonthGrid,
+  enumerateDates,
+  formatLongDay,
+  monthKey,
+  monthLabelFromKey,
+  shiftMonthKey,
+  todayIso,
+} from '@/lib/date-range';
 
 type ArchiveScope = '1d' | '7d' | '30d';
 
@@ -140,6 +152,9 @@ export default function AdminSettingsTab({
   const [error, setError] = useState<string | null>(null);
 
   const [referenceDate, setReferenceDate] = useState<string>('2026-11-17');
+  const [calendarOpen, setCalendarOpen] = useState<boolean>(false);
+  const [calendarMonth, setCalendarMonth] = useState<string>(() => '2026-11');
+  const calendarPopoverRef = useRef<HTMLDivElement | null>(null);
   const [autoDownloadSql, setAutoDownloadSql] = useState<boolean>(true);
   const [archivingScope, setArchivingScope] = useState<ArchiveScope | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -179,10 +194,77 @@ export default function AdminSettingsTab({
     fetchArchiveState();
   }, [fetchArchiveState]);
 
+  useEffect(() => {
+    if (referenceDate && referenceDate.length >= 7) {
+      setCalendarMonth(referenceDate.slice(0, 7));
+    }
+  }, [referenceDate]);
+
+  useEffect(() => {
+    if (!calendarOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (!calendarPopoverRef.current?.contains(e.target as Node)) {
+        setCalendarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [calendarOpen]);
+
+  const activeDatesSet = useMemo(() => new Set(activeDates), [activeDates]);
+  const archivedDatesSet = useMemo(() => new Set(archivedDates), [archivedDates]);
+
+  const referenceDateStatus = useMemo(() => {
+    if (activeDatesSet.has(referenceDate)) {
+      return {
+        state: 'available' as const,
+        label: 'Data Available',
+        detail: `${referenceDate} has active telemetry & behavior records ready to archive.`,
+        badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+        dotClass: 'bg-emerald-500',
+      };
+    }
+    if (archivedDatesSet.has(referenceDate)) {
+      return {
+        state: 'archived' as const,
+        label: 'Already Archived to SQL',
+        detail: `${referenceDate} is already archived in Archive/ and can be restored below.`,
+        badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
+        dotClass: 'bg-amber-500',
+      };
+    }
+    return {
+      state: 'empty' as const,
+      label: 'No Data on This Day',
+      detail: `No telemetry or behavior data was recorded on ${referenceDate}.`,
+      badgeClass: 'border-rose-200 bg-rose-50 text-rose-700',
+      dotClass: 'bg-rose-500',
+    };
+  }, [referenceDate, activeDatesSet, archivedDatesSet]);
+
+  const calendarGrid = useMemo(
+    () =>
+      buildMonthGrid(calendarMonth, {
+        hasRecords: (d) => activeDatesSet.has(d) || archivedDatesSet.has(d),
+        today: todayIso(),
+        minSelectable: null,
+        maxSelectable: null,
+      }),
+    [calendarMonth, activeDatesSet, archivedDatesSet],
+  );
+
   const scopePreviews = useMemo(() => {
     const ref = referenceDate || '2026-11-17';
     const start7 = addDays(ref, -6);
     const start30 = addDays(ref, -29);
+    const dates1 = [ref];
+    const dates7 = enumerateDates(start7, ref);
+    const dates30 = enumerateDates(start30, ref);
+
+    const activeIn1 = dates1.filter((d) => activeDatesSet.has(d));
+    const activeIn7 = dates7.filter((d) => activeDatesSet.has(d));
+    const activeIn30 = dates30.filter((d) => activeDatesSet.has(d));
+
     return {
       '1d': {
         scope: '1d' as ArchiveScope,
@@ -190,6 +272,9 @@ export default function AdminSettingsTab({
         badge: '1 Day Archive',
         rangeText: ref,
         fileName: `chickensee_archive_1day_${ref}.sql`,
+        totalDays: 1,
+        availableDaysCount: activeIn1.length,
+        availableDatesList: activeIn1,
         description:
           'Moves the selected full day out of active portal charts and logs into a date-stamped SQL backup file inside Archive/.',
       },
@@ -199,6 +284,9 @@ export default function AdminSettingsTab({
         badge: '7 Days Archive',
         rangeText: `${start7} → ${ref}`,
         fileName: `chickensee_archive_7days_${start7}_to_${ref}.sql`,
+        totalDays: 7,
+        availableDaysCount: activeIn7.length,
+        availableDatesList: activeIn7,
         description:
           'Archives a full 7-day window ending on the reference date into a single clean SQL file inside Archive/.',
       },
@@ -208,11 +296,14 @@ export default function AdminSettingsTab({
         badge: '30 Days Archive',
         rangeText: `${start30} → ${ref}`,
         fileName: `chickensee_archive_30days_${start30}_to_${ref}.sql`,
+        totalDays: 30,
+        availableDaysCount: activeIn30.length,
+        availableDatesList: activeIn30,
         description:
           'Archives a full 30-day window ending on the reference date into a date-stamped SQL file inside Archive/.',
       },
     };
-  }, [referenceDate]);
+  }, [referenceDate, activeDatesSet]);
 
   async function handleArchiveByScope(scope: ArchiveScope) {
     const preview = scopePreviews[scope];
@@ -245,13 +336,25 @@ export default function AdminSettingsTab({
       );
 
       if (autoDownloadSql && createdFile?.fileName) {
-        const dlUrl = `/api/admin/archive/download?file=${encodeURIComponent(createdFile.fileName)}`;
-        const link = document.createElement('a');
-        link.href = dlUrl;
-        link.download = createdFile.fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        if (typeof data.sqlContent === 'string' && data.sqlContent.length > 0) {
+          const blob = new Blob([data.sqlContent], { type: 'application/sql;charset=utf-8' });
+          const blobUrl = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.download = createdFile.fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+        } else {
+          const dlUrl = `/api/admin/archive/download?file=${encodeURIComponent(createdFile.fileName)}`;
+          const link = document.createElement('a');
+          link.href = dlUrl;
+          link.download = createdFile.fileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
       }
 
       await fetchArchiveState();
@@ -449,37 +552,214 @@ export default function AdminSettingsTab({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <Calendar className="h-4 w-4 text-orange-600" />
-              <span>Reference Date:</span>
-              <input
-                type="date"
-                value={referenceDate}
-                onChange={(e) => setReferenceDate(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-mono text-xs text-slate-900 outline-none transition focus:border-orange-500 focus:bg-white"
-              />
-            </label>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Live Data Availability Status Pill for Selected Reference Date */}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${referenceDateStatus.badgeClass}`}
+              title={referenceDateStatus.detail}
+            >
+              <span className={`h-2 w-2 rounded-full ${referenceDateStatus.dotClass}`} />
+              <span>{referenceDateStatus.label}</span>
+            </span>
+
+            {/* Availability-Aware Reference Date Picker Popover */}
+            <div ref={calendarPopoverRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setCalendarOpen((prev) => !prev)}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-2xs transition hover:border-orange-400 hover:bg-white"
+              >
+                <Calendar className="h-4 w-4 text-orange-600" />
+                <span>Reference Date:</span>
+                <span className="font-mono font-bold text-slate-900">{referenceDate}</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${referenceDateStatus.dotClass}`}
+                  title={referenceDateStatus.label}
+                />
+              </button>
+
+              {calendarOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Reference Date Availability Calendar"
+                  className=" right-0 top-full z-50 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xl sm:absolute"
+                >
+                  {/* Month Navigation */}
+                  <div className="flex items-center justify-between pb-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth((m) => shiftMonthKey(m, -1))}
+                      className="rounded-lg p-1 text-slate-500 transition hover:bg-slate-100"
+                      aria-label="Previous month"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-xs font-bold text-slate-800">
+                      {monthLabelFromKey(calendarMonth)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCalendarMonth((m) => shiftMonthKey(m, 1))}
+                      className="rounded-lg p-1 text-slate-500 transition hover:bg-slate-100"
+                      aria-label="Next month"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  {/* Weekday Headers */}
+                  <div className="grid grid-cols-7 gap-1 pb-1">
+                    {WEEKDAY_LETTERS.map((letter) => (
+                      <span
+                        key={letter}
+                        className="py-1 text-center text-[10px] font-bold text-slate-400"
+                      >
+                        {letter}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Days Grid with Data Availability Indicators */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {calendarGrid.days.map((day) => {
+                      const isSelected = day.date === referenceDate;
+                      const hasActive = activeDatesSet.has(day.date);
+                      const isArch = archivedDatesSet.has(day.date);
+
+                      let cellClass = 'text-slate-400 hover:bg-slate-100';
+                      if (!day.inMonth) {
+                        cellClass = 'text-slate-300 opacity-50 hover:bg-slate-50';
+                      } else if (isSelected) {
+                        cellClass = 'bg-orange-600 text-white font-bold shadow-xs';
+                      } else if (hasActive) {
+                        cellClass =
+                          'bg-emerald-50/90 text-emerald-900 font-bold border border-emerald-200/80 hover:bg-emerald-100';
+                      } else if (isArch) {
+                        cellClass =
+                          'bg-amber-50/90 text-amber-900 font-semibold border border-amber-200/80 hover:bg-amber-100';
+                      }
+
+                      const tooltip = hasActive
+                        ? `${formatLongDay(day.date)} — Data Available`
+                        : isArch
+                          ? `${formatLongDay(day.date)} — Archived in SQL`
+                          : `${formatLongDay(day.date)} — No Data Recorded`;
+
+                      return (
+                        <button
+                          key={day.date}
+                          type="button"
+                          onClick={() => {
+                            setReferenceDate(day.date);
+                            setCalendarOpen(false);
+                          }}
+                          title={tooltip}
+                          className={`relative flex h-8 flex-col items-center justify-center rounded-lg text-[11px] transition ${cellClass}`}
+                        >
+                          <span>{day.dayOfMonth}</span>
+                          {hasActive && (
+                            <span
+                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${
+                                isSelected ? 'bg-white' : 'bg-emerald-500'
+                              }`}
+                            />
+                          )}
+                          {!hasActive && isArch && (
+                            <span
+                              className={`absolute bottom-0.5 h-1.5 w-1.5 rounded-full ${
+                                isSelected ? 'bg-white' : 'bg-amber-500'
+                              }`}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Availability Legend */}
+                  <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2.5 text-[10px] text-slate-600">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        Has Data ({activeDates.length})
+                      </span>
+                      <span className="inline-flex items-center gap-1 font-semibold text-amber-700">
+                        <span className="h-2 w-2 rounded-full bg-amber-500" />
+                        Archived ({archivedDates.length})
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-slate-400">
+                        <span className="h-2 w-2 rounded-full bg-slate-300" />
+                        No Data
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      {activeDates.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReferenceDate(activeDates[0]);
+                            setCalendarOpen(false);
+                          }}
+                          className="font-semibold text-orange-600 hover:underline"
+                        >
+                          Jump to latest data ({activeDates[0]})
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setCalendarOpen(false)}
+                        className="ml-auto rounded px-2 py-0.5 font-semibold text-slate-500 hover:bg-slate-100"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Active Date Quick Chips */}
+        {/* Selected Reference Date Availability Banner */}
+        <div
+          className={`mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3.5 py-2 text-xs ${referenceDateStatus.badgeClass}`}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${referenceDateStatus.dotClass}`} />
+            <span className="font-bold">{referenceDate}:</span>
+            <span>{referenceDateStatus.detail}</span>
+          </div>
+          {referenceDateStatus.state !== 'available' && activeDates.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setReferenceDate(activeDates[0])}
+              className="rounded-lg bg-white/80 px-2.5 py-1 text-[11px] font-bold text-orange-700 shadow-2xs transition hover:bg-white"
+            >
+              Switch to {activeDates[0]} (Has Data)
+            </button>
+          )}
+        </div>
+
+        {/* Active Date Quick Chips with Data Availability Dots */}
         {activeDates.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] font-semibold text-slate-400 mr-1">
-              Quick select active date:
+              Dates with available data ({activeDates.length}):
             </span>
-            {activeDates.slice(0, 12).map((d) => (
+            {activeDates.slice(0, 14).map((d) => (
               <button
                 key={d}
                 type="button"
                 onClick={() => setReferenceDate(d)}
-                className={`rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium transition ${
+                className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[11px] font-medium transition ${
                   referenceDate === d
                     ? 'border-orange-500 bg-orange-50 text-orange-700 font-bold'
-                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 hover:bg-white'
+                    : 'border-emerald-200 bg-emerald-50/50 text-emerald-800 hover:border-emerald-400 hover:bg-white'
                 }`}
+                title={`${d} — Data Available`}
               >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 {d}
               </button>
             ))}
@@ -527,7 +807,32 @@ export default function AdminSettingsTab({
                     {card.description}
                   </p>
 
-                  <div className="mt-3 rounded-lg border border-slate-200/80 bg-white p-2.5">
+                  {/* Data Availability Status for this Scope */}
+                  <div
+                    className={`mt-3 flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${
+                      card.availableDaysCount > 0
+                        ? 'border-emerald-200 bg-emerald-50/70 text-emerald-800'
+                        : 'border-rose-200 bg-rose-50/70 text-rose-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          card.availableDaysCount > 0 ? 'bg-emerald-500' : 'bg-rose-500'
+                        }`}
+                      />
+                      <span>
+                        {card.availableDaysCount > 0
+                          ? `${card.availableDaysCount} of ${card.totalDays} day${card.totalDays === 1 ? '' : 's'} has data`
+                          : 'No data available in this range'}
+                      </span>
+                    </span>
+                    <span className="font-mono text-[10px]">
+                      {card.availableDaysCount > 0 ? 'Ready' : 'Empty'}
+                    </span>
+                  </div>
+
+                  <div className="mt-2.5 rounded-lg border border-slate-200/80 bg-white p-2.5">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       Generated SQL File in Archive/
                     </div>
@@ -540,14 +845,16 @@ export default function AdminSettingsTab({
                 <button
                   type="button"
                   onClick={() => handleArchiveByScope(scopeKey)}
-                  disabled={archivingScope !== null}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-orange-700 disabled:opacity-50"
+                  disabled={archivingScope !== null || card.availableDaysCount === 0}
+                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-3.5 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isBusy ? (
                     <>
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       <span>Generating SQL &amp; Archiving…</span>
                     </>
+                  ) : card.availableDaysCount === 0 ? (
+                    <span>No Data Available in Range</span>
                   ) : (
                     <>
                       <Trash2 className="h-3.5 w-3.5" />
@@ -555,8 +862,8 @@ export default function AdminSettingsTab({
                         {scopeKey === '1d'
                           ? 'Delete & Archive Entire Day'
                           : scopeKey === '7d'
-                            ? 'Delete & Archive 7 Days'
-                            : 'Delete & Archive 30 Days'}
+                            ? `Delete & Archive 7 Days (${card.availableDaysCount}d)`
+                            : `Delete & Archive 30 Days (${card.availableDaysCount}d)`}
                       </span>
                     </>
                   )}

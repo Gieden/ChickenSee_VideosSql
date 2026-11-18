@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
 import path from 'path';
 import { AUTH_COOKIE_NAME, getSession, isAdmin } from '@/lib/auth';
-import { getArchiveDir, listArchiveFiles, restoreDataFromSql } from '@/lib/data-archive';
+import { listArchiveFilesAsync, readArchiveSqlFileContent, restoreDataFromSql } from '@/lib/data-archive';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,12 +36,12 @@ export async function POST(req: NextRequest) {
       // If restoring an existing file from the Archive/ folder by fileName alone
       if (fileName && !sqlContent) {
         const safeName = path.basename(fileName);
-        const existingPath = path.join(getArchiveDir(), safeName);
-        if (!fs.existsSync(existingPath)) {
+        const fetchedContent = await readArchiveSqlFileContent(safeName);
+        if (!fetchedContent) {
           return NextResponse.json({ error: `Archive file "${safeName}" not found in Archive folder.` }, { status: 404 });
         }
         fileName = safeName;
-        sqlContent = fs.readFileSync(existingPath, 'utf-8');
+        sqlContent = fetchedContent;
       }
     }
 
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
       restoredBy: session.username,
     });
 
-    const updated = listArchiveFiles();
+    const updated = await listArchiveFilesAsync();
 
     return NextResponse.json({
       success: true,

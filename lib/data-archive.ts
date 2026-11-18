@@ -1,6 +1,8 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import initSqlJs from 'sql.js';
+import { createClient } from '@supabase/supabase-js';
 import { addDays, enumerateDates, normalizeIsoDate, todayIso } from '@/lib/date-range';
 import { DEFAULT_SAMPLE_INTERVALS } from '@/components/BehaviorResultsTab';
 
@@ -42,12 +44,42 @@ const MANIFEST_FILE_NAME = '.archive-manifest.json';
 const META_PREFIX = '--CHICKENSEE_ARCHIVE_META:';
 const PAYLOAD_PREFIX = '--CHICKENSEE_ARCHIVE_PAYLOAD:';
 
+// In-memory cache for serverless environments
+let cachedManifest: ArchiveManifest | null = null;
+
+function getSupabaseArchiveBucket() {
+  const url = process.env.SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const bucketName = process.env.SUPABASE_STORAGE_BUCKET?.trim() || 'chickensee-sync';
+  if (!url || !serviceRoleKey) return null;
+  const client = createClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  return client.storage.from(bucketName);
+}
+
 export function getArchiveDir(): string {
-  const dir = path.join(process.cwd(), ARCHIVE_FOLDER_NAME);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  // On Vercel serverless (/var/task is read-only), use /tmp/Archive
+  if (!process.env.VERCEL) {
+    try {
+      const localDir = path.join(process.cwd(), ARCHIVE_FOLDER_NAME);
+      if (!fs.existsSync(localDir)) {
+        fs.mkdirSync(localDir, { recursive: true });
+      }
+      return localDir;
+    } catch {
+      // Fallback to os.tmpdir()/Archive if cwd is read-only
+    }
   }
-  return dir;
+  const tmpDir = path.join(os.tmpdir(), ARCHIVE_FOLDER_NAME);
+  try {
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+  } catch {
+    // ignore
+  }
+  return tmpDir;
 }
 
 function getManifestPath(): string {
@@ -60,16 +92,31 @@ export function readArchiveManifest(): ArchiveManifest {
     if (fs.existsSync(manifestPath)) {
       const raw = fs.readFileSync(manifestPath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<ArchiveManifest>;
-      return {
+      const result: ArchiveManifest = {
         version: 1,
-        archivedDates: Array.isArray(parsed.archivedDates)
-          ? Array.from(new Set(parsed.archivedDates.map((d) => String(d).slice(0, 10)).filter(Boolean))).sort()
-          : [],
-        archives: parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {},
+        archivedDates: Array.from(
+          new Set(
+            [
+              ...(Array.isArray(parsed.archivedDates) ? parsed.archivedDates : []),
+              ...(cachedManifest?.archivedDates || []),
+            ]
+              .map((d) => String(d).slice(0, 10))
+              .filter(Boolean),
+          ),
+        ).sort(),
+        archives: {
+          ...(cachedManifest?.archives || {}),
+          ...(parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {}),
+        },
       };
+      cachedManifest = result;
+      return result;
     }
   } catch (err) {
-    console.warn('Could not read archive manifest, initializing fresh manifest:', err);
+    console.warn('Could not read archive manifest, using cached or fresh manifest:', err);
+  }
+  if (cachedManifest) {
+    return cachedManifest;
   }
   return {
     version: 1,
@@ -78,10 +125,62 @@ export function readArchiveManifest(): ArchiveManifest {
   };
 }
 
-function writeArchiveManifest(manifest: ArchiveManifest): void {
-  const manifestPath = getManifestPath();
+export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
+  const local = readArchiveManifest();
+  const bucket = getSupabaseArchiveBucket();
+  if (!bucket) return local;
+  try {
+    const { data, error } = await bucket.download(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`);
+    if (!error && data) {
+      const raw = await data.text();
+      const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
+      const merged: ArchiveManifest = {
+        version: 1,
+        archivedDates: Array.from(
+          new Set(
+            (Array.isArray(remote.archivedDates) ? remote.archivedDates : local.archivedDates)
+              .map((d) => String(d).slice(0, 10))
+              .filter(Boolean),
+          ),
+        ).sort(),
+        archives: {
+          ...local.archives,
+          ...(remote.archives && typeof remote.archives === 'object' ? remote.archives : {}),
+        },
+      };
+      cachedManifest = merged;
+      try {
+        fs.writeFileSync(getManifestPath(), JSON.stringify(merged, null, 2), 'utf-8');
+      } catch {}
+      return merged;
+    }
+  } catch {
+    // ignore cloud fetch error
+  }
+  return local;
+}
+
+async function writeArchiveManifestAsync(manifest: ArchiveManifest): Promise<void> {
   manifest.archivedDates = Array.from(new Set(manifest.archivedDates)).sort();
-  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+  cachedManifest = manifest;
+  const jsonStr = JSON.stringify(manifest, null, 2);
+  try {
+    const manifestPath = getManifestPath();
+    fs.writeFileSync(manifestPath, jsonStr, 'utf-8');
+  } catch (err) {
+    console.warn('Could not write local archive manifest:', err);
+  }
+  const bucket = getSupabaseArchiveBucket();
+  if (bucket) {
+    try {
+      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, jsonStr, {
+        contentType: 'application/json',
+        upsert: true,
+      });
+    } catch (err) {
+      console.warn('Could not upload archive manifest to Supabase Storage:', err);
+    }
+  }
 }
 
 /**
@@ -254,6 +353,7 @@ export async function archiveDataByScope(params: {
 }): Promise<{
   archive: ArchiveFileEntry;
   sqlPreview: string;
+  sqlContent: string;
 }> {
   const { scope, referenceDate, createdBy } = params;
   const range = computeScopeDateRange(scope, referenceDate);
@@ -431,26 +531,45 @@ export async function archiveDataByScope(params: {
   sqlLines.push('-- END OF CHICKENSEE ARCHIVE SQL');
 
   const sqlContent = sqlLines.join('\n');
-  fs.writeFileSync(filePath, sqlContent, 'utf-8');
-  const stat = fs.statSync(filePath);
+  let sizeBytes = Buffer.byteLength(sqlContent, 'utf-8');
+  try {
+    fs.writeFileSync(filePath, sqlContent, 'utf-8');
+    sizeBytes = fs.statSync(filePath).size;
+  } catch (err) {
+    console.warn('Could not write SQL archive to local filesystem, persisting to cloud:', err);
+  }
 
-  // Update manifest in Archive/.archive-manifest.json
-  const manifest = readArchiveManifest();
+  // Also upload SQL archive to Supabase Storage Archive/ folder
+  const bucket = getSupabaseArchiveBucket();
+  if (bucket) {
+    try {
+      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${fileName}`, sqlContent, {
+        contentType: 'application/sql',
+        upsert: true,
+      });
+    } catch (err) {
+      console.warn('Could not upload SQL archive to Supabase Storage:', err);
+    }
+  }
+
+  // Update manifest in Archive/.archive-manifest.json (local + cloud)
+  const manifest = await syncManifestFromCloud();
   const updatedDates = new Set(manifest.archivedDates);
   for (const d of range.dates) {
     updatedDates.add(d);
   }
   manifest.archivedDates = Array.from(updatedDates).sort();
   manifest.archives[fileName] = metadata;
-  writeArchiveManifest(manifest);
+  await writeArchiveManifestAsync(manifest);
 
   return {
     archive: {
       ...metadata,
       filePath,
-      sizeBytes: stat.size,
+      sizeBytes,
     },
     sqlPreview: sqlLines.slice(0, 28).join('\n'),
+    sqlContent,
   };
 }
 
@@ -487,9 +606,22 @@ export async function restoreDataFromSql(params: {
     : `${cleanBaseName}.sql`;
   const targetFilePath = path.join(archiveDir, targetFileName);
 
-  // Save attached SQL file into Archive/ if not already identical
-  fs.writeFileSync(targetFilePath, sqlContent, 'utf-8');
-  const stat = fs.statSync(targetFilePath);
+  // Save attached SQL file into Archive/ (local + cloud)
+  let sizeBytes = Buffer.byteLength(sqlContent, 'utf-8');
+  try {
+    fs.writeFileSync(targetFilePath, sqlContent, 'utf-8');
+    sizeBytes = fs.statSync(targetFilePath).size;
+  } catch {}
+
+  const bucket = getSupabaseArchiveBucket();
+  if (bucket) {
+    try {
+      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${targetFileName}`, sqlContent, {
+        contentType: 'application/sql',
+        upsert: true,
+      });
+    } catch {}
+  }
 
   let restoredMetricsRows = 0;
   let restoredBirdRows = 0;
@@ -549,7 +681,7 @@ export async function restoreDataFromSql(params: {
   }
 
   // Update manifest: remove restoredDates from archivedDates and mark archive as restored
-  const manifest = readArchiveManifest();
+  const manifest = await syncManifestFromCloud();
   const restoredSet = new Set(restoredDates);
   manifest.archivedDates = manifest.archivedDates.filter((d) => !restoredSet.has(d));
 
@@ -588,7 +720,7 @@ export async function restoreDataFromSql(params: {
   };
 
   manifest.archives[targetFileName] = updatedMeta;
-  writeArchiveManifest(manifest);
+  await writeArchiveManifestAsync(manifest);
 
   return {
     restoredDates,
@@ -597,14 +729,47 @@ export async function restoreDataFromSql(params: {
     archive: {
       ...updatedMeta,
       filePath: targetFilePath,
-      sizeBytes: stat.size,
+      sizeBytes,
     },
   };
 }
 
+export async function readArchiveSqlFileContent(fileName: string): Promise<string | null> {
+  const safeName = path.basename(fileName);
+  const localPath = path.join(getArchiveDir(), safeName);
+  if (fs.existsSync(localPath)) {
+    try {
+      return fs.readFileSync(localPath, 'utf-8');
+    } catch {}
+  }
+  const bucket = getSupabaseArchiveBucket();
+  if (bucket) {
+    try {
+      const { data, error } = await bucket.download(`${ARCHIVE_FOLDER_NAME}/${safeName}`);
+      if (!error && data) {
+        const text = await data.text();
+        try {
+          fs.writeFileSync(localPath, text, 'utf-8');
+        } catch {}
+        return text;
+      }
+    } catch {}
+  }
+  return null;
+}
+
 /**
- * Lists all .sql archive files in the Archive/ folder, enriched with date metadata.
+ * Lists all .sql archive files in the Archive/ folder (both local and cloud), enriched with date metadata.
  */
+export async function listArchiveFilesAsync(): Promise<{
+  archiveFolder: string;
+  archivedDates: string[];
+  files: ArchiveFileEntry[];
+}> {
+  await syncManifestFromCloud();
+  return listArchiveFiles();
+}
+
 export function listArchiveFiles(): {
   archiveFolder: string;
   archivedDates: string[];
@@ -614,15 +779,26 @@ export function listArchiveFiles(): {
   const manifest = readArchiveManifest();
   const archivedSet = new Set(manifest.archivedDates);
 
-  const entries = fs.existsSync(archiveDir)
-    ? fs.readdirSync(archiveDir, { withFileTypes: true })
-    : [];
+  let entries: fs.Dirent[] = [];
+  try {
+    if (fs.existsSync(archiveDir)) {
+      entries = fs.readdirSync(archiveDir, { withFileTypes: true });
+    }
+  } catch {}
 
+  const seenNames = new Set<string>();
   const files: ArchiveFileEntry[] = [];
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.sql')) continue;
+    seenNames.add(entry.name);
     const fullPath = path.join(archiveDir, entry.name);
-    const stat = fs.statSync(fullPath);
+    let sizeBytes = 0;
+    let mtimeIso = new Date().toISOString();
+    try {
+      const stat = fs.statSync(fullPath);
+      sizeBytes = stat.size;
+      mtimeIso = stat.mtime.toISOString();
+    } catch {}
 
     let meta = manifest.archives[entry.name];
     if (!meta) {
@@ -630,7 +806,7 @@ export function listArchiveFiles(): {
         const raw = fs.readFileSync(fullPath, 'utf-8');
         const extracted = extractDateInfoFromSqlFile(entry.name, raw);
         const dates = extracted.detectedDates;
-        const startDate = dates[0] || stat.mtime.toISOString().slice(0, 10);
+        const startDate = dates[0] || mtimeIso.slice(0, 10);
         const endDate = dates[dates.length - 1] || startDate;
         const scope: ArchiveScope = dates.length <= 1 ? '1d' : dates.length <= 7 ? '7d' : '30d';
         meta = extracted.meta || {
@@ -647,7 +823,7 @@ export function listArchiveFiles(): {
           startDate,
           endDate,
           dates: dates.length ? dates : [startDate],
-          createdAt: stat.mtime.toISOString(),
+          createdAt: mtimeIso,
           createdBy: 'admin',
           metricsRowCount: 0,
           birdTrackRowCount: 0,
@@ -659,7 +835,6 @@ export function listArchiveFiles(): {
         continue;
       }
     } else {
-      // Keep status synchronized with whether any of its dates are currently archived
       const anyStillArchived = meta.dates.some((d) => archivedSet.has(d));
       meta = {
         ...meta,
@@ -669,15 +844,27 @@ export function listArchiveFiles(): {
 
     files.push({
       ...meta,
-      filePath: fullPath,
-      sizeBytes: stat.size,
+      filePath: `Archive/${entry.name}`,
+      sizeBytes,
+    });
+  }
+
+  // Also include any archives recorded in the manifest from cloud storage that aren't cached on local disk yet
+  for (const [fileName, meta] of Object.entries(manifest.archives)) {
+    if (seenNames.has(fileName)) continue;
+    const anyStillArchived = meta.dates.some((d) => archivedSet.has(d));
+    files.push({
+      ...meta,
+      status: anyStillArchived ? 'archived' : 'restored',
+      filePath: `Archive/${fileName}`,
+      sizeBytes: 2048,
     });
   }
 
   files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return {
-    archiveFolder: archiveDir,
+    archiveFolder: 'Archive',
     archivedDates: manifest.archivedDates,
     files,
   };

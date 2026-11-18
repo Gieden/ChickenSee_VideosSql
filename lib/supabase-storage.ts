@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { getArchivedDatesSet } from '@/lib/data-archive';
+import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
 
 export interface SyncedFileMeta {
   url: string;
@@ -476,6 +476,9 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
   }
 
   // Filter out dates currently archived via Admin Settings unless includeArchived is true
+  if (!options?.includeArchived && process.env.VERCEL) {
+    await syncManifestFromCloud();
+  }
   const archivedDates = options?.includeArchived ? new Set<string>() : getArchivedDatesSet();
   const visibleList = Array.from(unique.values()).filter(
     (f) => !f.dateKey || !archivedDates.has(f.dateKey),

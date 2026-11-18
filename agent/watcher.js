@@ -21,8 +21,15 @@ const REALTIME_UPLOAD_TIMEOUT_MS = 15_000;
 const CLOUD_SYNC_RETRY_DELAY_MS = 5 * 60 * 1000;
 const ENABLE_CLOUD_SYNC = (process.env.ENABLE_CLOUD_SYNC || '0') === '1';
 function resolveLocalStorageRoot() {
+  const projectRoot = path.resolve(process.cwd(), '..');
+  const fallback = path.resolve(projectRoot, 'local-storage');
   if (process.env.CHICKENSEE_LOCAL_STORAGE) {
-    const configured = path.resolve(process.env.CHICKENSEE_LOCAL_STORAGE);
+    const raw = process.env.CHICKENSEE_LOCAL_STORAGE.trim();
+    if (raw === './local-storage' || raw === 'local-storage' || raw.replace(/\\/g, '/').endsWith('/ChickenSee_Local_Storage')) {
+      try { fs.mkdirSync(fallback, { recursive: true }); } catch {}
+      return fallback;
+    }
+    const configured = path.isAbsolute(raw) ? raw : path.resolve(projectRoot, raw);
     try {
       if (!fs.existsSync(configured)) {
         fs.mkdirSync(configured, { recursive: true });
@@ -32,7 +39,6 @@ function resolveLocalStorageRoot() {
       // Fallback if permission error or non-existent user profile
     }
   }
-  const fallback = path.resolve(process.cwd(), '..', 'local-storage');
   try {
     fs.mkdirSync(fallback, { recursive: true });
   } catch {}
