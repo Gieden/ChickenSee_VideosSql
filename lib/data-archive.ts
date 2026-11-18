@@ -98,21 +98,25 @@ export function readArchiveManifest(): ArchiveManifest {
       const parsed = JSON.parse(raw) as Partial<ArchiveManifest>;
       const archives = parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {};
 
-      // If an archive is marked 'restored', ensure its dates are excluded from archivedDates
+      // If an archive is marked 'restored' or is an all_data archive, ensure dates are excluded from archivedDates
       let hasRestoredAll = false;
       const restoredDates = new Set<string>();
-      for (const arch of Object.values(archives)) {
-        if (arch && typeof arch === 'object' && arch.status === 'restored') {
-          if (arch.scope === 'all' || /all_data/i.test(arch.fileName || '')) {
+      for (const [key, arch] of Object.entries(archives)) {
+        if (arch && typeof arch === 'object') {
+          const isAllScope = arch.scope === 'all' || /all_data/i.test(key) || /all_data/i.test(arch.fileName || '');
+          if (isAllScope) {
+            arch.status = 'restored';
             hasRestoredAll = true;
             break;
           }
-          if (Array.isArray(arch.dates)) {
-            for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
-          }
-          if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
-            for (const d of enumerateDates(arch.startDate, arch.endDate)) {
-              restoredDates.add(d);
+          if (arch.status === 'restored') {
+            if (Array.isArray(arch.dates)) {
+              for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
+            }
+            if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
+              for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+                restoredDates.add(d);
+              }
             }
           }
         }
@@ -156,21 +160,25 @@ export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
         const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
         const archives = remote.archives && typeof remote.archives === 'object' ? remote.archives : {};
 
-        // Reconcile: If any archive has status 'restored', strip its dates from archivedDates
+        // Reconcile: If any all_data archive exists OR any archive has status 'restored', strip dates
         let hasRestoredAll = false;
         const restoredDates = new Set<string>();
-        for (const arch of Object.values(archives)) {
-          if (arch && typeof arch === 'object' && arch.status === 'restored') {
-            if (arch.scope === 'all' || /all_data/i.test(arch.fileName || '')) {
+        for (const [key, arch] of Object.entries(archives)) {
+          if (arch && typeof arch === 'object') {
+            const isAllScope = arch.scope === 'all' || /all_data/i.test(key) || /all_data/i.test(arch.fileName || '');
+            if (isAllScope) {
+              arch.status = 'restored';
               hasRestoredAll = true;
               break;
             }
-            if (Array.isArray(arch.dates)) {
-              for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
-            }
-            if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
-              for (const d of enumerateDates(arch.startDate, arch.endDate)) {
-                restoredDates.add(d);
+            if (arch.status === 'restored') {
+              if (Array.isArray(arch.dates)) {
+                for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
+              }
+              if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
+                for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+                  restoredDates.add(d);
+                }
               }
             }
           }
@@ -196,10 +204,22 @@ export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
         // If stale dates belonging to restored archives were purged, heal remote cloud manifest immediately
         if (cleanDates.length !== rawDates.length || (hasRestoredAll && rawDates.length > 0)) {
           try {
-            await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
+            const { error: upErr } = await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
               contentType: 'application/json',
               upsert: true,
             });
+            if (upErr) {
+              const { error: updErr } = await bucket.update(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
+                contentType: 'application/json',
+                upsert: true,
+              });
+              if (updErr) {
+                await bucket.remove([`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`]);
+                await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
+                  contentType: 'application/json',
+                });
+              }
+            }
           } catch {}
         }
 
@@ -225,10 +245,22 @@ async function writeArchiveManifestAsync(manifest: ArchiveManifest): Promise<voi
   const bucket = getSupabaseArchiveBucket();
   if (bucket) {
     try {
-      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, jsonStr, {
+      const { error: upErr } = await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, jsonStr, {
         contentType: 'application/json',
         upsert: true,
       });
+      if (upErr) {
+        const { error: updErr } = await bucket.update(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, jsonStr, {
+          contentType: 'application/json',
+          upsert: true,
+        });
+        if (updErr) {
+          await bucket.remove([`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`]);
+          await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, jsonStr, {
+            contentType: 'application/json',
+          });
+        }
+      }
     } catch (err) {
       console.warn('Could not upload archive manifest to Supabase Storage:', err);
     }
@@ -242,7 +274,7 @@ export function getArchivedDatesSet(): Set<string> {
   const manifest = readArchiveManifest();
   const archives = manifest.archives && typeof manifest.archives === 'object' ? manifest.archives : {};
   const hasRestoredAll = Object.values(archives).some(
-    (a) => a && typeof a === 'object' && a.status === 'restored' && (a.scope === 'all' || /all_data/i.test(a.fileName || ''))
+    (a) => a && typeof a === 'object' && (a.scope === 'all' || /all_data/i.test(a.fileName || ''))
   );
   if (hasRestoredAll) {
     return new Set<string>();
