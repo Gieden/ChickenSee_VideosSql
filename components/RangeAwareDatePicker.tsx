@@ -135,11 +135,11 @@ export default function RangeAwareDatePicker({
             : 'border-slate-200 bg-white text-slate-800 hover:border-orange-400 hover:text-orange-600'
           } ${open ? 'border-orange-500 ring-2 ring-orange-100' : ''}`}
       >
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5 text-slate-800">
           <CalendarDays className="h-3.5 w-3.5 text-orange-500" />
           {value ? formatLongDay(value) : 'Select date'}
         </span>
-        <span className="text-[10px] font-medium text-slate-400">
+        <span className="text-[11px] font-medium text-slate-500">
           {value ? relativeDayLabel(value, today) : ''}
         </span>
       </button>
@@ -185,12 +185,12 @@ export default function RangeAwareDatePicker({
               const isSelected = day.date === value;
               const base = 'relative flex h-8 items-center justify-center rounded-lg text-[11px] font-semibold transition';
               const style = isSelected
-                ? 'bg-orange-600 text-white shadow-sm'
+                ? 'bg-orange-600 text-white shadow-sm font-bold'
                 : day.disabled
-                  ? 'cursor-not-allowed text-slate-300'
+                  ? 'cursor-not-allowed text-slate-400/50'
                   : day.inMonth
-                    ? 'text-slate-700 hover:bg-orange-50 hover:text-orange-700'
-                    : 'text-slate-400 hover:bg-slate-50';
+                    ? 'text-slate-800 font-bold hover:bg-orange-50 hover:text-orange-700'
+                    : 'text-slate-500 hover:bg-slate-50';
               return (
                 <button
                   key={day.date}

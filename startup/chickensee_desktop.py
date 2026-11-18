@@ -291,10 +291,14 @@ class ChickenSeeDesktop:
         style.theme_use("clam")
 
         # Configure Combobox popdown listbox via option database for dark mode
+        self.root.option_add("*ComboboxListbox.background", COLORS["surface_raised"])
+        self.root.option_add("*ComboboxListbox.foreground", COLORS["ink"])
+        self.root.option_add("*ComboboxListbox.selectBackground", COLORS["primary_soft"])
+        self.root.option_add("*ComboboxListbox.selectForeground", COLORS["ink"])
         self.root.option_add("*TCombobox*Listbox.background", COLORS["surface_raised"])
         self.root.option_add("*TCombobox*Listbox.foreground", COLORS["ink"])
         self.root.option_add("*TCombobox*Listbox.selectBackground", COLORS["primary_soft"])
-        self.root.option_add("*TCombobox*Listbox.selectForeground", COLORS["primary_hover"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", COLORS["ink"])
         self.root.option_add("*TCombobox*Listbox.relief", "flat")
         self.root.option_add("*TCombobox*Listbox.borderWidth", "0")
 
@@ -532,8 +536,42 @@ class ChickenSeeDesktop:
             foreground=COLORS["ink"],
             background=COLORS["surface_raised"],
             selectbackground=COLORS["primary_soft"],
-            selectforeground=COLORS["primary_hover"],
-            arrowcolor=COLORS["primary_hover"],
+            selectforeground=COLORS["ink"],
+            arrowcolor=COLORS["ink"],
+            bordercolor=COLORS["border"],
+            darkcolor=COLORS["surface_raised"],
+            lightcolor=COLORS["surface_raised"],
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[
+                ("readonly", COLORS["surface_raised"]),
+                ("disabled", COLORS["surface"]),
+                ("focus", COLORS["surface_raised"]),
+                ("!disabled", COLORS["surface_raised"]),
+            ],
+            background=[
+                ("readonly", COLORS["surface_raised"]),
+                ("disabled", COLORS["surface"]),
+                ("!disabled", COLORS["surface_raised"]),
+            ],
+            foreground=[
+                ("readonly", COLORS["ink"]),
+                ("disabled", COLORS["muted"]),
+                ("!disabled", COLORS["ink"]),
+            ],
+            selectbackground=[
+                ("readonly", COLORS["surface_raised"]),
+                ("!disabled", COLORS["surface_raised"]),
+            ],
+            selectforeground=[
+                ("readonly", COLORS["ink"]),
+                ("!disabled", COLORS["ink"]),
+            ],
+            arrowcolor=[
+                ("readonly", COLORS["ink"]),
+                ("!disabled", COLORS["ink"]),
+            ],
         )
         style.configure(
             "TScrollbar",
