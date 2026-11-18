@@ -41,17 +41,19 @@ import {
   ShieldCheck,
   FolderOpen,
   Settings,
+  FileSpreadsheet,
 } from 'lucide-react';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
 import AdminSettingsTab from '@/components/AdminSettingsTab';
 import SqliteViewerTab from '@/components/SqliteViewerTab';
+import ResearchDatasetsTab from '@/components/ResearchDatasetsTab';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
-type DashboardTab = 'database' | 'results' | 'queue' | 'sensors' | 'staff' | 'settings';
+type DashboardTab = 'database' | 'results' | 'datasets' | 'queue' | 'sensors' | 'staff' | 'settings';
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'queue', 'sensors', 'staff', 'settings'];
+const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'datasets', 'queue', 'sensors', 'staff', 'settings'];
 
 interface QueueItem {
   item_id: string;
@@ -2599,6 +2601,12 @@ export default function DashboardPage() {
                 Live
               </span>
             </button>
+
+            <button onClick={() => handleTabChange('datasets')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'datasets' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+              <FileSpreadsheet className="h-4 w-4" />
+              <span>Research Logs</span>
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">4 Sheets</span>
+            </button>
             {isAdminUser && (
               <>
                 <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
@@ -2870,6 +2878,11 @@ export default function DashboardPage() {
         <div className={activeTab === 'sensors' ? 'block' : 'hidden'}>
           <SensorLiveMonitoringTab />
         </div>
+
+        {/* RESEARCH LOGS & DATASETS TAB (Excel: behavior_events, detection_tracking, observation_windows, environment_readings) */}
+        {activeTab === 'datasets' && (
+          <ResearchDatasetsTab />
+        )}
 
         {/* STAFF ACCOUNTS TAB (administrators only) */}
         {isAdminUser && activeTab === 'staff' && (
