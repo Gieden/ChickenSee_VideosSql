@@ -528,7 +528,7 @@ def cancel_processing_job(job_id: int):
 def detect_sample_video(video: UploadFile = File(...)):
     """
     Accept an uploaded video file, run YOLO26n + ByteTrack detection on every frame,
-    burn bounding boxes, IDs, leg-band colours, and a live telemetry HUD into the output,
+    burn bounding boxes, IDs, saddle colours, and a live telemetry HUD into the output,
     transcode the result to web-compatible H.264 (avc1), and return it as an mp4 download.
 
     Called by the Sample Inspector tab in the ChickenSee dashboard.

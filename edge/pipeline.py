@@ -19,7 +19,7 @@ from .detector import PoultryInferenceEngine, FrameInferenceResult
 from .behavior import BehaviorAnalyzer, FrameBehaviorSummary
 from .sensors import SensorHub, SensorReading
 from .aggregator import HourlyTelemetryAggregator, HourlyAggregationRecord
-from legband import animal_display_label
+from saddle import animal_display_label
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

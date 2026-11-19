@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from analytics.tests import test_analytics, test_legband  # noqa: E402
+from analytics.tests import test_analytics, test_saddle  # noqa: E402
 from edge.tests import test_reid  # noqa: E402
 
 if __name__ == "__main__":
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     suite = unittest.TestSuite(
         [
             loader.loadTestsFromModule(test_analytics),
-            loader.loadTestsFromModule(test_legband),
+            loader.loadTestsFromModule(test_saddle),
             loader.loadTestsFromModule(test_reid),
         ]
     )

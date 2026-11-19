@@ -8,12 +8,12 @@ window, ByteTrack re-spawns it with a brand-new ID.
 
 The helpers below supply a *second, non-spatial* signal for re-acquisition:
 
-* ``leg_band_detection``   - the current frame's leg-band evidence, built on the shared
-  leg-anchored detector in ``legband.py`` (colour + band geometry + leg continuity).
-* ``band_state_snapshot`` - the colour identity (yellow/blue/red/white/yellow-green saddle)
+* ``saddle_detection``      - the current frame's saddle evidence, built on the shared
+  saddle detector in ``saddle.py`` (colour + saddle geometry).
+* ``saddle_state_snapshot`` - the colour identity (yellow/blue/red/white/yellow-green saddle)
   that was already established for a track through temporal voting.
-* ``appearance_descriptor`` - a cheap HSV histogram patch around the band location, used only
-  as a weak tie-breaker when two birds share the same band colour class (or the band is
+* ``appearance_descriptor`` - a cheap HSV histogram patch around the saddle location, used only
+  as a weak tie-breaker when two birds share the same saddle colour class (or the saddle is
   invisible because the bird is feeding / occluded).
 * ``iou`` helpers used to gate candidates before any appearance test is run.
 
@@ -110,16 +110,16 @@ def gated_candidates(
 
 
 # ---------------------------------------------------------------------------
-# Band evidence + appearance descriptor
+# Saddle evidence + appearance descriptor
 # ---------------------------------------------------------------------------
 
 @dataclass
-class BandSignature:
-    """Colour-qualified leg-band evidence for one detection in one frame."""
+class SaddleSignature:
+    """Colour-qualified saddle evidence for one detection in one frame."""
 
     label: str
     confidence: float          # 0..1, from the dominance of the winning colour cluster
-    box: Tuple[int, int, int, int]   # absolute pixel box of the band cluster
+    box: Tuple[int, int, int, int]   # absolute pixel box of the saddle cluster
 
 
 def patch_descriptor(
@@ -228,13 +228,13 @@ def descriptor_similarity(a: Optional[np.ndarray], b: Optional[np.ndarray]) -> f
     return float(np.clip(np.dot(a, b), -1.0, 1.0))
 
 
-def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignature]:
+def saddle_signature(frame: np.ndarray, bird_box: Box) -> Optional[SaddleSignature]:
     """
-    Locate the coloured leg band inside a bird box and report how *dominant* it is.
+    Locate the coloured saddle inside a bird box and report how *dominant* it is.
 
-    Same colour statistics as ``legband.detect_leg_band_color`` (compact cluster, not a
-    feather-sheen stripe), but it returns the confidence and the absolute band box so the
-    caller can (a) vote over time, (b) use the band location as the Re-ID patch anchor.
+    Same colour statistics as ``saddle.detect_saddle_color`` (compact cluster, not a
+    feather-sheen stripe), but it returns the confidence and the absolute saddle box so the
+    caller can (a) vote over time, (b) use the saddle location as the Re-ID patch anchor.
     """
     if frame is None:
         return None
@@ -248,14 +248,13 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
 
     crop_x1 = max(0, min(frame_width, x1))
     crop_x2 = max(0, min(frame_width, x2))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.40)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.15)))
+    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.10)))
+    crop_y2 = max(0, min(frame_height, y1 + int(box_height * 0.85)))
     if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
         return None
 
     roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    roi_h = roi.shape[0]
     max_cw = max(5, int(box_width * 0.85))
     max_ch = max(5, int(box_height * 0.70))
 
@@ -264,7 +263,7 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
     second_area = 0.0
     best_worker = None
 
-    for label, (lower, upper) in LEG_BAND_HSV_RANGES.items():
+    for label, (lower, upper) in SADDLE_HSV_RANGES.items():
         mask = cv2.inRange(
             hsv, np.asarray(lower, dtype=np.uint8), np.asarray(upper, dtype=np.uint8)
         )
@@ -275,7 +274,6 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
             area = stats[j, cv2.CC_STAT_AREA]
             cw = stats[j, cv2.CC_STAT_WIDTH]
             ch = stats[j, cv2.CC_STAT_HEIGHT]
-            cy = centroids[j][1]
             area_upper = max(50, int(box_width * box_height * 0.40))
             if 6 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
                 compactness = area / max(1, cw * ch)
@@ -304,22 +302,22 @@ def leg_band_signature(frame: np.ndarray, bird_box: Box) -> Optional[BandSignatu
     bw = int(stats_row[cv2.CC_STAT_WIDTH])
     bh = int(stats_row[cv2.CC_STAT_HEIGHT])
     dominance = 1.0 - (second_area / best_area if best_area > 0 else 0.0)
-    return BandSignature(label=best_label, confidence=float(dominance), box=(bx, by, bx + bw, by + bh))
+    return SaddleSignature(label=best_label, confidence=float(dominance), box=(bx, by, bx + bw, by + bh))
 
 
-# Imported at the bottom so the HSV table lives in exactly one place (legband.py).
-from legband import LEG_BAND_HSV_RANGES  # noqa: E402
+# Imported at the bottom so the HSV table lives in exactly one place (saddle.py).
+from saddle import SADDLE_HSV_RANGES  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Temporal band identity
+# Temporal saddle identity
 # ---------------------------------------------------------------------------
 
-class BandVoteBank:
+class SaddleVoteBank:
     """
-    Exponentially-decayed vote bank for leg-band colours of one track.
+    Exponentially-decayed vote bank for saddle colours of one track.
 
-    A YOLO leg-band box is decisive (three votes at once). An HSV observation is worth one vote.
+    A YOLO saddle box is decisive (three votes at once). An HSV observation is worth one vote.
     The identity *locks* after ``votes[s] >= lock_after_votes`` AND ``p(s) >= lock_ratio`` where p
     is the softmax over per-class vote mass -- so 3 green + 2 white is still ambiguous and never
     produces a Hen label from noise. Once locked the identity is sticky: the challenger needs
@@ -382,8 +380,8 @@ class BandVoteBank:
 
 
 __all__ = [
-    "BandSignature",
-    "BandVoteBank",
+    "SaddleSignature",
+    "SaddleVoteBank",
     "appearance_descriptor",
     "box_iou",
     "box_size",
@@ -391,6 +389,6 @@ __all__ = [
     "center_distance",
     "descriptor_similarity",
     "gated_candidates",
-    "leg_band_signature",
+    "saddle_signature",
     "patch_descriptor",
 ]

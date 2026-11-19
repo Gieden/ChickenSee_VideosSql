@@ -15,14 +15,12 @@ from dataclasses import dataclass
 from ultralytics import YOLO
 
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
-from legband import (
+from saddle import (
     ANIMAL_TO_FIXED_ID,
-    BAND_CLASS_TO_HEN,
     FIXED_ID_TO_HEN,
     HEN_TO_FIXED_ID,
     SADDLE_CLASS_TO_HEN,
     animal_display_label,
-    detect_leg_band_color,
     detect_pen_equipment,
     detect_saddle_color,
     equipment_boxes_overlap,
@@ -135,7 +133,6 @@ class ZampenYOLOTracker:
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.20  # High-recall confidence threshold for flock birds
     MIN_EQUIPMENT_CONFIDENCE = 0.10  # Dedicated threshold for Feeder & Drinker equipment
-    MIN_LEG_BAND_CONFIDENCE = 0.035  # Sensitive threshold for small leg-band boxes
     MIN_SADDLE_CONFIDENCE = 0.15     # Dedicated threshold for saddle boxes
     REIDENTIFICATION_MAX_GAP_FRAMES = 90
     REIDENTIFICATION_DISTANCE_RATIO = 0.22
@@ -704,9 +701,9 @@ class ZampenYOLOTracker:
         track_kwargs = dict(
             persist=True,
             tracker=self.tracker_yaml,
-            # Keep small leg-band candidates visible to the association pass.
+            # Keep small saddle candidates visible to the association pass.
             # Bird detections are filtered below with their stricter threshold.
-            conf=getattr(self, "track_conf", min(self.conf, self.MIN_LEG_BAND_CONFIDENCE)),
+            conf=getattr(self, "track_conf", min(self.conf, self.MIN_SADDLE_CONFIDENCE)),
             iou=self.iou,
             imgsz=self.imgsz,
             device=self.device,
@@ -745,7 +742,6 @@ class ZampenYOLOTracker:
         feeders: List[TrackedDetection] = []
         drinkers: List[TrackedDetection] = []
         saddle_dets: List[Tuple[List[int], str, float]] = []
-        band_dets: List[Tuple[List[int], str, float]] = []
 
         if results.boxes is None or len(results.boxes) == 0:
             return TrackerFrameOutput(
@@ -771,13 +767,13 @@ class ZampenYOLOTracker:
                 track_id = None
             class_name = self.class_map.get(cls_id, f"class_{cls_id}")
             confidence = float(conf)
-            is_tag = class_name.startswith("Saddle_Color_") or class_name.startswith("Leg_Band_")
+            is_saddle = class_name.startswith("Saddle_Color_")
             is_equip = class_name in ("Feeder", "Drinker")
             if is_equip and confidence < getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15):
                 continue
-            if is_tag and confidence < (self.MIN_SADDLE_CONFIDENCE if class_name.startswith("Saddle_Color_") else self.MIN_LEG_BAND_CONFIDENCE):
+            if is_saddle and confidence < self.MIN_SADDLE_CONFIDENCE:
                 continue
-            if not is_tag and not is_equip and confidence < self.MIN_DETECTION_CONFIDENCE:
+            if not is_saddle and not is_equip and confidence < self.MIN_DETECTION_CONFIDENCE:
                 continue
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -805,8 +801,6 @@ class ZampenYOLOTracker:
                 drinkers.append(det)
             elif class_name.startswith("Saddle_Color_"):
                 saddle_dets.append(([x1, y1, x2, y2], class_name, confidence))
-            elif class_name.startswith("Leg_Band_"):
-                band_dets.append(([x1, y1, x2, y2], class_name, confidence))
 
         # Class-agnostic Saddle NMS: suppress duplicate / conflicting saddle detections on the same patch
         if len(saddle_dets) > 1:
@@ -920,7 +914,7 @@ class ZampenYOLOTracker:
         for sbox, sname, sconf in saddle_dets:
             sx1, sy1, sx2, sy2 = sbox
             scx, scy = (sx1 + sx2) / 2, (sy1 + sy2) / 2
-            hen_label = SADDLE_CLASS_TO_HEN.get(sname) or BAND_CLASS_TO_HEN.get(sname)
+            hen_label = SADDLE_CLASS_TO_HEN.get(sname)
             if not hen_label:
                 continue
 

@@ -4,13 +4,11 @@ import numpy as np
 import base64
 from collections import Counter, deque
 from ultralytics import YOLO
-from legband import (
+from saddle import (
     ANIMAL_TO_FIXED_ID,
-    BAND_CLASS_TO_HEN,
     HEN_TO_SADDLE_TAG,
     SADDLE_CLASS_TO_HEN,
     animal_display_label,
-    detect_leg_band_color,
     detect_pen_equipment,
     detect_saddle_color,
     equipment_boxes_overlap,
@@ -246,8 +244,6 @@ class ChickenDetector:
                     rooster_dets.append(entry)
                 elif name.startswith("Saddle_Color_"):
                     saddle_dets.append((box, name, float(conf_val)))
-                elif name.startswith("Leg_Band_"):
-                    band_dets.append((box, name, float(conf_val)))
                 elif name in ("Feeder", "Drinker"):
                     low_resolution_infra.append(entry)
 
@@ -282,7 +278,7 @@ class ChickenDetector:
             sx1, sy1, sx2, sy2 = sbox
             scx = (sx1 + sx2) / 2
             scy = (sy1 + sy2) / 2
-            color_name = SADDLE_CLASS_TO_HEN.get(sclass) or BAND_CLASS_TO_HEN.get(sclass)
+            color_name = SADDLE_CLASS_TO_HEN.get(sclass)
             if not color_name:
                 continue
 
@@ -384,12 +380,12 @@ class ChickenDetector:
                 cbox[2] * scale_x,
                 cbox[3] * scale_y,
             )
-            band_label = detect_leg_band_color(source_frame, scaled_box)
-            if band_label:
+            saddle_label = detect_saddle_color(source_frame, scaled_box)
+            if saddle_label:
                 cached_label = self.track_states.get(track_id, {}).get("label")
-                if cached_label is not None and cached_label != band_label:
+                if cached_label is not None and cached_label != saddle_label:
                     conflicting_track_ids.add(track_id)
-                self._record_track_band_label(track_id, band_label)
+                self._record_track_band_label(track_id, saddle_label)
 
         # ------------------------------------------------------------------
         # 3. Helpers & Box Output Formatting

@@ -76,24 +76,6 @@ SADDLE_HSV_SECONDARY_RANGES = {
     "Hen3 (Red)": ((155, 55, 55), (180, 255, 255)),
 }
 
-LEG_BAND_HSV_RANGES = {
-    "Hen1 (Yellow)": ((16, 70, 70), (34, 255, 255)),
-    "Hen2 (Blue)": ((95, 70, 50), (135, 255, 255)),
-    "Hen3 (Red)": ((0, 60, 60), (12, 255, 255)),
-    "Hen4 (White)": ((0, 0, 160), (180, 40, 255)),
-    "Hen5 (YellowGreen)": ((35, 55, 50), (65, 255, 255)),
-}
-
-BAND_CLASS_TO_HEN = {
-    **SADDLE_CLASS_TO_HEN,
-    # Legacy band classes whose colours still identify a member of this flock.
-    "Leg_Band_Blue": "Hen2 (Blue)",
-    "Leg_Band_Violet": "Hen2 (Blue)",
-    "Leg_Band_Red": "Hen3 (Red)",
-    "Leg_Band_White": "Hen4 (White)",
-    "Leg_Band_Yellow": "Hen1 (Yellow)",
-}
-
 
 def equipment_boxes_overlap(
     first: Sequence[float],
@@ -233,87 +215,6 @@ def detect_saddle_color(
             return "Hen4 (White)"
 
     return None
-
-
-def detect_leg_band_color(
-    frame: np.ndarray, box: Sequence[float]
-) -> Optional[str]:
-    """
-    Find a saddle or leg-band spot on a chicken.
-    Prioritizes saddle detection on the chicken's back, falling back to lower leg region.
-    """
-    saddle_result = detect_saddle_color(frame, box)
-    if saddle_result:
-        return saddle_result
-
-    frame_height, frame_width = frame.shape[:2]
-    x1, y1, x2, y2 = (int(round(value)) for value in box)
-    box_width = x2 - x1
-    box_height = y2 - y1
-    if box_width <= 0 or box_height <= 0:
-        return None
-
-    if (box_width / max(1, box_height) > 1.35) or box_height < 25:
-        return None
-
-    crop_x1 = max(0, min(frame_width, x1))
-    crop_x2 = max(0, min(frame_width, x2))
-    crop_y1 = max(0, min(frame_height, y1 + int(box_height * 0.40)))
-    crop_y2 = max(0, min(frame_height, y2 + int(box_height * 0.15)))
-    if crop_x2 <= crop_x1 or crop_y2 <= crop_y1:
-        return None
-
-    roi = frame[crop_y1:crop_y2, crop_x1:crop_x2]
-    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    max_cw = max(5, int(box_width * 0.85))
-    max_ch = max(5, int(box_height * 0.70))
-
-    best_match = None
-    best_area = 0
-    second_best_area = 0
-
-    for label, (lower, upper) in LEG_BAND_HSV_RANGES.items():
-        mask = cv2.inRange(
-            hsv,
-            np.asarray(lower, dtype=np.uint8),
-            np.asarray(upper, dtype=np.uint8),
-        )
-        if label in SADDLE_HSV_SECONDARY_RANGES:
-            s_low, s_up = SADDLE_HSV_SECONDARY_RANGES[label]
-            m_sec = cv2.inRange(
-                hsv,
-                np.asarray(s_low, dtype=np.uint8),
-                np.asarray(s_up, dtype=np.uint8),
-            )
-            mask = cv2.bitwise_or(mask, m_sec)
-        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask)
-        valid_area = 0
-        for j in range(1, num_labels):
-            area = stats[j, cv2.CC_STAT_AREA]
-            cw = stats[j, cv2.CC_STAT_WIDTH]
-            ch = stats[j, cv2.CC_STAT_HEIGHT]
-            area_upper = max(50, int(box_width * box_height * 0.40))
-            if 15 <= area <= area_upper and 2 <= cw <= max_cw and 2 <= ch <= max_ch:
-                compactness = area / max(1, cw * ch)
-                aspect = cw / max(1, ch)
-                if 0.15 <= aspect <= 4.5 and compactness >= 0.20:
-                    valid_area = max(valid_area, area)
-
-        if valid_area > 0:
-            if valid_area > best_area:
-                second_best_area = best_area
-                best_area = valid_area
-                best_match = label
-            elif valid_area > second_best_area:
-                second_best_area = valid_area
-
-    if not best_match:
-        return None
-
-    if second_best_area >= best_area * 0.65:
-        return None
-
-    return best_match
 
 
 def detect_pen_equipment(

@@ -32,7 +32,7 @@ from .reid import box_iou
 
 
 def apex_box(box: List[float], height_ratio: float = 0.60) -> List[float]:
-    """Lower part of a [x1, y1, x2, y2] box (feet / leg-band region)."""
+    """Lower part of a [x1, y1, x2, y2] box (feet / lower-body region)."""
     x1, y1, x2, y2 = box
     return [x1, y1 + (y2 - y1) * height_ratio, x2, y2]
 

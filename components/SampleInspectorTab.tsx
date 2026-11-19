@@ -378,7 +378,7 @@ export default function SampleInspectorTab() {
         'Uploading video to local YOLO detection engine...',
         'Initializing ByteTrack & custom poultry model...',
         'Extracting frames & detecting chicken silhouettes...',
-        'Associating leg-band IDs (Rooster, Hens 1–5)...',
+        'Associating saddle IDs (Rooster, Hens 1–5)...',
         'Recognising feeding, drinking & inactivity bouts...',
         'Correlating acoustic levels & ammonia spikes...',
         'Transcoding annotated video to H.264 for playback...',
@@ -848,7 +848,7 @@ export default function SampleInspectorTab() {
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {activeTrack === 'detected'
-                      ? 'Displaying AI tracking feed with bounding boxes, ID numbers, leg band colors, and real-time HUD.'
+                      ? 'Displaying AI tracking feed with bounding boxes, ID numbers, saddle colors, and real-time HUD.'
                       : 'Displaying original unmodified camera recording track.'}
                   </p>
                 </div>

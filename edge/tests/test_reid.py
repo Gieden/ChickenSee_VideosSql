@@ -17,41 +17,41 @@ import numpy as np
 from edge.config import tracker_type_of
 from edge.detector import Detection, PoultryInferenceEngine
 from edge.reid import (
-    BandVoteBank,
+    SaddleVoteBank,
     appearance_descriptor,
     box_iou,
     center_distance,
     descriptor_similarity,
     gated_candidates,
-    leg_band_signature,
+    saddle_signature,
 )
 from edge.tracker import AgriByteTracker, apex_box
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _frame_with_band(band_bgr, band_at=(150, 170), size=(400, 240)):
+def _frame_with_saddle(saddle_bgr, saddle_at=(150, 110), size=(400, 240)):
     frame = np.zeros((size[0], size[1], 3), dtype=np.uint8)
     frame[:, :] = (60, 90, 60)  # litter colour, unsaturated
-    x, y = band_at
-    frame[y:y + 12, x:x + 12] = band_bgr
+    x, y = saddle_at
+    frame[y:y + 12, x:x + 12] = saddle_bgr
     return frame
 
 
-class TestBandVoting(unittest.TestCase):
+class TestSaddleVoting(unittest.TestCase):
     def test_single_frame_never_invents_a_hen_identity(self):
-        bank = BandVoteBank()
+        bank = SaddleVoteBank()
         bank.add("Hen1 (Yellow)", 1.0)
         self.assertIsNone(bank.locked_label)
 
-    def test_three_confident_yolo_band_votes_lock_the_colour(self):
-        bank = BandVoteBank()
+    def test_three_confident_yolo_saddle_votes_lock_the_colour(self):
+        bank = SaddleVoteBank()
         bank.add("Hen2 (Blue)", 3.0)
         self.assertEqual(bank.locked_label, "Hen2 (Blue)")
 
     def test_ambiguous_evidence_does_not_lock(self):
         # 2-2 split: both the mass and the share requirements fail, so nothing is displayed.
-        bank = BandVoteBank()
+        bank = SaddleVoteBank()
         for _ in range(2):
             bank.add("Hen1 (Yellow)", 1.0)
         for _ in range(2):
@@ -60,7 +60,7 @@ class TestBandVoting(unittest.TestCase):
         self.assertEqual(bank.pending_label(), "Hen1 (Yellow)")
 
     def test_a_contested_identity_resolves_to_the_dominant_colour(self):
-        bank = BandVoteBank()
+        bank = SaddleVoteBank()
         for _ in range(3):
             bank.add("Hen1 (Yellow)", 1.0)
         for _ in range(5):
@@ -68,7 +68,7 @@ class TestBandVoting(unittest.TestCase):
         self.assertEqual(bank.locked_label, "Hen5 (YellowGreen)")
 
     def test_locked_identity_survives_isolated_noise(self):
-        bank = BandVoteBank()
+        bank = SaddleVoteBank()
         bank.add("Hen4 (White)", 3.0)
         for _ in range(6):
             bank.decay(0.92)
@@ -76,35 +76,35 @@ class TestBandVoting(unittest.TestCase):
         self.assertEqual(bank.locked_label, "Hen4 (White)")
 
     def test_decisive_challenger_can_still_correct_the_identity(self):
-        bank = BandVoteBank()
+        bank = SaddleVoteBank()
         bank.add("Hen1 (Yellow)", 3.0)
         for _ in range(4):
             bank.add("Hen5 (YellowGreen)", 3.0)
         self.assertEqual(bank.locked_label, "Hen5 (YellowGreen)")
 
 
-class TestBandSignature(unittest.TestCase):
+class TestSaddleSignature(unittest.TestCase):
     def test_compact_blue_patch_is_found_with_a_box(self):
-        frame = _frame_with_band((255, 0, 0))
-        signature = leg_band_signature(frame, (100, 20, 260, 220))
+        frame = _frame_with_saddle((255, 0, 0))
+        signature = saddle_signature(frame, (100, 20, 260, 220))
         self.assertIsNotNone(signature)
         self.assertEqual(signature.label, "Hen2 (Blue)")
         self.assertGreater(signature.confidence, 0.5)
         self.assertTrue(0 < signature.box[0] < signature.box[2] <= 240)
 
     def test_plain_litter_yields_no_signature(self):
-        frame = _frame_with_band((60, 90, 60), band_at=(0, 399))
-        self.assertIsNone(leg_band_signature(frame, (100, 20, 260, 220)))
+        frame = _frame_with_saddle((60, 90, 60), saddle_at=(0, 399))
+        self.assertIsNone(saddle_signature(frame, (100, 20, 260, 220)))
 
     def test_crouching_bird_is_not_scanned(self):
-        frame = _frame_with_band((255, 0, 0))
-        self.assertIsNone(leg_band_signature(frame, (100, 20, 380, 120)))
+        frame = _frame_with_saddle((255, 0, 0))
+        self.assertIsNone(saddle_signature(frame, (100, 20, 380, 120)))
 
 
 class TestAppearanceAndGate(unittest.TestCase):
     def test_same_patch_scores_higher_than_a_different_patch(self):
-        green = _frame_with_band((0, 255, 0))
-        blue = _frame_with_band((255, 0, 0), band_at=(170, 150))
+        green = _frame_with_saddle((0, 255, 0))
+        blue = _frame_with_saddle((255, 0, 0), saddle_at=(170, 150))
         box = (100, 20, 260, 220)
         a1 = appearance_descriptor(green, box)
         a2 = appearance_descriptor(green, box)

@@ -7,12 +7,12 @@ Files involved:
 
 | File | Role |
 | --- | --- |
-| `edge/detector.py` | YOLO inference, ByteTrack/PurpleTracker association, band voting, Re-ID identity bank |
-| `edge/reid.py` | Geometry gate, leg-band signature, appearance descriptor, vote bank (NumPy/OpenCV only) |
+| `edge/detector.py` | YOLO inference, ByteTrack/AgriByteTracker association, saddle voting, Re-ID identity bank |
+| `edge/reid.py` | Geometry gate, saddle signature, appearance descriptor, vote bank (NumPy/OpenCV only) |
 | `edge/tracker.py` | `AgriByteTracker` — ByteTrack + apex-anchored association (registered in Ultralytics `TRACKER_MAP`) |
 | `bytetrack_poultry.yaml` | Thresholds for both association paths |
 | `analytics/tracker.py` | Recorded-video tracker used by the analytics worker — display-ID re-ID + hen colour labels |
-| `legband.py` | Canonical saddle-color-to-hen identity map and HSV fallback detectors |
+| `saddle.py` | Canonical saddle-color-to-hen identity map and HSV fallback detectors |
 | `run_tests.py` | `python run_tests.py` → 74 tests |
 | `edge/smoke_reid.py` | `python -m edge.smoke_reid --frames 122` → run the real model and print per-frame identity diagnostics |
 
@@ -122,7 +122,7 @@ Specific defects found by reading the code and running it against
         │        cost = IoU_distance(track, det)                                 │
         │               − 0.20 if apex(track_pred) ∩ apex(det) ≥ 0.35            │
         │                        and |h_track − h_det| / h_track ≤ 0.35          │
-        │        (apex = lower 60 % of the box = feet / leg-band zone)           │
+        │        (apex = lower 60 % of the box = feet / lower-body zone)         │
         │                                                                        │
         │  YAML (both paths):                                                    │
         │    track_high_thresh 0.45 · track_low_thresh 0.15                      │
@@ -132,20 +132,20 @@ Specific defects found by reading the code and running it against
         ┌────────────────────────────────────────────────────────────────────────┐
         │ B. PER-DETECTION EVIDENCE                                              │
         │                                                                        │
-        │  B1. Rooster → colour identity forced to "Rooster", never band-scanned │
+        │  B1. Rooster → colour identity forced to "Rooster", never saddle-scanned│
         │                                                                        │
-        │  B2. Band signature (odd frames only — colour cannot change in 1/15 s) │
-        │        leg_band_signature(frame, box)                                  │
-        │          • only the bottom 30 % of a standing bird (skip if w/h > 1.35)│
-        │          • per colour: compact connected component (10..350 px²)       │
+        │  B2. Saddle signature (odd frames only — colour cannot change in 1/15s)│
+        │        saddle_signature(frame, box)                                    │
+        │          • dorsal saddle region of a standing bird (skip if w/h > 1.35)│
+        │          • per colour: compact connected component                     │
         │          • winner must beat the runner-up by ≥ 40 %                    │
-        │        → (colour, dominance, band box) or None                         │
-        │        if colour == White and white feathers dominate the band patch   │
+        │        → (colour, dominance, saddle box) or None                       │
+        │        if colour == White and white feathers dominate the saddle patch │
         │            → veto (a veto is remembered 8 frames for that track)       │
         │                                                                        │
         │  B3. Appearance fingerprint                                            │
-        │        appearance_descriptor(frame, box, anchor=band box or lower body)│
-        │        4 × HSV histogram cells around the band location (L2-normalised)│
+        │        appearance_descriptor(frame, box, anchor=saddle box or body)    │
+        │        4 × HSV histogram cells around the saddle location (L2-norm)    │
         └───────────────────────────┬────────────────────────────────────────────┘
                                     ▼
         ┌────────────────────────────────────────────────────────────────────────┐
@@ -160,10 +160,10 @@ Specific defects found by reading the code and running it against
         │        Gate 2 size    : |Δ body size| / size ≤ 45 % (if raw track)    │
         │        Gate 3 time    : age ≤ REID_MAX_GAP_S (3 s)                    │
         │        Gate 4 colour  :                                                │
-        │          • observed == identity colour  → +0.35   (reid_band)          │
+        │          • observed == identity colour  → +0.35   (reid_saddle)        │
         │          • observed ≠ confirmed / pending colour → REJECT              │
-        │          • identity coloured, band invisible → require appearance ≥ 0.55│
-        │          • identity uncoloured, band invisible → appearance ≥ 0.40     │
+        │          • identity coloured, saddle invisible → require app. ≥ 0.55   │
+        │          • identity uncoloured, saddle invisible → appearance ≥ 0.40   │
         │        bonus : +0.20 newly spawned ByteTrack id + known colour         │
         │        bonus : +0.25 × appearance cosine                               │
         │        bonus : +0.15 × freshness (1 − age/buffer)                      │
@@ -171,14 +171,14 @@ Specific defects found by reading the code and running it against
         │                                                                        │
         │  C3. no match → new identity id                                        │
         │                                                                        │
-        │  C4. YOLO Leg_Band_* neighbour of a chicken → +3 votes to its identity │
+        │  C4. YOLO Saddle_Color_* neighbour of a chicken → +3 votes             │
         └───────────────────────────┬────────────────────────────────────────────┘
                                     ▼
         ┌────────────────────────────────────────────────────────────────────────┐
-        │ D. TEMPORAL COLOUR VOTE  (BandVoteBank, one per identity)              │
+        │ D. TEMPORAL COLOUR VOTE  (SaddleVoteBank, one per identity)            │
         │                                                                        │
-        │   HSV observation            → +1.0 vote                               │
-        │   YOLO Leg_Band_* box        → +3.0 votes                              │
+        │   HSV observation             → +1.0 vote                              │
+        │   YOLO Saddle_Color_* box     → +3.0 votes                             │
         │   every frame                → all votes × 0.92                        │
         │                                                                        │
         │   lock when  votes[winner] ≥ 3  AND  share[winner] ≥ 0.70               │
@@ -256,7 +256,7 @@ Same identity philosophy, applied to the recorded-video path:
 * Stage A/B/C label resolution: a track keeps the colour it already showed, a new colour is only
   applied when no other live track owns it (no more Hen1 ↔ Hen3 swaps).
 * `track_last_label` / `label_owner` are reclaimed after 90 unseen frames, so colours free up.
-* Detector confidence for tracking is `min(conf, MIN_LEG_BAND_CONFIDENCE)`; bird detections are
+* Detector confidence for tracking is `min(conf, MIN_SADDLE_CONFIDENCE)`; bird detections are
   still re-gated at 70 % per class, as documented.
 * Lazy initialisation of display-id dictionaries (the module is unit-tested via `object.__new__`).
 

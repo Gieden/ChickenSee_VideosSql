@@ -3,7 +3,7 @@
 analytics/detect_sample_cli.py
 CLI tool to run YOLO26 Nano + ByteTrack detection on a sample video file
 and output a web-compatible H.264 (avc1) annotated video with bounding boxes,
-IDs, leg band tags, and live telemetry HUD.
+IDs, saddle tags, and live telemetry HUD.
 """
 
 import sys

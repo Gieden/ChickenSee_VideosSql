@@ -25,26 +25,24 @@ from ultralytics import YOLO
 
 from .config import CONFIG, VisionConfig, tracker_type_of
 from .reid import (
-    BandVoteBank,
+    SaddleVoteBank,
     appearance_descriptor,
     box_iou,
     box_size,
     descriptor_similarity,
     gated_candidates,
-    leg_band_signature,
+    saddle_signature,
 )
-from legband import (
+from saddle import (
     ANIMAL_TO_FIXED_ID,
-    BAND_CLASS_TO_HEN,
     SADDLE_CLASS_TO_HEN,
-    detect_leg_band_color,
     detect_saddle_color,
     suppress_overlapping_equipment,
 )
 
 
 # ---------------------------------------------------------------------------
-# Saddle & Leg Band HSV Ranges & Color Specifications
+# Saddle HSV Ranges & Color Specifications
 # ---------------------------------------------------------------------------
 
 COLOR_MAP = {
@@ -127,9 +125,9 @@ class PoultryInferenceEngine:
     Designed for resource-constrained Dell OptiPlex edge deployment.
     """
 
-    # --- Temporal band voting -------------------------------------------------
-    BAND_VOTE_WEIGHT = 1.0       # per HSV observation
-    BAND_YOLO_WEIGHT = 3.0       # a YOLO leg-band box is decisive
+    # --- Temporal saddle voting -----------------------------------------------
+    SADDLE_VOTE_WEIGHT = 1.0     # per HSV observation
+    SADDLE_YOLO_WEIGHT = 3.0     # a YOLO saddle box is decisive
     BAND_LOCK_VOTES = 3.0        # mass required before a colour identity is shown
     BAND_LOCK_RATIO = 0.70       # winner must hold >= 70% of the vote mass
     BAND_SWITCH_MARGIN = 2.0     # challenger needs +2 votes to steal a locked identity
@@ -221,7 +219,7 @@ class PoultryInferenceEngine:
         self.identity_descriptors: Dict[int, np.ndarray] = {}
         self.identity_lock_frame: Dict[int, int] = {}
         self.identity_visible: set = set()                  # identities already shown this frame
-        self.band_banks: Dict[int, BandVoteBank] = {}       # identity id -> vote bank
+        self.band_banks: Dict[int, SaddleVoteBank] = {}     # identity id -> saddle vote bank
         self.band_last_box: Dict[int, Tuple[int, int, int, int]] = {}
         self.bad_bands: Dict[Tuple[int, str], int] = {}     # (track, label) -> frame banned
         self.track_boxes: Dict[int, List[float]] = {}       # ByteTrack id -> last work-space box
@@ -558,7 +556,6 @@ class PoultryInferenceEngine:
         n_boxes = len(results.boxes) if results.boxes is not None else 0
         raw_birds: List[dict] = []
         saddle_raw: List[Tuple[List[float], str, Optional[int]]] = []
-        band_raw: List[Tuple[List[float], str, Optional[int]]] = []
         infra_raw: List[tuple] = []
 
         if n_boxes:
@@ -581,13 +578,11 @@ class PoultryInferenceEngine:
                     )
                 elif name.startswith("Saddle_Color_"):
                     saddle_raw.append(([float(v) for v in box], name, raw_tid))
-                elif name.startswith("Leg_Band_"):
-                    band_raw.append(([float(v) for v in box], name, raw_tid))
                 elif name in ("Feeder", "Drinker"):
                     infra_raw.append((box, float(conf_val), name, raw_tid, cls_id))
 
         # ------------------------------------------------------------------
-        # 2. Per-detection band evidence + identity resolution
+        # 2. Per-detection saddle evidence + identity resolution
         # ------------------------------------------------------------------
         self._pending_band_label: Dict[Optional[int], str] = {}
         records: List[_BirdRecord] = []
@@ -598,10 +593,10 @@ class PoultryInferenceEngine:
             orig_box = [bird["box"][0] * scale_w, bird["box"][1] * scale_h,
                         bird["box"][2] * scale_w, bird["box"][3] * scale_h]
 
-            # The HSV band scan runs on odd frames only: a band colour cannot change between two
+            # The HSV saddle scan runs on odd frames only: a saddle colour cannot change between two
             # consecutive frames, and this is the most expensive per-bird operation in the loop.
-            scan_band = bird["name"] == "Chicken" and self.frame_count % 2 == 1
-            sigma = leg_band_signature(frame, orig_box) if scan_band else None
+            scan_saddle = bird["name"] == "Chicken" and self.frame_count % 2 == 1
+            sigma = saddle_signature(frame, orig_box) if scan_saddle else None
             if sigma is not None and sigma.label == "Hen4 (White)" and self._white_feather_dominant(frame, sigma.box):
                 self.bad_bands[(raw_tid if raw_tid is not None else -1, sigma.label)] = self.frame_count
                 sigma = None
@@ -679,7 +674,7 @@ class PoultryInferenceEngine:
 
         # 2c. YOLO saddle boxes -> decisive votes for the nearest chicken (dorsal region)
         for (sbox, sclass, stid) in saddle_raw:
-            colour = SADDLE_CLASS_TO_HEN.get(sclass) or BAND_CLASS_TO_HEN.get(sclass)
+            colour = SADDLE_CLASS_TO_HEN.get(sclass)
             if not colour:
                 continue
             sx1, sy1, sx2, sy2 = sbox
@@ -707,28 +702,7 @@ class PoultryInferenceEngine:
             if best is not None:
                 best_would_be = self.band_banks.get(best.identity_id)
                 if best_would_be is None or best_would_be.locked_label in (None, colour):
-                    self.band_banks.setdefault(best.identity_id, self._make_bank()).add(colour, self.BAND_YOLO_WEIGHT)
-
-        # 2d. YOLO leg-band boxes -> decisive votes for the nearest chicken (legacy fallback)
-        for (band_box, band_class, band_tid) in band_raw:
-            colour = BAND_CLASS_TO_HEN.get(band_class)
-            if not colour:
-                continue
-            bx1, by1, bx2, by2 = band_box
-            bcx, bcy = (bx1 + bx2) / 2, (by1 + by2) / 2
-            best, best_dist = None, None
-            for item in records:
-                if item.class_name != "Chicken":
-                    continue
-                x1, y1, x2, y2 = item.work_box
-                if (x1 - 35 <= bcx <= x2 + 35) and (y1 - 35 <= bcy <= y2 + 35):
-                    dist = abs(bcx - (x1 + x2) / 2)
-                    if best is None or dist < best_dist:
-                        best, best_dist = item, dist
-            if best is not None:
-                best_would_be = self.band_banks.get(best.identity_id)
-                if best_would_be is None or best_would_be.locked_label in (None, colour):
-                    self.band_banks.setdefault(best.identity_id, self._make_bank()).add(colour, self.BAND_YOLO_WEIGHT)
+                    self.band_banks.setdefault(best.identity_id, self._make_bank()).add(colour, self.SADDLE_YOLO_WEIGHT)
 
         # 2d. HSV crop evidence -> one vote (blocked if recently vetoed for that track)
         for item in records:
@@ -746,13 +720,13 @@ class PoultryInferenceEngine:
                 item.work_box[2] * scale_w,
                 item.work_box[3] * scale_h,
             )
-            colour = detect_leg_band_color(frame, source_box)
+            colour = detect_saddle_color(frame, source_box)
             if not colour:
                 continue
             banned_at = self.bad_bands.get((track_key, colour))
             if banned_at is not None and self.frame_count - banned_at < self.BAD_BAND_TTL:
                 continue
-            self.band_banks.setdefault(item.identity_id, self._make_bank()).add(colour, self.BAND_VOTE_WEIGHT)
+            self.band_banks.setdefault(item.identity_id, self._make_bank()).add(colour, self.SADDLE_VOTE_WEIGHT)
 
         # ------------------------------------------------------------------
         # 3. Construct Output Detections (1-to-1 colour identity per frame)
@@ -888,8 +862,8 @@ class PoultryInferenceEngine:
     # ------------------------------------------------------------------
     # Small helpers kept private for readability
     # ------------------------------------------------------------------
-    def _make_bank(self) -> BandVoteBank:
-        return BandVoteBank(
+    def _make_bank(self) -> SaddleVoteBank:
+        return SaddleVoteBank(
             lock_after_votes=self.BAND_LOCK_VOTES,
             lock_ratio=self.BAND_LOCK_RATIO,
             switch_margin=self.BAND_SWITCH_MARGIN,

@@ -14,40 +14,38 @@ from analytics.tracker import (
     ZampenYOLOTracker,
 )
 from edge.detector import COLOR_MAP as EDGE_COLOR_MAP
-from legband import (
+from saddle import (
     ANIMAL_TO_DISPLAY_LABEL,
     ANIMAL_TO_FIXED_ID,
-    BAND_CLASS_TO_HEN,
     HEN_TO_FIXED_ID,
     HEN_TO_SADDLE_TAG,
-    LEG_BAND_HSV_RANGES,
     SADDLE_CLASS_TO_HEN,
+    SADDLE_HSV_RANGES,
     animal_display_label,
-    detect_leg_band_color,
     detect_saddle_color,
     suppress_overlapping_equipment,
 )
 from model import COLOR_MAP as MODEL_COLOR_MAP, ChickenDetector
 
 
-class TestLegBandDetection(unittest.TestCase):
+class TestSaddleDetection(unittest.TestCase):
     def test_unidentified_display_labels_use_unique_tracking_ids(self):
         self.assertEqual(animal_display_label("Chicken", 7), "ID7_Chicken(Unidentified)")
         self.assertEqual(animal_display_label("Chicken", 8), "ID8_Chicken(Unidentified)")
         self.assertEqual(animal_display_label("Rooster", 6), "ID6_R1 Rooster")
 
-    def test_blue_band_is_detected_from_original_resolution_crop(self):
+    def test_blue_saddle_is_detected_from_original_resolution_crop(self):
         frame = np.zeros((200, 120, 3), dtype=np.uint8)
-        frame[150:162, 50:62] = (255, 0, 0)
+        frame[80:98, 50:68] = (255, 0, 0)
 
-        label = detect_leg_band_color(frame, (10, 10, 110, 190))
+        label = detect_saddle_color(frame, (10, 10, 110, 190))
 
         self.assertEqual(label, "Hen2 (Blue)")
 
     def test_uncolored_crop_does_not_invent_a_hen_identity(self):
         frame = np.zeros((200, 120, 3), dtype=np.uint8)
 
-        self.assertIsNone(detect_leg_band_color(frame, (10, 10, 110, 190)))
+        self.assertIsNone(detect_saddle_color(frame, (10, 10, 110, 190)))
 
     def test_equipment_box_cannot_be_counted_as_both_feeder_and_drinker(self):
         box = [10, 20, 100, 120]
@@ -61,9 +59,9 @@ class TestLegBandDetection(unittest.TestCase):
             [(box, 0.65, "Drinker")],
         )
 
-    def test_checkpoint_violet_band_maps_to_blue_display_identity(self):
-        self.assertEqual(BAND_CLASS_TO_HEN["Leg_Band_Violet"], "Hen2 (Blue)")
-        self.assertIn("Hen2 (Blue)", LEG_BAND_HSV_RANGES)
+    def test_saddle_blue_maps_to_blue_display_identity(self):
+        self.assertEqual(SADDLE_CLASS_TO_HEN["Saddle_Color_Blue"], "Hen2 (Blue)")
+        self.assertIn("Hen2 (Blue)", SADDLE_HSV_RANGES)
         self.assertEqual(MODEL_COLOR_MAP["Hen2 (Blue)"]["hex"], "#0000FF")
         self.assertEqual(EDGE_COLOR_MAP["Hen2 (Blue)"]["hex"], "#0000FF")
         self.assertEqual(LABEL_COLORS_BGR["Hen2 (Blue)"], (255, 0, 0))
@@ -246,7 +244,7 @@ class TestLegBandDetection(unittest.TestCase):
         tracker = object.__new__(ZampenYOLOTracker)
         tracker.model = FakeModel()
         tracker.tracker_yaml = "bytetrack.yaml"
-        tracker.track_conf = min(0.25, ZampenYOLOTracker.MIN_LEG_BAND_CONFIDENCE)
+        tracker.track_conf = min(0.25, ZampenYOLOTracker.MIN_SADDLE_CONFIDENCE)
         tracker.conf = 0.25
         tracker.iou = 0.45
         tracker.imgsz = 640
@@ -269,11 +267,11 @@ class TestLegBandDetection(unittest.TestCase):
 
         self.assertEqual([bird.track_id for bird in first.birds], [7, 8])
         self.assertEqual([bird.track_id for bird in second.birds], [8, 7])
-        # The association stage must see leg-band candidates; birds are re-gated at 70%
+        # The association stage must see saddle candidates; birds are re-gated
         # per class right after tracking (see MIN_DETECTION_CONFIDENCE).
         self.assertEqual(
             tracker.model.confidence_thresholds,
-            [ZampenYOLOTracker.MIN_LEG_BAND_CONFIDENCE] * 2,
+            [ZampenYOLOTracker.MIN_SADDLE_CONFIDENCE] * 2,
         )
         self.assertIsNone(tracker._resolve_short_id(None))
         self.assertEqual(tracker._next_short_id, 3)
