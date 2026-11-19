@@ -394,7 +394,7 @@ class BehaviorAnalysisEngine:
 
         # 3. Prolonged Low Activity
         inactivity_total = sum(s.total_inactivity_s for s in self.bird_states.values())
-        total_monitored_bird_time = max(1.0, self.total_frames_in_chunk * (1.0 / 15.0) * unique_birds)
+        total_monitored_bird_time = max(1.0, self.current_chunk_elapsed_s * max(1, unique_birds))
         inactivity_pct = min(100.0, (inactivity_total / total_monitored_bird_time) * 100.0)
         total_prolonged_low_activity = sum(s.prolonged_low_activity_events for s in self.bird_states.values())
         lethargic_count = sum(1 for s in self.bird_states.values() if s.is_lethargic_flag or s.prolonged_low_activity_events > 0)
@@ -413,10 +413,11 @@ class BehaviorAnalysisEngine:
         bird_records = []
         window_dur_s = max(1, round(monitored_s))
         for s in self.bird_states.values():
-            feeding_pct = round((s.feeding_time_s / monitored_s) * 100.0, 2)
-            drinking_pct = round((s.drinking_time_s / monitored_s) * 100.0, 2)
-            isolation_pct = round((s.total_isolation_s / monitored_s) * 100.0, 2)
-            locomotor_inactivity_pct = round((s.total_inactivity_s / monitored_s) * 100.0, 2)
+            bird_obs_s = s.valid_observation_s if s.valid_observation_s > 0.0 else monitored_s
+            feeding_pct = round(min(100.0, (s.feeding_time_s / bird_obs_s) * 100.0), 2)
+            drinking_pct = round(min(100.0, (s.drinking_time_s / bird_obs_s) * 100.0), 2)
+            isolation_pct = round(min(100.0, (s.total_isolation_s / bird_obs_s) * 100.0), 2)
+            locomotor_inactivity_pct = round(min(100.0, (s.total_inactivity_s / bird_obs_s) * 100.0), 2)
 
             valid_obs_s = min(window_dur_s, max(0, round(s.valid_observation_s)))
             occl_s = min(max(0, window_dur_s - valid_obs_s), max(0, round(s.occluded_s)))

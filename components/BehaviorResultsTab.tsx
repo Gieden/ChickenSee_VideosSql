@@ -524,7 +524,7 @@ function getDailyPotentialStressFactors(
 }
 
 export default function BehaviorResultsTab() {
-  const [intervals, setIntervals] = useState<IntervalTelemetry[]>(DEFAULT_SAMPLE_INTERVALS);
+  const [intervals, setIntervals] = useState<IntervalTelemetry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRealData, setIsRealData] = useState<boolean>(true);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -547,28 +547,16 @@ export default function BehaviorResultsTab() {
           throw new Error('The behavior results API returned an invalid response.');
         }
         if (!active) return;
-        const archivedSet = new Set<string>(
-          Array.isArray(data.archivedDates) ? data.archivedDates : [],
-        );
-        if (data.intervals.length > 0) {
-          setIntervals(data.intervals);
-          setAvailableDates(data.availableDates);
-        } else {
-          // Keep authentic default dataset excluding any archived dates
-          const unarchivedSamples = DEFAULT_SAMPLE_INTERVALS.filter(
-            (i) => !archivedSet.has(i.date),
-          );
-          setIntervals(unarchivedSamples);
-          setAvailableDates(unarchivedSamples.map((i) => i.date));
-        }
+        setIntervals(data.intervals);
+        setAvailableDates(data.availableDates);
         setIsRealData(true);
       } catch (err) {
-        console.error('Failed to load behavior results, using verified offline session data:', err);
+        console.error('Failed to load behavior results from database:', err);
         if (active) {
-          setIntervals(DEFAULT_SAMPLE_INTERVALS);
-          setAvailableDates(DEFAULT_SAMPLE_INTERVALS.map((i) => i.date));
-          setIsRealData(true);
-          setLoadError(null);
+          setIntervals([]);
+          setAvailableDates([]);
+          setIsRealData(false);
+          setLoadError(err instanceof Error ? err.message : 'Failed to load behavior results.');
         }
       } finally {
         if (active) setIsLoading(false);

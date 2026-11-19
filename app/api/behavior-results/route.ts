@@ -8,7 +8,6 @@ import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
-import { DEFAULT_SAMPLE_INTERVALS } from '@/lib/default-telemetry';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -315,27 +314,6 @@ export async function GET(req: NextRequest) {
         });
       }
 
-      // Also merge DEFAULT_SAMPLE_INTERVALS for any date not already covered in builtIntervals
-      const dbDates = new Set(builtIntervals.map((i) => i.date));
-      for (const sample of DEFAULT_SAMPLE_INTERVALS) {
-        if (!dbDates.has(sample.date)) {
-          const normalizedBehaviors: Record<string, BirdBehaviorCounts> = {};
-          for (const [bId, bVal] of Object.entries(sample.behaviorsByBird)) {
-            normalizedBehaviors[bId] = {
-              reducedFeeding: bVal.reducedFeeding,
-              reducedDrinking: bVal.reducedDrinking,
-              prolongedInactivity: bVal.prolongedInactivity,
-              featherPecking: bVal.featherPecking,
-              socialIsolation: bVal.socialIsolation ?? bVal.featherPecking,
-              reducedLocomotor: bVal.reducedLocomotor ?? bVal.prolongedInactivity,
-            };
-          }
-          builtIntervals.push({
-            ...sample,
-            behaviorsByBird: normalizedBehaviors,
-          });
-        }
-      }
       builtIntervals.sort((a, b) => a.date.localeCompare(b.date) || a.timeSlot.localeCompare(b.timeSlot));
 
       setCachedIntervals(builtIntervals);
@@ -370,24 +348,16 @@ export async function GET(req: NextRequest) {
       intervals: filtered,
     });
   } catch (error: unknown) {
-    let cloudArchivedDates: string[] = [];
-    try {
-      const manifest = await syncManifestFromCloud();
-      cloudArchivedDates = manifest.archivedDates;
-    } catch {
-      cloudArchivedDates = Array.from(getArchivedDatesSet());
-    }
-    const archivedSet = new Set(cloudArchivedDates);
-    const fallbackIntervals = DEFAULT_SAMPLE_INTERVALS.filter((i) => !archivedSet.has(i.date));
-    const availableDates = Array.from(new Set(fallbackIntervals.map((i) => i.date))).sort().reverse();
-    return NextResponse.json({
-      success: true,
-      source: 'verified_offline_fallback',
-      count: fallbackIntervals.length,
-      availableDates,
-      archivedDates: Array.from(archivedSet),
-      intervals: fallbackIntervals,
-      warning: error instanceof Error ? error.message : 'Using verified offline telemetry dataset',
-    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load behavior analytics from zampen_analytics.db',
+        count: 0,
+        availableDates: [],
+        archivedDates: Array.from(getArchivedDatesSet()),
+        intervals: [],
+      },
+      { status: 500 },
+    );
   }
 }
