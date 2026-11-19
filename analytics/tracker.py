@@ -204,6 +204,7 @@ class ZampenYOLOTracker:
         self.hen_track_owners: Dict[str, int] = {}          # hen_label -> display_id of owner
         self.hen_owner_conf: Dict[str, float] = {}          # hen_label -> highest confirmed saddle confidence
         self.hen_owner_last_frame: Dict[str, int] = {}      # hen_label -> frame when owner was last detected/confirmed
+        self.hen_last_yolo_saddle_frame: Dict[str, int] = {}  # hen_label -> last frame with a live YOLO saddle box on owner
         self.track_saddle_conf: Dict[int, float] = {}       # track_id -> highest saddle confidence detected on this bird
         # Rooster stable-ID cache: positional Re-ID for roosters across ByteTrack resets.
         # Maps display_id -> (last_centroid, last_frame), and raw_track_id -> display_id.
@@ -262,6 +263,7 @@ class ZampenYOLOTracker:
         getattr(self, "hen_track_owners", {}).clear()
         getattr(self, "hen_owner_conf", {}).clear()
         getattr(self, "hen_owner_last_frame", {}).clear()
+        getattr(self, "hen_last_yolo_saddle_frame", {}).clear()
         getattr(self, "track_saddle_conf", {}).clear()
         getattr(self, "_rooster_display_map", {}).clear()
         getattr(self, "_rooster_positions", {}).clear()
@@ -1001,16 +1003,40 @@ class ZampenYOLOTracker:
             incumbent_conf = self.hen_owner_conf.get(hen_label, 0.0)
             active_tids = {b.track_id for b in birds if b.track_id is not None}
             incumbent_is_active = (incumbent_tid is not None and incumbent_tid in active_tids)
+            last_yolo_saddle_frame = getattr(self, "hen_last_yolo_saddle_frame", {}).get(hen_label, -9999)
+            incumbent_has_no_recent_yolo_saddle = (current_frame - last_yolo_saddle_frame) >= 10
 
             # Rule: When the system detects a higher confidence of that saddle,
-            # then the detection (bytetrack) must remain to the hen.
+            # then the detection (bytetrack) must remain with the incumbent hen — UNLESS
+            # the incumbent has had NO live YOLO saddle on it for >=10 frames (e.g., an
+            # unsaddled chicken that falsely grabbed the label) while win_tid has a real
+            # live YOLO saddle detection right on its back!
+            reclaimed_from_unsaddled = False
             if incumbent_tid is not None and incumbent_tid != win_tid:
-                if incumbent_is_active and sconf <= incumbent_conf:
+                if incumbent_is_active and incumbent_has_no_recent_yolo_saddle and sconf >= 0.30 and win_tid not in occluded_track_ids:
+                    reclaimed_from_unsaddled = True
+                elif incumbent_is_active and sconf <= incumbent_conf:
                     # Incumbent hen had higher confidence — detection MUST remain with incumbent!
                     continue
-                if incumbent_is_active and sconf < incumbent_conf + 0.20:
+                elif incumbent_is_active and sconf < incumbent_conf + 0.20:
                     # Not enough margin to steal an active hen's identity
                     continue
+
+            # If a real saddled bird reclaimed its identity from an unsaddled incumbent,
+            # clear the stale label from the old unsaddled track immediately.
+            if reclaimed_from_unsaddled and incumbent_tid is not None:
+                self.track_label_cache.pop(incumbent_tid, None)
+                self.track_label_votes.pop(incumbent_tid, None)
+                self.track_tag_confirmed.discard(incumbent_tid)
+                self.track_last_label.pop(incumbent_tid, None)
+                self.track_saddle_conf.pop(incumbent_tid, None)
+                for b_old in birds:
+                    if b_old.track_id == incumbent_tid:
+                        b_old.bird_label = "Chicken"
+                        if getattr(b_old, "raw_track_id", None) is not None:
+                            self.short_id_map.pop(b_old.raw_track_id, None)
+                        b_old.track_id = self._next_pool_id(active_tids | {1, 2, 3, 4, 5, 6})
+                        active_tids.add(b_old.track_id)
 
             # Occlusion freeze: if this bird is currently overlapping another bird AND already
             # has a confirmed different label, NEVER let a neighbour's saddle overwrite it!
@@ -1034,6 +1060,9 @@ class ZampenYOLOTracker:
             self.hen_track_owners[hen_label] = win_tid
             self.hen_owner_conf[hen_label] = max(incumbent_conf if incumbent_tid == win_tid else 0.0, sconf)
             self.hen_owner_last_frame[hen_label] = current_frame
+            if not hasattr(self, "hen_last_yolo_saddle_frame"):
+                self.hen_last_yolo_saddle_frame = {}
+            self.hen_last_yolo_saddle_frame[hen_label] = current_frame
             self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
 
             self._record_track_label(win_tid, hen_label)
@@ -1056,6 +1085,7 @@ class ZampenYOLOTracker:
                 self.hen_track_owners[hen_label] = fixed_id
                 self.hen_owner_conf[hen_label] = max(self.hen_owner_conf.get(hen_label, 0.0), sconf)
                 self.hen_owner_last_frame[hen_label] = current_frame
+                self.hen_last_yolo_saddle_frame[hen_label] = current_frame
                 if getattr(best_bird, "raw_track_id", None) is not None:
                     self.short_id_map[best_bird.raw_track_id] = fixed_id
 
@@ -1089,32 +1119,21 @@ class ZampenYOLOTracker:
                     continue
                 cached_label = self.track_label_cache.get(bird.track_id)
                 if cached_label is not None and cached_label != hen_label:
-                    if hen_label in HEN_TO_FIXED_ID and HEN_TO_FIXED_ID[hen_label] not in {b.track_id for b in birds}:
-                        self.track_label_cache[bird.track_id] = hen_label
-                        self.track_label_votes[bird.track_id] = deque([hen_label], maxlen=15)
-                        conflicting_track_ids.discard(bird.track_id)
-                    else:
-                        conflicting_track_ids.add(bird.track_id)
+                    conflicting_track_ids.add(bird.track_id)
                 self._record_track_label(bird.track_id, hen_label)
                 votes = self.track_label_votes.get(bird.track_id, [])
-                hen_already_present = any(b.bird_label == hen_label for b in birds)
-                if hen_label in HEN_TO_FIXED_ID and not hen_already_present:
+                # Require >=5 consistent HSV frames before confirming via HSV fallback
+                # so a single-frame glare on an unsaddled bird can never steal a hen label!
+                if bird.track_id in self.track_label_cache:
+                    self.track_tag_confirmed.add(bird.track_id)
+                    self.hen_track_owners[hen_label] = bird.track_id
+                    self.hen_owner_conf[hen_label] = 0.25
+                    self.hen_owner_last_frame[hen_label] = current_frame
+                elif len(votes) >= 5 and votes.count(hen_label) >= 5:
                     self.track_label_cache[bird.track_id] = hen_label
                     self.track_tag_confirmed.add(bird.track_id)
                     self.hen_track_owners[hen_label] = bird.track_id
-                    self.hen_owner_conf[hen_label] = 0.35
-                    self.hen_owner_last_frame[hen_label] = current_frame
-                    conflicting_track_ids.discard(bird.track_id)
-                elif bird.track_id in self.track_label_cache:
-                    self.track_tag_confirmed.add(bird.track_id)
-                    self.hen_track_owners[hen_label] = bird.track_id
-                    self.hen_owner_conf[hen_label] = 0.35
-                    self.hen_owner_last_frame[hen_label] = current_frame
-                elif len(votes) >= 3 and votes.count(hen_label) >= 3:
-                    self.track_label_cache[bird.track_id] = hen_label
-                    self.track_tag_confirmed.add(bird.track_id)
-                    self.hen_track_owners[hen_label] = bird.track_id
-                    self.hen_owner_conf[hen_label] = 0.35
+                    self.hen_owner_conf[hen_label] = 0.25
                     self.hen_owner_last_frame[hen_label] = current_frame
 
         # Resolve active bird labels, enforcing 1-to-1 uniqueness in the current frame.
@@ -1221,7 +1240,7 @@ class ZampenYOLOTracker:
             if fixed_id not in confirmed_tags and hen_lbl not in confirmed_tags:
                 continue
             last_frame = self.hen_owner_last_frame.get(hen_lbl, 0)
-            if last_frame > 0 and (current_frame - last_frame) <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
+            if last_frame > 0 and (current_frame - last_frame) <= 15:
                 pos_info = self.short_track_positions.get(fixed_id)
                 hen_pos = pos_info[0] if pos_info is not None else None
                 unassigned_confirmed_hens.append((hen_lbl, fixed_id, last_frame, hen_pos))
@@ -1234,7 +1253,7 @@ class ZampenYOLOTracker:
             if unassigned_chickens:
                 inheritance_candidates = []
                 frame_diagonal = math.hypot(frame.shape[0], frame.shape[1])
-                max_inherit_dist = max(50.0, frame_diagonal * 0.22)
+                max_inherit_dist = max(50.0, frame_diagonal * 0.12)
                 for hen_lbl, fixed_id, last_frame, hen_pos in unassigned_confirmed_hens:
                     hen_hist = getattr(self, "track_appearance_hist", {}).get(fixed_id)
                     vx, vy = getattr(self, "short_track_velocities", {}).get(fixed_id, (0.0, 0.0))
@@ -1510,18 +1529,19 @@ class ZampenYOLOTracker:
 
             display_label = animal_display_label(label, det.track_id)
             text = f"{display_label} ({det.confidence:.2f})"
-            font_scale = 0.38
+            # Compact, non-intrusive label size so neighboring chickens remain clearly visible
+            font_scale = max(0.24, min(0.30, width / 2300.0))
             (text_width, text_height), baseline = cv2.getTextSize(
                 text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
             )
-            while text_width + 6 > width and font_scale > 0.22:
+            while text_width + 4 > width and font_scale > 0.20:
                 font_scale -= 0.02
                 (text_width, text_height), baseline = cv2.getTextSize(
                     text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1
                 )
 
-            badge_width = min(width, text_width + 6)
-            badge_height = text_height + baseline + 6
+            badge_width = min(width, text_width + 4)
+            badge_height = text_height + baseline + 3
             label_x = min(max(0, x1), max(0, width - badge_width))
             min_label_y = min(40, max(0, height - badge_height))
             max_label_y = max(min_label_y, height - badge_height)
@@ -1556,7 +1576,7 @@ class ZampenYOLOTracker:
             cv2.putText(
                 vis,
                 text,
-                (label_x + 3, label_y + text_height + 2),
+                (label_x + 2, label_y + text_height + 1),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 font_scale,
                 ink,
@@ -1564,13 +1584,12 @@ class ZampenYOLOTracker:
                 cv2.LINE_AA,
             )
 
-            # For identified hens, draw a saddle anchor indicator on the dorsal/back region
+            # Compact saddle anchor indicator on the dorsal/back region
             if is_identified_hen:
                 cx = (x1 + x2) // 2
                 cy_saddle = max(0, y1 + int((y2 - y1) * 0.45))
-                cv2.circle(vis, (cx, cy_saddle), 5, (20, 24, 30), -1, cv2.LINE_AA)
-                cv2.circle(vis, (cx, cy_saddle), 4, color, -1, cv2.LINE_AA)
-                cv2.circle(vis, (cx, cy_saddle), 1, (255, 255, 255), -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_saddle), 3, (20, 24, 30), -1, cv2.LINE_AA)
+                cv2.circle(vis, (cx, cy_saddle), 2, color, -1, cv2.LINE_AA)
 
         def _bird_label_priority(detection: TrackedDetection):
             label = detection.bird_label or detection.class_name
@@ -1583,10 +1602,10 @@ class ZampenYOLOTracker:
         for drinker in frame_out.drinkers:
             _draw(drinker, "Drinker")
 
-        # Top HUD bar
+        # Slim top HUD bar
         overlay = vis.copy()
-        cv2.rectangle(overlay, (0, 0), (width, 36), (15, 20, 28), -1)
-        cv2.addWeighted(overlay, 0.88, vis, 0.12, 0, vis)
+        cv2.rectangle(overlay, (0, 0), (width, 24), (15, 20, 28), -1)
+        cv2.addWeighted(overlay, 0.85, vis, 0.15, 0, vis)
 
         # Build fixed hen roster indicator.
         tag_status = []
@@ -1606,5 +1625,5 @@ class ZampenYOLOTracker:
             f"FRAME {frame_out.frame_idx} | BIRDS: {len(frame_out.birds)} | "
             f"HENS SADDLED: {len(identified_hens)}/5 ({tag_str})"
         )
-        cv2.putText(vis, hud_left, (12, 23), cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(vis, hud_left, (8, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (255, 255, 255), 1, cv2.LINE_AA)
         return vis

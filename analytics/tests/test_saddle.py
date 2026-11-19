@@ -714,6 +714,90 @@ class TestSaddleDetection(unittest.TestCase):
         self.assertEqual(b_left_blue.track_id, blue_id)
         self.assertEqual(b_right_yellow.track_id, yellow_id)
 
+    def test_live_saddle_reclaims_identity_from_unsaddled_incumbent(self):
+        """If an unsaddled chicken holds a Hen label with no live YOLO saddle for >=10 frames,
+        the real chicken wearing the live YOLO saddle must reclaim the label immediately."""
+        from types import SimpleNamespace
+        from analytics.tracker import ZampenYOLOTracker
+
+        tracker = ZampenYOLOTracker.__new__(ZampenYOLOTracker)
+        tracker.class_map = {
+            0: "Chicken",
+            3: "Rooster",
+            8: "Saddle_Color_YellowGreen",
+        }
+        tracker.track_label_cache = {5: "Hen5 (YellowGreen)"}
+        tracker.track_label_votes = {5: __import__("collections").deque(["Hen5 (YellowGreen)"] * 10, maxlen=15)}
+        tracker.track_label_last_seen = {5: 100}
+        tracker.track_tag_confirmed = {5}
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 115
+        tracker.short_id_map = {10: 5, 20: 7}
+        tracker._unidentified_id_map = {}
+        tracker._next_short_id = 8
+        tracker.short_track_positions = {5: ((150.0, 200.0), 114), 7: ((300.0, 320.0), 114)}
+        tracker.short_track_sizes = {5: 70.0, 7: 70.0}
+        tracker.short_track_velocities = {}
+        tracker.track_appearance_hist = {}
+        tracker.track_last_label = {5: "Hen5 (YellowGreen)"}
+        tracker.label_owner = {"Hen5 (YellowGreen)": (5, 114)}
+        tracker.hen_track_owners = {"Hen5 (YellowGreen)": 5}
+        tracker.hen_owner_conf = {"Hen5 (YellowGreen)": 0.85}
+        tracker.hen_owner_last_frame = {"Hen5 (YellowGreen)": 114}
+        tracker.hen_last_yolo_saddle_frame = {"Hen5 (YellowGreen)": 90}  # >=10 frames without live YOLO saddle
+        tracker.track_saddle_conf = {5: 0.85}
+        tracker.cached_feeders = []
+        tracker.cached_drinkers = []
+        tracker._tracking_enabled = True
+        tracker.conf = 0.25
+        tracker.track_conf = 0.15
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.flock_size = 0
+
+        class FakeTensor:
+            def __init__(self, arr):
+                self._arr = np.array(arr)
+            def cpu(self): return self
+            def numpy(self): return self._arr
+            def int(self): return self
+            def tolist(self): return self._arr.tolist()
+
+        class FakeBoxes:
+            def __init__(self, xyxy, conf, cls, tid):
+                self.xyxy = FakeTensor(xyxy)
+                self.conf = FakeTensor(conf)
+                self.cls = FakeTensor(cls)
+                self.id = FakeTensor(tid)
+            def __len__(self): return len(self.xyxy._arr)
+
+        # Unsaddled bird (raw tid 10) at middle-left; real YellowGreen saddled bird (raw tid 20) at bottom
+        res = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[
+                [110, 160, 190, 240],  # Unsaddled incumbent (raw 10)
+                [260, 280, 340, 360],  # Real YellowGreen hen (raw 20)
+                [285, 305, 315, 330],  # Live Saddle_Color_YellowGreen on raw 20
+            ],
+            conf=[0.80, 0.72, 0.55],
+            cls=[0, 0, 8],
+            tid=[10, 20, -1],
+        ))
+        tracker.model = type("MockModel", (), {
+            "names": tracker.class_map,
+            "track": lambda *args, **kwargs: [res],
+        })()
+
+        blank = np.zeros((400, 640, 3), dtype=np.uint8)
+        out = tracker.process_frame(blank, 116)
+        by_raw = {b.raw_track_id: b for b in out.birds}
+        self.assertEqual(by_raw[20].bird_label, "Hen5 (YellowGreen)")
+        self.assertEqual(by_raw[20].track_id, 5)
+        self.assertEqual(by_raw[10].bird_label, "Chicken")
+
 
 if __name__ == "__main__":
     unittest.main()
