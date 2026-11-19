@@ -569,6 +569,153 @@ class TestLegBandDetection(unittest.TestCase):
         self.assertEqual(out6.birds[0].bird_label, "Hen5 (YellowGreen)")
         self.assertEqual(out6.birds[0].track_id, 5)
 
+    def test_occluded_hens_do_not_swap_or_mismatch_labels(self):
+        """When two confirmed hens overlap (occlude), a neighbour's saddle must not overwrite labels."""
+        from types import SimpleNamespace
+        from analytics.tracker import ZampenYOLOTracker
+
+        tracker = ZampenYOLOTracker.__new__(ZampenYOLOTracker)
+        tracker.class_map = {
+            0: "Chicken",
+            1: "Rooster",
+            4: "Saddle_Color_Blue",
+            7: "Saddle_Color_Yellow",
+        }
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_label_last_seen = {}
+        tracker.track_tag_confirmed = set()
+        tracker.track_class_history = {}
+        tracker.track_resolved_classes = {}
+        tracker.track_class_last_seen = {}
+        tracker.processed_frame_count = 5
+        tracker.short_id_map = {}
+        tracker._unidentified_id_map = {}
+        tracker._next_short_id = 1
+        tracker.short_track_positions = {}
+        tracker.short_track_sizes = {}
+        tracker.short_track_velocities = {}
+        tracker.track_appearance_hist = {}
+        tracker.track_last_label = {}
+        tracker.label_owner = {}
+        tracker.hen_track_owners = {}
+        tracker.hen_owner_conf = {}
+        tracker.hen_owner_last_frame = {}
+        tracker.track_saddle_conf = {}
+        tracker.cached_feeders = []
+        tracker.cached_drinkers = []
+        tracker._tracking_enabled = True
+        tracker.conf = 0.25
+        tracker.track_conf = 0.15
+        tracker.iou = 0.45
+        tracker.imgsz = 640
+        tracker.device = "cpu"
+        tracker.tracker_yaml = "bytetrack.yaml"
+        tracker.flock_size = 0
+
+        class FakeTensor:
+            def __init__(self, arr):
+                self._arr = np.array(arr)
+            def cpu(self): return self
+            def numpy(self): return self._arr
+            def int(self): return self
+            def tolist(self): return self._arr.tolist()
+
+        class FakeBoxes:
+            def __init__(self, xyxy, conf, cls, tid):
+                self.xyxy = FakeTensor(xyxy)
+                self.conf = FakeTensor(conf)
+                self.cls = FakeTensor(cls)
+                self.id = FakeTensor(tid)
+            def __len__(self): return len(self.xyxy._arr)
+
+        # Frame 6: Both hens clearly separated and confirmed with their saddles
+        res_sep = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[
+                [100, 100, 180, 180],  # Hen1 (Yellow)
+                [125, 120, 155, 150],  # Yellow saddle
+                [300, 100, 380, 180],  # Hen2 (Blue)
+                [325, 120, 355, 150],  # Blue saddle
+            ],
+            conf=[0.90, 0.85, 0.90, 0.85],
+            cls=[0, 7, 0, 4],
+            tid=[10, -1, 20, -1],
+        ))
+
+        # Frame 7: Both hens move together and overlap (IoU ~0.35), and a conflicting
+        # Blue saddle box falls inside Hen1's bounding box!
+        res_occ = SimpleNamespace(boxes=FakeBoxes(
+            xyxy=[
+                [180, 100, 260, 180],  # Hen1 (raw tid 10)
+                [215, 100, 295, 180],  # Hen2 (raw tid 20), overlapping Hen1
+                [205, 120, 235, 150],  # Conflicting Blue saddle bleeding onto Hen1
+            ],
+            conf=[0.88, 0.86, 0.55],
+            cls=[0, 0, 4],
+            tid=[10, 20, -1],
+        ))
+
+        frames_seq = [res_sep, res_occ]
+        tracker.model = type("MockModel", (), {
+            "names": tracker.class_map,
+            "track": lambda *args, **kwargs: [frames_seq[tracker.processed_frame_count - 6]],
+        })()
+
+        blank = np.zeros((480, 640, 3), dtype=np.uint8)
+        out_sep = tracker.process_frame(blank, 6)
+        labels_sep = {b.raw_track_id: b.bird_label for b in out_sep.birds}
+        self.assertEqual(labels_sep[10], "Hen1 (Yellow)")
+        self.assertEqual(labels_sep[20], "Hen2 (Blue)")
+
+        # During occlusion, both birds MUST keep their original confirmed labels (no swap!)
+        out_occ = tracker.process_frame(blank, 7)
+        labels_occ = {b.raw_track_id: b.bird_label for b in out_occ.birds}
+        self.assertEqual(labels_occ[10], "Hen1 (Yellow)")
+        self.assertEqual(labels_occ[20], "Hen2 (Blue)")
+
+    def test_appearance_reid_prevents_crossing_id_swap(self):
+        """When two distinctly coloured birds cross paths and get new raw IDs, HSV appearance keeps their IDs."""
+        from analytics.tracker import ZampenYOLOTracker, TrackedDetection
+
+        tracker = ZampenYOLOTracker.__new__(ZampenYOLOTracker)
+        tracker.processed_frame_count = 10
+        tracker.short_id_map = {}
+        tracker.short_track_positions = {}
+        tracker.short_track_sizes = {}
+        tracker.short_track_velocities = {}
+        tracker.track_appearance_hist = {}
+        tracker.track_label_cache = {}
+        tracker.track_label_votes = {}
+        tracker.track_tag_confirmed = set()
+        tracker._next_short_id = 1
+        tracker.flock_size = 0
+
+        # Frame 10: Yellow bird on left (100..180), Blue bird on right (220..300)
+        frame1 = np.zeros((360, 480, 3), dtype=np.uint8)
+        frame1[100:180, 100:180] = (0, 220, 220)   # Yellow in BGR
+        frame1[100:180, 220:300] = (220, 50, 0)    # Blue in BGR
+
+        b1 = TrackedDetection(box=[100, 100, 180, 180], centroid=(140, 140), confidence=0.9, class_id=0, class_name="Chicken", track_id=101, bird_label="Chicken")
+        b2 = TrackedDetection(box=[220, 100, 300, 180], centroid=(260, 140), confidence=0.9, class_id=0, class_name="Chicken", track_id=102, bird_label="Chicken")
+        tracker._assign_display_ids([b1, b2], frame1.shape, frame=frame1)
+        yellow_id = b1.track_id
+        blue_id = b2.track_id
+        self.assertNotEqual(yellow_id, blue_id)
+
+        # Frame 12: Both birds finished crossing paths and separated with brand-new raw IDs!
+        # Blue bird is now at (120..190) [closer to Yellow's old pos], Yellow bird is at (210..280) [closer to Blue's old pos]
+        tracker.processed_frame_count = 12
+        frame2 = np.zeros((360, 480, 3), dtype=np.uint8)
+        frame2[100:180, 120:190] = (220, 50, 0)    # Blue in BGR (now on left)
+        frame2[100:180, 210:280] = (0, 220, 220)   # Yellow in BGR (now on right)
+
+        b_left_blue = TrackedDetection(box=[120, 100, 190, 180], centroid=(155, 140), confidence=0.9, class_id=0, class_name="Chicken", track_id=201, bird_label="Chicken")
+        b_right_yellow = TrackedDetection(box=[210, 100, 280, 180], centroid=(245, 140), confidence=0.9, class_id=0, class_name="Chicken", track_id=202, bird_label="Chicken")
+        tracker._assign_display_ids([b_left_blue, b_right_yellow], frame2.shape, frame=frame2)
+
+        self.assertEqual(b_left_blue.track_id, blue_id)
+        self.assertEqual(b_right_yellow.track_id, yellow_id)
+
 
 if __name__ == "__main__":
     unittest.main()

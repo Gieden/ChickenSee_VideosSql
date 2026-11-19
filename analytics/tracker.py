@@ -197,6 +197,8 @@ class ZampenYOLOTracker:
         self.flock_size: int = CONFIG.flock_size
         self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
         self.short_track_sizes: Dict[int, float] = {}
+        self.short_track_velocities: Dict[int, Tuple[float, float]] = {}
+        self.track_appearance_hist: Dict[int, np.ndarray] = {}
         self.track_last_label: Dict[int, str] = {}
         self.label_owner: Dict[str, Tuple[int, int]] = {}   # label -> (display id, frame)
         self.cached_feeders: List[TrackedDetection] = []
@@ -256,6 +258,8 @@ class ZampenYOLOTracker:
             self.flock_size = CONFIG.flock_size
         self.short_track_positions.clear()
         self.short_track_sizes.clear()
+        getattr(self, "short_track_velocities", {}).clear()
+        getattr(self, "track_appearance_hist", {}).clear()
         self.track_last_label.clear()
         self.label_owner.clear()
         getattr(self, "hen_track_owners", {}).clear()
@@ -270,15 +274,86 @@ class ZampenYOLOTracker:
         for tracker in getattr(predictor, "trackers", []):
             tracker.reset()
 
+    @staticmethod
+    def _box_iou(box_a: List[int], box_b: List[int]) -> float:
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+        if inter <= 0:
+            return 0.0
+        area_a = max(1, ax2 - ax1) * max(1, ay2 - ay1)
+        area_b = max(1, bx2 - bx1) * max(1, by2 - by1)
+        return float(inter) / float(area_a + area_b - inter)
+
+    @staticmethod
+    def _extract_appearance_hist(frame: Optional[np.ndarray], box: List[int]) -> Optional[np.ndarray]:
+        """Extract a normalized 2D HSV histogram over the bird's upper-back/saddle region."""
+        if frame is None or frame.size == 0 or frame.ndim != 3:
+            return None
+        fh, fw = frame.shape[:2]
+        x1, y1, x2, y2 = box
+        bw = max(1, x2 - x1)
+        bh = max(1, y2 - y1)
+        # Focus on torso/saddle zone (15%..75% height, 15%..85% width) to minimize background clutter
+        cx1 = max(0, min(fw - 1, int(x1 + 0.15 * bw)))
+        cx2 = max(cx1 + 1, min(fw, int(x2 - 0.15 * bw)))
+        cy1 = max(0, min(fh - 1, int(y1 + 0.15 * bh)))
+        cy2 = max(cy1 + 1, min(fh, int(y1 + 0.75 * bh)))
+        crop = frame[cy1:cy2, cx1:cx2]
+        if crop.size == 0 or crop.shape[0] < 4 or crop.shape[1] < 4:
+            return None
+        try:
+            hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+            # Exclude very dark shadows (V < 35)
+            mask = cv2.inRange(hsv, np.array([0, 20, 35], dtype=np.uint8), np.array([180, 255, 255], dtype=np.uint8))
+            if cv2.countNonZero(mask) < 12:
+                mask = None
+            hist = cv2.calcHist([hsv], [0, 1], mask, [16, 8], [0, 180, 0, 256])
+            cv2.normalize(hist, hist, alpha=0.0, beta=1.0, norm_type=cv2.NORM_MINMAX)
+            flat = hist.flatten().astype(np.float32)
+            norm = float(np.linalg.norm(flat))
+            if norm > 1e-6:
+                flat /= norm
+            return flat
+        except Exception:
+            return None
+
+    @staticmethod
+    def _hist_similarity(hist_a: Optional[np.ndarray], hist_b: Optional[np.ndarray]) -> Optional[float]:
+        """Cosine similarity in [0, 1] between two normalized HSV histograms."""
+        if hist_a is None or hist_b is None or hist_a.shape != hist_b.shape:
+            return None
+        sim = float(np.dot(hist_a, hist_b))
+        return max(0.0, min(1.0, sim))
+
+    @classmethod
+    def _find_occluded_bird_ids(cls, birds: List[TrackedDetection], iou_thresh: float = 0.12) -> set:
+        """Return object ids `id(bird)` of birds currently overlapping another bird."""
+        occluded = set()
+        n = len(birds)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if cls._box_iou(birds[i].box, birds[j].box) >= iou_thresh:
+                    occluded.add(id(birds[i]))
+                    occluded.add(id(birds[j]))
+        return occluded
+
     def _assign_display_ids(
         self,
         birds: List[TrackedDetection],
         frame_shape: Tuple[int, ...],
+        frame: Optional[np.ndarray] = None,
     ) -> None:
         if not hasattr(self, "short_track_sizes"):
             self.short_track_sizes: Dict[int, float] = {}
         if not hasattr(self, "short_track_positions"):
             self.short_track_positions: Dict[int, Tuple[Tuple[float, float], int]] = {}
+        if not hasattr(self, "short_track_velocities"):
+            self.short_track_velocities: Dict[int, Tuple[float, float]] = {}
+        if not hasattr(self, "track_appearance_hist"):
+            self.track_appearance_hist: Dict[int, np.ndarray] = {}
         if not hasattr(self, "short_id_map"):
             self.short_id_map: Dict[int, int] = {}
         if not hasattr(self, "_next_short_id"):
@@ -293,6 +368,7 @@ class ZampenYOLOTracker:
             frame_diagonal * self.REIDENTIFICATION_STALE_RATIO,
         )
         current_frame = self.processed_frame_count
+        occluded_objs = self._find_occluded_bird_ids(birds, iou_thresh=0.12)
         pending = []
         assigned_ids = set()
 
@@ -322,35 +398,65 @@ class ZampenYOLOTracker:
         candidate_pairs = []
         for bird, raw_track_id in pending:
             if raw_track_id is None:
-                continue  # No ByteTrack ID → no prior position history to re-ID against
+                continue  # No ByteTrack ID -> no prior position history to re-ID against
             x1, y1, x2, y2 = bird.box
             center = ((x1 + x2) / 2, (y1 + y2) / 2)
             bird_size = math.sqrt(max(1, x2 - x1) * max(1, y2 - y1))
+            bird_hist = self._extract_appearance_hist(frame, bird.box) if frame is not None else None
+            # Quick HSV color check if bird is clearly visible (not occluded)
+            bird_hsv_label = (
+                detect_saddle_color(frame, bird.box)
+                if frame is not None and id(bird) not in occluded_objs and bird.class_name != "Rooster"
+                else None
+            )
             for display_id, (last_center, last_seen) in list(self.short_track_positions.items()):
                 gap = current_frame - last_seen
                 if display_id in assigned_ids or not 1 <= gap <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
                     continue
-                # The longer the bird has been gone the less it can have moved, and a
-                # bird cannot double in apparent size while it is out of sight.
+                # Velocity-predicted position (clamped to <= 6 frames of motion to avoid overshoot)
+                vx, vy = self.short_track_velocities.get(display_id, (0.0, 0.0))
+                pred_steps = min(gap, 6)
+                pred_center = (last_center[0] + vx * pred_steps, last_center[1] + vy * pred_steps)
                 allowed = max_distance if gap < self.REIDENTIFICATION_STALE_AFTER_FRAMES else stale_distance
-                distance = math.dist(center, last_center)
+                raw_dist = math.dist(center, last_center)
+                pred_dist = math.dist(center, pred_center)
+                distance = min(raw_dist, pred_dist)
                 if distance > allowed:
                     continue
                 last_size = self.short_track_sizes.get(display_id)
                 if last_size and abs(bird_size - last_size) / max(last_size, 1.0) > self.REIDENTIFICATION_SIZE_TOLERANCE:
                     continue
+
+                # Saddle-color veto: if returning bird clearly shows a different saddle color
+                # than the candidate display_id's confirmed hen label, reject the swap!
+                cand_confirmed_label = getattr(self, "track_label_cache", {}).get(display_id)
+                if bird_hsv_label and cand_confirmed_label and bird_hsv_label != cand_confirmed_label:
+                    continue
+
+                # Combine normalized spatial distance with HSV appearance similarity
+                norm_dist = distance / max(allowed, 1.0)
+                hist_sim = self._hist_similarity(bird_hist, self.track_appearance_hist.get(display_id))
+                if hist_sim is not None:
+                    # Strong appearance mismatch veto prevents crossing birds from swapping IDs
+                    if hist_sim < 0.20 and id(bird) not in occluded_objs:
+                        continue
+                    cost = norm_dist + 0.85 * (1.0 - hist_sim)
+                else:
+                    cost = norm_dist
+
                 candidate_pairs.append(
-                    (distance, display_id, raw_track_id, bird, center)
+                    (cost, distance, display_id, raw_track_id, bird, center)
                 )
 
         matched_raw_ids = set()
         matched_birds = set()
-        for _, display_id, raw_track_id, bird, _ in sorted(
+        for _, _, display_id, raw_track_id, bird, _ in sorted(
             candidate_pairs,
             key=lambda pair: (
                 float(pair[0]),
-                pair[1] if pair[1] is not None else -1,
+                float(pair[1]),
                 pair[2] if pair[2] is not None else -1,
+                pair[3] if pair[3] is not None else -1,
             ),
         ):
             if display_id in assigned_ids or id(bird) in matched_birds or (raw_track_id is not None and raw_track_id in matched_raw_ids):
@@ -399,13 +505,34 @@ class ZampenYOLOTracker:
             if bird.track_id is None:
                 continue
             x1, y1, x2, y2 = bird.box
-            self.short_track_positions[bird.track_id] = (
-                ((x1 + x2) / 2, (y1 + y2) / 2),
-                current_frame,
-            )
+            new_center = ((x1 + x2) / 2, (y1 + y2) / 2)
+            prev_pos_info = self.short_track_positions.get(bird.track_id)
+            if prev_pos_info is not None:
+                prev_center, prev_frame = prev_pos_info
+                dt_frames = current_frame - prev_frame
+                if 1 <= dt_frames <= 5:
+                    vx = (new_center[0] - prev_center[0]) / dt_frames
+                    vy = (new_center[1] - prev_center[1]) / dt_frames
+                    old_vx, old_vy = self.short_track_velocities.get(bird.track_id, (vx, vy))
+                    self.short_track_velocities[bird.track_id] = (
+                        0.6 * old_vx + 0.4 * vx,
+                        0.6 * old_vy + 0.4 * vy,
+                    )
+            self.short_track_positions[bird.track_id] = (new_center, current_frame)
             self.short_track_sizes[bird.track_id] = math.sqrt(
                 max(1, x2 - x1) * max(1, y2 - y1)
             )
+            # Only update appearance histogram when bird is clearly visible (not occluded by another bird)
+            if frame is not None and id(bird) not in occluded_objs:
+                new_hist = self._extract_appearance_hist(frame, bird.box)
+                if new_hist is not None:
+                    old_hist = self.track_appearance_hist.get(bird.track_id)
+                    if old_hist is not None and old_hist.shape == new_hist.shape:
+                        blended = 0.80 * old_hist + 0.20 * new_hist
+                        norm = float(np.linalg.norm(blended))
+                        self.track_appearance_hist[bird.track_id] = blended / norm if norm > 1e-6 else new_hist
+                    else:
+                        self.track_appearance_hist[bird.track_id] = new_hist
 
         # Forget positions whose display id was pruned, otherwise the size gate above keeps
         # comparing against birds that no longer exist (slow leak on 12-hour shifts).
@@ -420,6 +547,8 @@ class ZampenYOLOTracker:
                 if display_id not in live_ids:
                     self.short_track_positions.pop(display_id, None)
                     self.short_track_sizes.pop(display_id, None)
+                    self.short_track_velocities.pop(display_id, None)
+                    self.track_appearance_hist.pop(display_id, None)
 
     def _record_track_label(self, track_id: int, label: str) -> None:
         last_seen = self.track_label_last_seen.get(track_id)
@@ -752,11 +881,11 @@ class ZampenYOLOTracker:
             except Exception:
                 pass
 
-        # Suppress duplicate overlapping bird boxes (IoU > 0.40)
+        # Suppress duplicate overlapping bird boxes (IoU > 0.62 — preserves partially-occluded neighbours)
         birds = sorted(birds, key=lambda b: b.confidence, reverse=True)
         kept_birds = []
         for b in birds:
-            if any(equipment_boxes_overlap(b.box, k.box, 0.40) for k in kept_birds):
+            if any(equipment_boxes_overlap(b.box, k.box, 0.62) for k in kept_birds):
                 continue
             kept_birds.append(b)
         birds = kept_birds
@@ -764,7 +893,11 @@ class ZampenYOLOTracker:
         # Convert raw ByteTrack IDs before recording any class or band history.
         # This keeps identity memory attached to the stable displayed ID when
         # ByteTrack recreates a raw track after a brief occlusion.
-        self._assign_display_ids(birds, frame.shape)
+        self._assign_display_ids(birds, frame.shape, frame=frame)
+        occluded_bird_objs = self._find_occluded_bird_ids(birds, iou_thresh=0.12)
+        occluded_track_ids = {
+            b.track_id for b in birds if b.track_id is not None and id(b) in occluded_bird_objs
+        }
         for bird in birds:
             if bird.track_id is None:
                 continue
@@ -800,7 +933,8 @@ class ZampenYOLOTracker:
                 x1, y1, x2, y2 = bird.box
                 bw = max(1.0, float(x2 - x1))
                 bh = max(1.0, float(y2 - y1))
-                if (x1 - 0.05 * bw <= scx <= x2 + 0.05 * bw) and (y1 <= scy <= y1 + 0.80 * bh):
+                # Require saddle center inside the bird's core torso (not bleeding from a neighbour)
+                if (x1 <= scx <= x2) and (y1 <= scy <= y1 + 0.78 * bh):
                     dist = (
                         abs(scx - (x1 + x2) / 2) / bw
                         + abs(scy - (y1 + 0.45 * bh)) / bh
@@ -808,9 +942,11 @@ class ZampenYOLOTracker:
                     candidates.append((dist, bird))
 
             candidates.sort(key=lambda item: item[0])
+            # Stricter ambiguity gate: if two overlapping birds both claim the same saddle
+            # within 0.22 normalized distance, skip assigning it rather than swapping labels!
             if not candidates or (
                 len(candidates) > 1
-                and candidates[1][0] - candidates[0][0] < 0.10
+                and candidates[1][0] - candidates[0][0] < 0.22
             ):
                 continue
             dist, bird = candidates[0]
@@ -882,28 +1018,39 @@ class ZampenYOLOTracker:
                     # Not enough margin to steal an active hen's identity
                     continue
 
+            # Occlusion freeze: if this bird is currently overlapping another bird AND already
+            # has a confirmed different label, NEVER let a neighbour's saddle overwrite it!
+            is_bird_occluded = win_tid in occluded_track_ids
+            cached_label = self.track_label_cache.get(win_tid)
+            if cached_label is not None and cached_label != hen_label:
+                if is_bird_occluded:
+                    # Freeze confirmed identity during occlusion — ignore conflicting neighbour saddle
+                    continue
+                if sconf >= 0.65:
+                    # Only allow immediate label switch when isolated AND high-confidence
+                    self.track_label_cache[win_tid] = hen_label
+                    self.track_label_votes[win_tid] = deque([hen_label], maxlen=15)
+                else:
+                    # Require multi-frame voting via _record_track_label instead of single-frame flip
+                    self._record_track_label(win_tid, hen_label)
+                    if self.track_label_cache.get(win_tid) != hen_label:
+                        continue
+
             # Lock / update ownership
             self.hen_track_owners[hen_label] = win_tid
             self.hen_owner_conf[hen_label] = max(incumbent_conf if incumbent_tid == win_tid else 0.0, sconf)
             self.hen_owner_last_frame[hen_label] = current_frame
             self.track_saddle_conf[win_tid] = max(self.track_saddle_conf.get(win_tid, 0.0), sconf)
 
-            cached_label = self.track_label_cache.get(win_tid)
-            if cached_label is not None and cached_label != hen_label:
-                if sconf >= 0.25:
-                    self.track_label_cache[win_tid] = hen_label
-                    self.track_label_votes[win_tid] = deque([hen_label], maxlen=15)
-                else:
-                    conflicting_track_ids.add(win_tid)
             self._record_track_label(win_tid, hen_label)
             votes = self.track_label_votes.get(win_tid, [])
             if win_tid in self.track_label_cache:
                 self.track_tag_confirmed.add(win_tid)
-            elif self.processed_frame_count > 2 and sconf >= 0.25:
+            elif not is_bird_occluded and self.processed_frame_count > 2 and sconf >= 0.35:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
-                self.track_label_votes[win_tid] = deque([hen_label] * 15, maxlen=15)
-            elif sconf >= 0.15 and len(votes) >= 3 and votes.count(hen_label) >= 3:
+                self.track_label_votes[win_tid] = deque([hen_label] * 10, maxlen=15)
+            elif not is_bird_occluded and sconf >= 0.15 and len(votes) >= 3 and votes.count(hen_label) >= 3:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
 
@@ -932,6 +1079,10 @@ class ZampenYOLOTracker:
                 continue
             if bird.track_id in self.track_label_cache:
                 self.track_tag_confirmed.add(bird.track_id)
+                continue
+            # Never run raw HSV saddle fallback on an occluded/overlapping bird crop —
+            # overlapping crops pick up the neighbour's saddle colour and cause label swaps!
+            if bird.track_id in occluded_track_ids:
                 continue
             hen_label = (
                 detect_saddle_color(frame, bird.box)
@@ -1089,18 +1240,40 @@ class ZampenYOLOTracker:
             if unassigned_chickens:
                 inheritance_candidates = []
                 frame_diagonal = math.hypot(frame.shape[0], frame.shape[1])
-                max_inherit_dist = max(50.0, frame_diagonal * 0.40)
+                max_inherit_dist = max(50.0, frame_diagonal * 0.22)
                 for hen_lbl, fixed_id, last_frame, hen_pos in unassigned_confirmed_hens:
+                    hen_hist = getattr(self, "track_appearance_hist", {}).get(fixed_id)
+                    vx, vy = getattr(self, "short_track_velocities", {}).get(fixed_id, (0.0, 0.0))
+                    gap = max(1, current_frame - last_frame)
+                    pred_pos = (
+                        (hen_pos[0] + vx * min(gap, 6), hen_pos[1] + vy * min(gap, 6))
+                        if hen_pos is not None
+                        else None
+                    )
                     for chk in unassigned_chickens:
                         cx = (chk.box[0] + chk.box[2]) / 2.0
                         cy = (chk.box[1] + chk.box[3]) / 2.0
-                        dist = math.hypot(cx - hen_pos[0], cy - hen_pos[1]) if hen_pos is not None else 0.0
-                        if hen_pos is None or dist <= max_inherit_dist:
-                            inheritance_candidates.append((dist, hen_lbl, fixed_id, chk))
+                        if hen_pos is not None:
+                            raw_dist = math.hypot(cx - hen_pos[0], cy - hen_pos[1])
+                            pred_dist = math.hypot(cx - pred_pos[0], cy - pred_pos[1]) if pred_pos else raw_dist
+                            dist = min(raw_dist, pred_dist)
+                        else:
+                            dist = 0.0
+                        if hen_pos is not None and dist > max_inherit_dist:
+                            continue
+                        # Verify appearance consistency when histograms are available so an
+                        # occluded bird's identity cannot jump onto a different coloured bird
+                        chk_hist = self._extract_appearance_hist(frame, chk.box)
+                        hist_sim = self._hist_similarity(hen_hist, chk_hist)
+                        if hist_sim is not None and hist_sim < 0.25 and dist > 35.0:
+                            continue
+                        norm_dist = dist / max(max_inherit_dist, 1.0)
+                        cost = norm_dist + (0.60 * (1.0 - hist_sim) if hist_sim is not None else 0.0)
+                        inheritance_candidates.append((cost, dist, hen_lbl, fixed_id, chk))
 
-                inheritance_candidates.sort(key=lambda item: item[0])
+                inheritance_candidates.sort(key=lambda item: (item[0], item[1]))
                 matched_chickens = set()
-                for dist, hen_lbl, fixed_id, chk in inheritance_candidates:
+                for _, dist, hen_lbl, fixed_id, chk in inheritance_candidates:
                     if hen_lbl in used_labels or id(chk) in matched_chickens:
                         continue
                     chk.bird_label = hen_lbl
@@ -1172,6 +1345,8 @@ class ZampenYOLOTracker:
                 if bird.bird_label in HEN_TO_FIXED_ID:
                     bird.track_id = HEN_TO_FIXED_ID[bird.bird_label]
                 self.track_last_label[bird.track_id] = bird.bird_label
+                self.track_label_last_seen[bird.track_id] = self.processed_frame_count
+                self.hen_owner_last_frame[bird.bird_label] = self.processed_frame_count
                 self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
 
         # Reclaim identities of tracks that are inactive
