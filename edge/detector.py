@@ -736,6 +736,17 @@ class PoultryInferenceEngine:
         hens_id_count = 0
         unid_count = 0
 
+        # Enforce strict single Rooster per frame: only the highest-confidence Rooster keeps "Rooster"
+        rooster_records = [r for r in records if r.class_name == "Rooster"]
+        winner_rooster_rec = (
+            max(rooster_records, key=lambda r: float(r.confidence))
+            if rooster_records
+            else None
+        )
+        for r in rooster_records:
+            if r is not winner_rooster_rec:
+                r.class_name = "Chicken"
+
         ordered = sorted(records, key=lambda r: (r.identity_id))
         assigned_output_ids = set()
         for item in ordered:

@@ -1293,18 +1293,40 @@ class ZampenYOLOTracker:
                         current_frame,
                     )
 
-        # Ensure Roosters always take ID 6 and never take Hen fixed IDs (1..5)
-        for bird in birds:
-            if bird.class_name == "Rooster":
-                bird.bird_label = "Rooster"
-                for other in birds:
-                    if other is not bird and other.track_id == 6:
-                        used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5, 6}
-                        cand = 1
-                        while cand in used_ids:
-                            cand += 1
-                        other.track_id = cand
-                bird.track_id = 6
+        # Enforce strict single Rooster per frame: only the highest-confidence Rooster
+        # keeps ID 6 ("Rooster"); any lower-confidence duplicate Rooster in the same
+        # frame is demoted to "Chicken" so it never steals or duplicates ID 6.
+        rooster_candidates = [b for b in birds if b.class_name == "Rooster"]
+        if rooster_candidates:
+            chicken_cls_id = next(
+                (k for k, v in self.class_map.items() if v == "Chicken"), 0
+            )
+            winner_rooster = max(
+                rooster_candidates,
+                key=lambda b: (float(b.confidence), 1 if b.track_id == 6 else 0),
+            )
+            for bird in rooster_candidates:
+                if bird is winner_rooster:
+                    bird.bird_label = "Rooster"
+                    for other in birds:
+                        if other is not bird and other.track_id == 6:
+                            used_ids = {b.track_id for b in birds if b.track_id is not None} | {1, 2, 3, 4, 5, 6}
+                            cand = 7
+                            while cand in used_ids:
+                                cand += 1
+                            other.track_id = cand
+                    bird.track_id = 6
+                    if getattr(bird, "raw_track_id", None) is not None:
+                        for prev_raw, prev_disp in list(self.short_id_map.items()):
+                            if prev_disp == 6 and prev_raw != bird.raw_track_id:
+                                self.short_id_map.pop(prev_raw, None)
+                        self.short_id_map[bird.raw_track_id] = 6
+                else:
+                    bird.class_name = "Chicken"
+                    bird.class_id = chicken_cls_id
+                    bird.bird_label = "Chicken"
+                    if bird.track_id == 6:
+                        bird.track_id = None
 
         used_display_ids = {
             bird.track_id
