@@ -33,6 +33,16 @@ local-storage/videos/
 runs/
 Archive/*.sql
 
+# Training datasets (only the trained .pt model is needed for detection)
+dataset/
+datasets/
+/train/
+/valid/
+/val/
+*.roboflow/
+data.yaml
+*.zip
+
 # Never push video files or machine-specific shortcuts/build cache to GitHub
 *.mp4
 *.avi
