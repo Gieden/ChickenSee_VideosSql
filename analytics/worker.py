@@ -377,9 +377,11 @@ class ZampenAnalyticsWorker:
             end_dt = start_dt + datetime.timedelta(hours=1)
             return start_dt, end_dt
 
-        # Fallback: based on file modification timestamp
-        mtime = datetime.datetime.fromtimestamp(path.stat().st_mtime)
-        return mtime, mtime
+        # Fallback: when a video has no explicit date in its filename or session folder,
+        # use the current local processing time rather than an old preserved file mtime
+        # (e.g. a file copied/downloaded from an earlier day).
+        now_local = datetime.datetime.now().replace(microsecond=0)
+        return now_local, now_local
 
     @staticmethod
     def _find_paired_sensor_db(video_path: str) -> Optional[Path]:
@@ -591,7 +593,7 @@ class ZampenAnalyticsWorker:
             src_h,
             fps,
             stride,
-            target_date=start_dt.date() if start_dt else datetime.date.today(),
+            target_date=datetime.date.today(),
             video_path=video_path,
         )
         if writer is None or detected_path is None or staging_path is None:
