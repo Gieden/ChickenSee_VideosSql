@@ -1117,6 +1117,74 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertIn("system", data)
         self.assertIn("model", data)
 
+    def test_power_interruption_recovers_and_prioritizes_interrupted_video(self):
+        """Simulate a blackout mid-processing and verify zero-loss recovery + priority reprocessing."""
+        from sqlalchemy import text
+        from analytics.worker import ZampenAnalyticsWorker, cleanup_orphaned_detected_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            db_path = tmp_path / "blackout_test.db"
+            test_db = DatabaseManager(db_url=f"sqlite:///{db_path.as_posix()}")
+
+            # 1. Verify SQLite crash-safe WAL + synchronous=FULL PRAGMAs
+            with test_db.engine.connect() as conn:
+                jmode = conn.execute(text("PRAGMA journal_mode;")).scalar()
+                sync = conn.execute(text("PRAGMA synchronous;")).scalar()
+                self.assertEqual(str(jmode).lower(), "wal")
+                self.assertEqual(int(sync), 2)  # 2 = FULL
+
+            # 2. Create two videos: older_other.mp4 (older mtime) and interrupted.mp4 (newer mtime)
+            watch_dir = tmp_path / "watch"
+            watch_dir.mkdir()
+            older_vid = watch_dir / "older_other.mp4"
+            interrupted_vid = watch_dir / "interrupted.mp4"
+            older_vid.write_bytes(b"0" * 1024)
+            interrupted_vid.write_bytes(b"1" * 1024)
+            now_ts = time.time()
+            os.utime(older_vid, (now_ts - 300, now_ts - 300))
+            os.utime(interrupted_vid, (now_ts - 30, now_ts - 30))
+
+            # Simulate blackout while interrupted.mp4 was PROCESSING with a fresh .processing.mp4 staging file
+            now_dt = datetime.datetime.utcnow()
+            job = test_db.lease_job(
+                interrupted_vid.name,
+                str(interrupted_vid.resolve()),
+                now_dt,
+                now_dt + datetime.timedelta(minutes=30),
+                signature=test_db.file_signature(str(interrupted_vid.resolve())),
+            )
+            self.assertIsNotNone(job)
+            test_db.update_job_progress(job.id, 150, 500)
+
+            staging_dir = tmp_path / "videos" / "2026-11-19"
+            staging_dir.mkdir(parents=True)
+            fresh_staging = staging_dir / "interrupted_detected.processing.mp4"
+            fresh_staging.write_bytes(b"partial_mp4_bytes")
+
+            # 3. Power returns: startup cleanup deletes fresh (<60s) .processing.mp4 and recovers PROCESSING -> QUEUED
+            cleanup_orphaned_detected_files(tmp_path / "videos", force_clean_processing=True)
+            self.assertFalse(fresh_staging.exists())
+
+            recovered = test_db.recover_interrupted_jobs()
+            self.assertEqual(recovered, 1)
+            queued = test_db.get_queued_jobs()
+            self.assertEqual(len(queued), 1)
+            self.assertEqual(queued[0].id, job.id)
+            self.assertEqual(queued[0].progress_frames, 0)
+
+            # 4. Worker must prioritize interrupted.mp4 FIRST even though older_other.mp4 has an older mtime
+            worker = object.__new__(ZampenAnalyticsWorker)
+            worker.cfg = CONFIG
+            with patch("analytics.worker.DB", test_db), patch.object(
+                worker, "_video_input_dirs", return_value=[watch_dir]
+            ):
+                nxt = worker._find_next_completed_hourly_video()
+            self.assertIsNotNone(nxt)
+            self.assertEqual(nxt[1], "interrupted.mp4")
+
+            test_db.engine.dispose()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -40,11 +40,11 @@ class AnalysisCancelled(Exception):
     """Raised when the user cancels the active video analysis."""
 
 
-def cleanup_orphaned_detected_files(videos_dir: Path) -> None:
+def cleanup_orphaned_detected_files(videos_dir: Path, force_clean_processing: bool = False) -> None:
     """
     Cleans up any duplicate or orphaned files left from interrupted or failed transcodes:
     - Promotes .processing.mp4.h264.mp4 files to final .mp4 if duplicate exists (h264 is web-compatible).
-    - Removes 0-byte or abandoned .processing.mp4 files.
+    - Removes 0-byte or abandoned .processing.mp4 files (all of them on startup when force_clean_processing=True).
     - Removes leftover temporary transcoding files.
     """
     if not videos_dir or not videos_dir.is_dir():
@@ -71,10 +71,10 @@ def cleanup_orphaned_detected_files(videos_dir: Path) -> None:
                         item.unlink(missing_ok=True)
                 except OSError as exc:
                     print(f"[CLEANUP WARN] Could not consolidate {name}: {exc}")
-            # 2. Remove 0-byte or stale .processing.mp4 files
+            # 2. Remove 0-byte, stale, or startup-abandoned .processing.mp4 files
             elif name.endswith(".processing.mp4"):
                 try:
-                    if item.stat().st_size == 0 or (time.time() - item.stat().st_mtime > 60):
+                    if force_clean_processing or item.stat().st_size == 0 or (time.time() - item.stat().st_mtime > 60):
                         item.unlink(missing_ok=True)
                         print(f"[CLEANUP] Removed orphaned staging file: {name}")
                 except OSError:
@@ -111,10 +111,10 @@ class ZampenAnalyticsWorker:
         self._queue_snapshot_thread: Optional[threading.Thread] = None
         
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
-        cleanup_orphaned_detected_files(VIDEOS_DIR)
+        cleanup_orphaned_detected_files(VIDEOS_DIR, force_clean_processing=True)
         recovered = DB.recover_interrupted_jobs()
         if recovered > 0:
-            print(f"[WORKER] Recovered {recovered} interrupted PROCESSING job(s) back to QUEUED.")
+            print(f"[WORKER] Recovered {recovered} interrupted job(s) back to QUEUED for automatic reprocessing.")
         self._start_filesystem_watcher()
 
     def _start_filesystem_watcher(self):
@@ -249,7 +249,32 @@ class ZampenAnalyticsWorker:
         ]
 
     def _find_next_completed_hourly_video(self) -> Optional[Tuple[str, str, datetime.datetime, datetime.datetime]]:
-        """Finds the oldest stable MP4 from the configured agent folders."""
+        """
+        Finds the next stable MP4 to process:
+        1. Priority: Any QUEUED job recovered after a power interruption / crash, oldest first.
+        2. Normal queue: Oldest stable unprocessed MP4 from the configured watch folders.
+        """
+        # 1. Prioritize blackout-recovered QUEUED jobs so interrupted videos reprocess immediately
+        for queued_job in DB.get_queued_jobs():
+            qpath = Path(queued_job.video_path)
+            if not qpath.is_file():
+                DB.mark_missing_queued_job(queued_job.id)
+                continue
+            try:
+                file_mtime = qpath.stat().st_mtime
+                if (time.time() - file_mtime) < self.cfg.stability_threshold_s:
+                    continue
+                with open(qpath, "rb") as f:
+                    f.seek(0, os.SEEK_END)
+                    if f.tell() == 0:
+                        continue
+            except (OSError, PermissionError):
+                continue
+            start_dt, end_dt = self._extract_timestamps_from_file(qpath)
+            print(f"[RECOVERY] Prioritizing interrupted video for reprocessing: {qpath.name}")
+            return str(qpath), qpath.name, start_dt, end_dt
+
+        # 2. Scan all watched directories oldest-first
         mp4_files = []
         for video_dir in self._video_input_dirs():
             if video_dir.is_dir():

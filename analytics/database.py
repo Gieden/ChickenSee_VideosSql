@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from sqlalchemy import (
-    create_engine, Column, Integer, BigInteger, String, Float, DateTime, Boolean,
+    create_engine, event, Column, Integer, BigInteger, String, Float, DateTime, Boolean,
     ForeignKey, Text, Index, Enum as SQLEnum, select, func, inspect, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
@@ -162,6 +162,18 @@ class DatabaseManager:
             self.db_url,
             connect_args={"check_same_thread": False} if self.db_url.startswith("sqlite") else {}
         )
+        if self.db_url.startswith("sqlite"):
+            @event.listens_for(self.engine, "connect")
+            def _set_sqlite_crash_safe_pragmas(dbapi_connection, _connection_record):
+                cursor = dbapi_connection.cursor()
+                try:
+                    # WAL + FULL synchronous makes commits power-loss (blackout) durable
+                    cursor.execute("PRAGMA journal_mode=WAL;")
+                    cursor.execute("PRAGMA synchronous=FULL;")
+                    cursor.execute("PRAGMA busy_timeout=10000;")
+                    cursor.execute("PRAGMA foreign_keys=ON;")
+                finally:
+                    cursor.close()
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         self.init_db()
 
@@ -269,21 +281,69 @@ class DatabaseManager:
                 and self.file_version_matches(job, signature)
             )
 
+    _TRANSIENT_FAILURE_PATTERNS = (
+        "database is locked",
+        "disk i/o",
+        "interrupted",
+        "keyboardinterrupt",
+        "systemexit",
+        "broken pipe",
+        "connection reset",
+    )
+
     def recover_interrupted_jobs(self) -> int:
-        """Resets any stale PROCESSING jobs left over from a previous interrupted worker session back to QUEUED."""
+        """
+        Resets any stale PROCESSING jobs (and transient power-loss/I/O FAILED jobs)
+        left over from a blackout or interrupted worker session back to QUEUED so
+        they are automatically reprocessed with zero data loss.
+        """
         with self.get_session() as session:
             stale_jobs = session.query(ProcessingJob).filter(
                 ProcessingJob.status == JobStatus.PROCESSING
             ).all()
-            count = len(stale_jobs)
-            for job in stale_jobs:
+
+            failed_jobs = session.query(ProcessingJob).filter(
+                ProcessingJob.status == JobStatus.FAILED
+            ).all()
+            transient_failed = [
+                job for job in failed_jobs
+                if job.error_message
+                and any(pat in job.error_message.lower() for pat in self._TRANSIENT_FAILURE_PATTERNS)
+            ]
+
+            to_recover = stale_jobs + transient_failed
+            count = len(to_recover)
+            for job in to_recover:
                 job.status = JobStatus.QUEUED
                 job.progress_frames = 0
+                job.frames_processed = 0
+                job.error_message = "Recovered after interruption — queued for automatic reprocessing."
                 for metric in list(job.half_hour_metrics):
                     session.delete(metric)
             if count > 0:
                 session.commit()
             return count
+
+    def get_queued_jobs(self) -> List[ProcessingJob]:
+        """Returns all QUEUED jobs (including blackout-recovered jobs), oldest first."""
+        with self.get_session() as session:
+            jobs = (
+                session.query(ProcessingJob)
+                .filter(ProcessingJob.status == JobStatus.QUEUED)
+                .order_by(ProcessingJob.created_at.asc(), ProcessingJob.id.asc())
+                .all()
+            )
+            session.expunge_all()
+            return jobs
+
+    def mark_missing_queued_job(self, job_id: int, reason: str = "Source video file no longer exists on disk.") -> None:
+        """Marks a recovered QUEUED job as FAILED when its source file was removed."""
+        with self.get_session() as session:
+            job = session.get(ProcessingJob, job_id)
+            if job and job.status == JobStatus.QUEUED:
+                job.status = JobStatus.FAILED
+                job.error_message = reason
+                session.commit()
 
     def lease_job(
         self,
