@@ -2345,7 +2345,7 @@ class ChickenSeeDesktop:
                     queue_error = str(error)
 
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=1.5) as response:
+                    with urllib.request.urlopen("http://127.0.0.1:8000/sensors/status", timeout=5.0) as response:
                         sensor_data = json.loads(response.read().decode("utf-8"))
                 except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
                     sensor_data = None
@@ -2381,16 +2381,32 @@ class ChickenSeeDesktop:
                     p_db = None
                     active_path = None
                     if queue_data:
+                        q_items = queue_data.get("items", [])
                         active_item = next(
                             (
-                                item for item in queue_data.get("items", [])
+                                item for item in q_items
                                 if item.get("video_filename") == active_vid
                                 and item.get("status") == "PROCESSING"
                             ),
                             None,
                         )
+                        if active_item is None:
+                            # Handle unique hash-suffixed job filenames (e.g. video2_c9ced2ca.mp4 vs video2.mp4)
+                            active_item = next(
+                                (item for item in q_items if item.get("status") == "PROCESSING"),
+                                None,
+                            )
+                        if active_item is None:
+                            active_item = next(
+                                (
+                                    item for item in q_items
+                                    if item.get("status") == "COMPLETED" and item.get("video_path")
+                                ),
+                                None,
+                            )
                         if active_item:
                             active_path = Path(active_item.get("video_path", ""))
+                            active_vid = active_item.get("video_filename") or active_vid
                     if active_path and active_path.is_file():
                         from analytics.sensor_utils import find_paired_sensor_db
                         p_db = find_paired_sensor_db(str(active_path))

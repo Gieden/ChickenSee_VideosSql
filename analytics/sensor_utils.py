@@ -141,6 +141,10 @@ def find_paired_sensor_db(video_path: str) -> Optional[Path]:
     return None
 
 
+# Lightweight cache for read-only sensor DB summaries keyed by (path, mtime_ns, size)
+_SUMMARY_CACHE: Dict[tuple, tuple] = {}
+
+
 def read_sensor_db_status(
     db_path: Optional[Path],
     video_filename: Optional[str] = None,
@@ -168,6 +172,9 @@ def read_sensor_db_status(
     resolved_path = Path(db_path).resolve()
 
     try:
+        st = resolved_path.stat()
+        cache_key = (str(resolved_path), st.st_mtime_ns, st.st_size)
+
         # Open in read-only URI mode to prevent any locking conflicts
         conn = sqlite3.connect(f"file:{resolved_path.as_posix()}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
@@ -185,44 +192,51 @@ def read_sensor_db_status(
         total_records = 0
 
         if "sensor_logs" in tables:
-            total_records = cursor.execute("SELECT COUNT(*) as cnt FROM sensor_logs").fetchone()["cnt"]
+            cached = _SUMMARY_CACHE.get(cache_key)
+            if cached is not None:
+                total_records, summary = cached
+            else:
+                # Single-pass COUNT + aggregate stats (avoids 2x full-table scan on large DBs)
+                stats_row = cursor.execute("""
+                    SELECT
+                        COUNT(*) as cnt,
+                        AVG(temperature) as t_avg, MIN(temperature) as t_min, MAX(temperature) as t_max,
+                        AVG(humidity) as h_avg, MIN(humidity) as h_min, MAX(humidity) as h_max,
+                        AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,
+                        AVG(sound_db) as sound_avg, MAX(sound_db) as sound_max
+                    FROM sensor_logs
+                """).fetchone()
 
-            # Aggregate stats
-            stats_row = cursor.execute("""
-                SELECT
-                    AVG(temperature) as t_avg, MIN(temperature) as t_min, MAX(temperature) as t_max,
-                    AVG(humidity) as h_avg, MIN(humidity) as h_min, MAX(humidity) as h_max,
-                    AVG(ammonia_ppm) as nh3_avg, MAX(ammonia_ppm) as nh3_max,
-                    AVG(sound_db) as sound_avg, MAX(sound_db) as sound_max
-                FROM sensor_logs
-            """).fetchone()
+                if stats_row:
+                    total_records = int(stats_row["cnt"] or 0)
+                    t_avg = round(float(stats_row["t_avg"]), 2) if stats_row["t_avg"] is not None else None
+                    h_avg = round(float(stats_row["h_avg"]), 1) if stats_row["h_avg"] is not None else None
+                    thi_avg = calculate_thi(t_avg, h_avg)
+                    summary = {
+                        "temp_avg_c": t_avg,
+                        "temp_min_c": round(float(stats_row["t_min"]), 2) if stats_row["t_min"] is not None else None,
+                        "temp_max_c": round(float(stats_row["t_max"]), 2) if stats_row["t_max"] is not None else None,
+                        "humidity_avg_pct": h_avg,
+                        "humidity_min_pct": round(float(stats_row["h_min"]), 1) if stats_row["h_min"] is not None else None,
+                        "humidity_max_pct": round(float(stats_row["h_max"]), 1) if stats_row["h_max"] is not None else None,
+                        "ammonia_ppm_avg": round(float(stats_row["nh3_avg"]), 5) if stats_row["nh3_avg"] is not None else None,
+                        "ammonia_ppm_max": round(float(stats_row["nh3_max"]), 5) if stats_row["nh3_max"] is not None else None,
+                        "sound_db_avg": round(float(stats_row["sound_avg"]), 1) if stats_row["sound_avg"] is not None else None,
+                        "sound_db_max": round(float(stats_row["sound_max"]), 1) if stats_row["sound_max"] is not None else None,
+                        "thi_avg": thi_avg,
+                        "heat_stress_level": calculate_heat_stress(thi_avg),
+                    }
+                    if len(_SUMMARY_CACHE) > 32:
+                        _SUMMARY_CACHE.clear()
+                    _SUMMARY_CACHE[cache_key] = (total_records, summary)
 
-            if stats_row:
-                t_avg = round(float(stats_row["t_avg"]), 2) if stats_row["t_avg"] is not None else None
-                h_avg = round(float(stats_row["h_avg"]), 1) if stats_row["h_avg"] is not None else None
-                thi_avg = calculate_thi(t_avg, h_avg)
-                summary = {
-                    "temp_avg_c": t_avg,
-                    "temp_min_c": round(float(stats_row["t_min"]), 2) if stats_row["t_min"] is not None else None,
-                    "temp_max_c": round(float(stats_row["t_max"]), 2) if stats_row["t_max"] is not None else None,
-                    "humidity_avg_pct": h_avg,
-                    "humidity_min_pct": round(float(stats_row["h_min"]), 1) if stats_row["h_min"] is not None else None,
-                    "humidity_max_pct": round(float(stats_row["h_max"]), 1) if stats_row["h_max"] is not None else None,
-                    "ammonia_ppm_avg": round(float(stats_row["nh3_avg"]), 5) if stats_row["nh3_avg"] is not None else None,
-                    "ammonia_ppm_max": round(float(stats_row["nh3_max"]), 5) if stats_row["nh3_max"] is not None else None,
-                    "sound_db_avg": round(float(stats_row["sound_avg"]), 1) if stats_row["sound_avg"] is not None else None,
-                    "sound_db_max": round(float(stats_row["sound_max"]), 1) if stats_row["sound_max"] is not None else None,
-                    "thi_avg": thi_avg,
-                    "heat_stress_level": calculate_heat_stress(thi_avg),
-                }
-
-            # Recent readings
+            # Recent readings using O(log N) rowid B-tree lookup instead of unindexed frame_index sort
             recent_rows = cursor.execute(f"""
                 SELECT frame_index, elapsed_seconds, video_time, captured_at,
                        temperature, humidity, ammonia_ppm, sound_db,
                        temp_status, hum_status, ammonia_status, sound_status
                 FROM sensor_logs
-                ORDER BY frame_index DESC
+                ORDER BY rowid DESC
                 LIMIT {max(1, limit_recent)}
             """).fetchall()
 
