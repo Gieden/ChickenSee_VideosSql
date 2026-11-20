@@ -82,9 +82,10 @@ class AnalyticsConfig(BaseModel):
     inactivity_sustained_duration_s: float = Field(default=60.0, description="Legacy alias for prolonged_low_activity_duration_s")
 
     # 4. Social Isolation Thresholds
-    social_isolation_distance_px: float = Field(default=180.0, description="Nearest-neighbor distance threshold for spatial isolation")
-    social_isolation_duration_s: float = Field(default=10.0, description="Continuous seconds away from flock to flag social isolation")
-    social_isolation_relative_ratio: float = Field(default=2.2, description="Ratio of nearest-neighbor distance to flock median distance")
+    social_isolation_distance_px: float = Field(default=220.0, description="Minimum nearest-neighbor distance (px) for spatial isolation")
+    social_isolation_body_lengths: float = Field(default=3.5, description="Minimum nearest-neighbor distance in median bird body sizes")
+    social_isolation_duration_s: float = Field(default=60.0, description="Continuous seconds away from flock to count an isolation bout")
+    social_isolation_relative_ratio: float = Field(default=1.5, description="Minimum ratio of nearest-neighbor distance to flock median pairwise distance")
     
     # Legacy interaction thresholds (preserved for backward compatibility)
     feather_pecking_proximity_px: float = Field(default=60.0, description="Inter-bird centroid distance threshold for close interaction")

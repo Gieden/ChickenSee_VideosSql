@@ -1089,23 +1089,31 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertGreaterEqual(summary.lethargic_birds_flagged, 1)
 
     def test_behavior_social_isolation(self):
-        """Test Social Isolation: bird is spatially segregated far from flock mates."""
+        """Test Social Isolation: sustained separation counts 1 bout, excludes solo feeder visits, and honors 29.5% threshold."""
         # Flock cluster in bottom-right corner (around 800, 800)
         flock_1 = TrackedDetection(box=[790, 790, 830, 830], centroid=(810, 810), confidence=0.9, class_id=0, class_name="Chicken", track_id=501, bird_label="Hen1 (Green)")
         flock_2 = TrackedDetection(box=[810, 810, 850, 850], centroid=(830, 830), confidence=0.9, class_id=0, class_name="Chicken", track_id=502, bird_label="Hen2 (White)")
         # Isolated bird alone at top-left corner (around 50, 50 - >700px away)
         isolated_bird = TrackedDetection(box=[40, 40, 80, 80], centroid=(60, 60), confidence=0.9, class_id=0, class_name="Chicken", track_id=503, bird_label="Hen3 (Blue)")
+        # Solo bird eating at a feeder far from the flock (should NOT count as isolated)
+        solo_feeder_bird = TrackedDetection(box=[40, 790, 80, 830], centroid=(60, 810), confidence=0.9, class_id=0, class_name="Chicken", track_id=504, bird_label="Hen4 (Yellow)")
+        feeder = TrackedDetection(box=[20, 780, 90, 840], centroid=(55, 810), confidence=0.9, class_id=1, class_name="Feeder", track_id=None, bird_label="Feeder")
 
         dt = 1.0
-        for step in range(15):  # Exceeds social_isolation_duration_s (10s)
+        for step in range(180):  # 3 continuous minutes -> should count 1 bout (not 18!)
             frame_out = TrackerFrameOutput(
                 frame_idx=step, timestamp_s=step * dt,
-                birds=[flock_1, flock_2, isolated_bird], feeders=[], drinkers=[]
+                birds=[flock_1, flock_2, isolated_bird, solo_feeder_bird], feeders=[feeder], drinkers=[]
             )
             self.engine.process_frame(frame_out, dt=dt)
 
         summary = self.engine.compute_chunk_summary()
-        self.assertGreaterEqual(summary.social_isolation_events, 1)
+        by_id = {r["track_id"]: r for r in summary.bird_records}
+        self.assertEqual(by_id[503]["social_isolation_events"], 1)
+        self.assertEqual(by_id[503]["is_socially_isolated"], 1)
+        self.assertEqual(by_id[504]["social_isolation_events"], 0)
+        self.assertEqual(by_id[504]["is_socially_isolated"], 0)
+        self.assertEqual(by_id[501]["social_isolation_events"], 0)
 
     def test_fastapi_health_endpoint(self):
         """Verify FastAPI /health endpoint."""

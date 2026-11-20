@@ -59,6 +59,7 @@ class BirdTrackState:
     total_isolation_s: float = 0.0
     social_isolation_events: int = 0
     is_isolated_flag: bool = False
+    in_isolation_bout: bool = False
 
     # Legacy interaction counts (preserved for backward compatibility)
     pecking_aggressor_count: int = 0
@@ -296,15 +297,31 @@ class BehaviorAnalysisEngine:
         # -------------------------------------------------------------
         n_birds = len(current_birds)
         if n_birds >= 2:
-            centroids = [b.centroid for b in current_birds if b.track_id is not None]
-            pair_dists = []
-            for i in range(len(centroids)):
-                for j in range(i + 1, len(centroids)):
-                    pair_dists.append(self._calc_euclidean(centroids[i], centroids[j]))
-            median_dist = sorted(pair_dists)[len(pair_dists) // 2] if pair_dists else 100.0
+            isolation_dist_thresh = getattr(self.cfg, "social_isolation_distance_px", 220.0)
+            isolation_body_lengths = getattr(self.cfg, "social_isolation_body_lengths", 3.5)
+            isolation_ratio = getattr(self.cfg, "social_isolation_relative_ratio", 1.5)
+            iso_duration = getattr(self.cfg, "social_isolation_duration_s", 60.0)
 
-            isolation_dist_thresh = getattr(self.cfg, "social_isolation_distance_px", 180.0)
-            isolation_ratio = getattr(self.cfg, "social_isolation_relative_ratio", 2.2)
+            # Scale distance threshold to observed bird size so higher-res videos stay calibrated
+            body_sizes = sorted(
+                max(abs(b.box[2] - b.box[0]), abs(b.box[3] - b.box[1]))
+                for b in current_birds
+                if b.track_id is not None and len(b.box) == 4
+            )
+            median_body_px = body_sizes[len(body_sizes) // 2] if body_sizes else 0.0
+            effective_dist_thresh = max(isolation_dist_thresh, median_body_px * isolation_body_lengths)
+
+            # Precompute nearest-neighbor distance for every visible bird
+            nn_dists: List[float] = []
+            for i, bird_a in enumerate(current_birds):
+                nn_d = min(
+                    (self._calc_euclidean(bird_a.centroid, bird_b.centroid)
+                     for j, bird_b in enumerate(current_birds) if i != j),
+                    default=0.0,
+                )
+                nn_dists.append(nn_d)
+            sorted_nn = sorted(nn_dists)
+            median_nn_dist = sorted_nn[len(sorted_nn) // 2] if sorted_nn else 0.0
 
             for i, bird_a in enumerate(current_birds):
                 tid_a = bird_a.track_id
@@ -312,24 +329,32 @@ class BehaviorAnalysisEngine:
                     continue
                 state_a = self.bird_states[tid_a]
 
-                # Find nearest neighbor distance
-                min_neighbor_dist = min(
-                    (self._calc_euclidean(bird_a.centroid, bird_b.centroid)
-                     for j, bird_b in enumerate(current_birds) if i != j),
-                    default=0.0
+                # Solo feeding or drinking at a resource station is normal behavior, not social isolation
+                if state_a.is_in_feeder_zone or state_a.is_in_waterer_zone:
+                    state_a.continuous_isolation_s = 0.0
+                    state_a.in_isolation_bout = False
+                    continue
+
+                min_neighbor_dist = nn_dists[i]
+
+                # Isolated when far from nearest flock mate AND significantly more distant than the flock's typical spacing
+                far_from_nearest = min_neighbor_dist > effective_dist_thresh
+                separated_from_cluster = (
+                    n_birds < 3
+                    or (median_nn_dist > 0 and min_neighbor_dist > isolation_ratio * median_nn_dist)
+                    or min_neighbor_dist > 1.35 * effective_dist_thresh
                 )
 
-                # Isolated if nearest flock mate is beyond threshold or relative ratio
-                if min_neighbor_dist > isolation_dist_thresh or (median_dist > 0 and min_neighbor_dist > isolation_ratio * median_dist):
+                if far_from_nearest and separated_from_cluster:
                     state_a.continuous_isolation_s += dt
                     state_a.total_isolation_s += dt
-                    iso_duration = getattr(self.cfg, "social_isolation_duration_s", 10.0)
-                    if state_a.continuous_isolation_s >= iso_duration:
+                    if state_a.continuous_isolation_s >= iso_duration and not state_a.in_isolation_bout:
                         state_a.social_isolation_events += 1
+                        state_a.in_isolation_bout = True
                         state_a.is_isolated_flag = True
-                        state_a.continuous_isolation_s = 0.0
                 else:
                     state_a.continuous_isolation_s = 0.0
+                    state_a.in_isolation_bout = False
 
             # ---------------------------------------------------------
             # Step 3: Feather Pecking Interaction Check (Legacy Compatibility)
@@ -426,7 +451,7 @@ class BehaviorAnalysisEngine:
 
             flag_reduced_feeding = 1 if (s.reduced_feeding_events > 0 or feeding_pct <= feed_thresh) else 0
             flag_reduced_drinking = 1 if (s.reduced_drinking_events > 0 or drinking_pct <= drink_thresh) else 0
-            flag_social_isolation = 1 if (s.is_isolated_flag or s.social_isolation_events > 0 or isolation_pct > iso_thresh) else 0
+            flag_social_isolation = 1 if isolation_pct > iso_thresh else 0
             flag_reduced_locomotor = 1 if (s.is_lethargic_flag or s.prolonged_low_activity_events > 0 or locomotor_inactivity_pct > loco_thresh) else 0
 
             bird_records.append({
