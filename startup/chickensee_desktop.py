@@ -50,6 +50,9 @@ else:
         write_watch_directories,
     )
 
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 
 HEALTH_URL = "http://127.0.0.1:8000/health"
 QUEUE_URL = "http://127.0.0.1:8000/queue"
@@ -2460,11 +2463,20 @@ class ChickenSeeDesktop:
                     self._log(event[1])
                 elif event[0] == "status":
                     self.refresh_in_progress = False
-                    self._display_status(event[1], event[2], event[3])
-                    self._display_queue(event[4], event[5])
+                    try:
+                        self._display_status(event[1], event[2], event[3])
+                    except Exception as err:
+                        self._log(f"Status display error: {err}")
+                    try:
+                        self._display_queue(event[4], event[5])
+                    except Exception as err:
+                        self._log(f"Queue display error: {err}")
                     if len(event) > 6:
-                        sensor_data = event[6] or getattr(self, "_cached_sensor_data", None)
-                        self._display_sensors(sensor_data)
+                        try:
+                            sensor_data = event[6] or getattr(self, "_cached_sensor_data", None)
+                            self._display_sensors(sensor_data)
+                        except Exception as err:
+                            self._log(f"Sensor display error: {err}")
                     if self.refresh_pending:
                         self.refresh_pending = False
                         self.root.after(0, self._refresh_status)
