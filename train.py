@@ -42,8 +42,10 @@ DEFAULT_CLASS_NAMES = {
 }
 
 CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
+# In the 3,000-image dataset, Saddle_Color_White (616) and Saddle_Color_Red (818)
+# have the fewest instances compared to Saddle_Color_Yellow (1,545), Blue (1,136),
+# and YellowGreen (1,112). Only oversample the genuinely underrepresented classes.
 SADDLE_CLASSES_WITH_LOW_AP = {
-    "Saddle_Color_Blue",
     "Saddle_Color_Red",
     "Saddle_Color_White",
 }
@@ -73,7 +75,7 @@ elif os.path.isfile(notes_file):
 # Step 1 — Auto train/val split (80/20) if not already done
 # ---------------------------------------------------------------------------
 def split_dataset(val_ratio=0.20, seed=42):
-    """Split flat dataset/images + dataset/labels into train/val folders."""
+    """Stratified 80/20 split of flat dataset/images + dataset/labels into train/val folders."""
     # Ensure fresh directory state
     for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
         if os.path.isdir(d):
@@ -81,16 +83,31 @@ def split_dataset(val_ratio=0.20, seed=42):
         os.makedirs(d, exist_ok=True)
 
     # Collect images that have a matching label file
-    all_images = [
+    all_images = sorted(
         f for f in os.listdir(images_dir)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+    )
     paired = []
+    class_freq = Counter()
+    image_classes = {}
     for img_name in all_images:
         stem = os.path.splitext(img_name)[0]
         lbl_path = os.path.join(labels_dir, stem + ".txt")
         if os.path.isfile(lbl_path):
             paired.append((img_name, stem + ".txt"))
+            present = set()
+            with open(lbl_path, "r", encoding="utf-8", errors="ignore") as lf:
+                for line in lf:
+                    parts = line.split()
+                    if parts:
+                        try:
+                            cid = int(float(parts[0]))
+                            present.add(cid)
+                        except ValueError:
+                            pass
+            image_classes[img_name] = present
+            for cid in present:
+                class_freq[cid] += 1
         else:
             print(f"[WARN] No label found for {img_name} — skipping")
 
@@ -99,26 +116,37 @@ def split_dataset(val_ratio=0.20, seed=42):
             f"No paired image+label files found in {images_dir} / {labels_dir}"
         )
 
-    random.seed(seed)
-    random.shuffle(paired)
+    # Group each image by its rarest class so minority saddle classes get an exact ~80/20 split
+    buckets = {}
+    for item in paired:
+        img_name = item[0]
+        present = image_classes[img_name]
+        rarest = min(present, key=lambda c: class_freq[c]) if present else -1
+        buckets.setdefault(rarest, []).append(item)
 
-    n_val   = max(1, int(len(paired) * val_ratio))
-    val_set = set(p[0] for p in paired[:n_val])
+    rng = random.Random(seed)
+    val_set = set()
+    for bucket_key in sorted(buckets.keys()):
+        items = buckets[bucket_key]
+        rng.shuffle(items)
+        n_bucket_val = max(1, round(len(items) * val_ratio)) if len(items) > 1 else 0
+        for img_name, _ in items[:n_bucket_val]:
+            val_set.add(img_name)
 
     copied_train = copied_val = 0
     for img_name, lbl_name in paired:
         src_img = os.path.join(images_dir, img_name)
         src_lbl = os.path.join(labels_dir, lbl_name)
         if img_name in val_set:
-            shutil.copy(src_img, os.path.join(val_img_dir,   img_name))
-            shutil.copy(src_lbl, os.path.join(val_lbl_dir,   lbl_name))
+            shutil.copy2(src_img, os.path.join(val_img_dir,   img_name))
+            shutil.copy2(src_lbl, os.path.join(val_lbl_dir,   lbl_name))
             copied_val += 1
         else:
-            shutil.copy(src_img, os.path.join(train_img_dir, img_name))
-            shutil.copy(src_lbl, os.path.join(train_lbl_dir, lbl_name))
+            shutil.copy2(src_img, os.path.join(train_img_dir, img_name))
+            shutil.copy2(src_lbl, os.path.join(train_lbl_dir, lbl_name))
             copied_train += 1
 
-    print(f"✅ Split complete → train: {copied_train}  val: {copied_val} (Total: {len(paired)})")
+    print(f"✅ Stratified split complete → train: {copied_train}  val: {copied_val} (Total: {len(paired)})")
     return copied_train, copied_val
 
 
@@ -273,26 +301,29 @@ def main():
     model = YOLO(base_model)
 
     # ---------------------------------------------------------------------------
-    # Step 4 — Train
+    # Step 4 — Train (tuned for 3,000-image top-down pen dataset on 4 GB GTX 1650)
     # ---------------------------------------------------------------------------
-    run_name = "poultry_v6"
+    run_name = "poultry_v7"
+    batch_size = 8 if device != "cpu" else 4
     results = model.train(
         data=yaml_path,
         epochs=150,
         imgsz=640,
-        batch=4,              # safe for most GPUs; increase if VRAM allows
+        batch=batch_size,     # 8 fits comfortably in 4 GB VRAM for nano weights & stabilizes BN
+        workers=4,            # safe for Windows multiprocessing on mixed HD/640p images
         device=device,
-        close_mosaic=15,      # disable mosaic in last 15 epochs for clean boxes
+        cos_lr=True,          # smooth cosine LR decay across 150 epochs
+        close_mosaic=15,      # disable mosaic in last 15 epochs for crisp final boxes
         name=run_name,
         exist_ok=True,
         project=os.path.join(project_dir, "runs", "detect"),
-        # Augmentation — helps with small leg tags and saddle markers
+        # Overhead top-down pen augmentation — preserves saddle color signal
         degrees=10.0,
         fliplr=0.5,
+        flipud=0.5,           # valid for top-down camera view; doubles geometric variety
         mosaic=1.0,
-        scale=0.9,            # force downscaling of crops for scale invariance
-        # Saddle color is a class signal; use mild HSV augmentation to preserve it.
-        hsv_h=0.005,
+        scale=0.5,            # 0.5x–1.5x keeps small saddle markers readable (0.9 shrank to 10%)
+        hsv_h=0.005,          # mild hue jitter so Yellow vs YellowGreen saddles stay distinct
         hsv_s=0.2,
         hsv_v=0.15,
         patience=30,          # early stopping if no improvement for 30 epochs
@@ -301,7 +332,7 @@ def main():
     )
 
     # ---------------------------------------------------------------------------
-    # Step 5 — Copy best weights to project root
+    # Step 5 — Backup previous weights & copy best weights to project root
     # ---------------------------------------------------------------------------
     save_dir = getattr(results, "save_dir", os.path.join(project_dir, "runs", "detect", run_name))
     best_weights = os.path.join(save_dir, "weights", "best.pt")
@@ -309,9 +340,13 @@ def main():
         best_weights = os.path.join(project_dir, "runs", "detect", run_name, "weights", "best.pt")
 
     target_weights = os.path.join(project_dir, "custom_poultry.pt")
+    backup_weights = os.path.join(project_dir, "custom_poultry_prev.pt")
 
     if os.path.isfile(best_weights):
-        shutil.copy(best_weights, target_weights)
+        if os.path.isfile(target_weights):
+            shutil.copy2(target_weights, backup_weights)
+            print(f"💾 Backed up previous weights → {backup_weights}")
+        shutil.copy2(best_weights, target_weights)
         print(f"\n🎉 Training complete!")
         print(f"   Best weights → {target_weights}")
     else:
