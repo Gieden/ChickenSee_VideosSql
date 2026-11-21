@@ -131,9 +131,19 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
-    MIN_DETECTION_CONFIDENCE = 0.20  # High-recall confidence threshold for flock birds
-    MIN_EQUIPMENT_CONFIDENCE = 0.10  # Dedicated threshold for Feeder & Drinker equipment
-    MIN_SADDLE_CONFIDENCE = 0.15     # Dedicated threshold for saddle boxes
+    MIN_DETECTION_CONFIDENCE = 0.25  # Calibrated for poultry_v7 (Chicken/Rooster mAP50=96.5%+)
+    MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v7 (Feeder/Drinker mAP50=96.7-97.0%)
+    MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
+    # Per-saddle confidence gates calibrated from poultry_v7 validation recall/precision:
+    # Blue has the lowest recall (0.467) on dark feathers -> lower gate (0.12) recovers missed detections;
+    # Red & YellowGreen have high recall (0.81-0.86) -> tighter gate (0.18) reduces false swaps.
+    MIN_SADDLE_CONFIDENCE_BY_CLASS = {
+        "Saddle_Color_Blue": 0.12,
+        "Saddle_Color_White": 0.15,
+        "Saddle_Color_Yellow": 0.15,
+        "Saddle_Color_Red": 0.18,
+        "Saddle_Color_YellowGreen": 0.18,
+    }
     REIDENTIFICATION_MAX_GAP_FRAMES = 90
     REIDENTIFICATION_DISTANCE_RATIO = 0.22
     REIDENTIFICATION_MIN_DISTANCE_PX = 30.0
@@ -164,7 +174,10 @@ class ZampenYOLOTracker:
         self.iou = CONFIG.iou_threshold
         self.imgsz = CONFIG.imgsz
         # min() of the class-specific gates: equipment, saddle, and bird boxes survive NMS
-        self.track_conf = min(self.conf, self.MIN_EQUIPMENT_CONFIDENCE, self.MIN_SADDLE_CONFIDENCE)
+        min_saddle_gate = min(
+            [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+        )
+        self.track_conf = min(self.conf, self.MIN_EQUIPMENT_CONFIDENCE, min_saddle_gate)
 
         print(f"[TRACKER] Initializing YOLO26 Nano from: {self.weights_path}")
         print(f"[TRACKER] Using ByteTrack config: {self.tracker_yaml}")
@@ -771,10 +784,14 @@ class ZampenYOLOTracker:
             confidence = float(conf)
             is_saddle = class_name.startswith("Saddle_Color_")
             is_equip = class_name in ("Feeder", "Drinker")
-            if is_equip and confidence < getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15):
+            if is_equip and confidence < getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20):
                 continue
-            if is_saddle and confidence < self.MIN_SADDLE_CONFIDENCE:
-                continue
+            if is_saddle:
+                saddle_gate = self.MIN_SADDLE_CONFIDENCE_BY_CLASS.get(
+                    class_name, self.MIN_SADDLE_CONFIDENCE
+                )
+                if confidence < saddle_gate:
+                    continue
             if not is_saddle and not is_equip and confidence < self.MIN_DETECTION_CONFIDENCE:
                 continue
             x1, y1, x2, y2 = [int(v) for v in box]
@@ -821,9 +838,12 @@ class ZampenYOLOTracker:
             try:
                 equip_model = getattr(self, "_equip_model", self.model)
                 if equip_model is not None and hasattr(equip_model, "predict"):
+                    min_saddle_gate = min(
+                        [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+                    )
                     raw_res = equip_model.predict(
                         frame,
-                        conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15), self.MIN_SADDLE_CONFIDENCE),
+                        conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20), min_saddle_gate),
                         iou=self.iou,
                         imgsz=self.imgsz,
                         device=self.device,
@@ -838,7 +858,10 @@ class ZampenYOLOTracker:
                             r_confidence = float(r_conf)
                             rx1, ry1, rx2, ry2 = [int(v) for v in r_box]
                             if r_name.startswith("Saddle_Color_"):
-                                if r_confidence >= self.MIN_SADDLE_CONFIDENCE:
+                                r_saddle_gate = self.MIN_SADDLE_CONFIDENCE_BY_CLASS.get(
+                                    r_name, self.MIN_SADDLE_CONFIDENCE
+                                )
+                                if r_confidence >= r_saddle_gate:
                                     if not any(abs(rx1 - s[0][0]) < 8 and abs(ry1 - s[0][1]) < 8 for s in saddle_dets):
                                         saddle_dets.append(([rx1, ry1, rx2, ry2], r_name, r_confidence))
                             elif r_name == "Feeder" and r_confidence >= getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15):
@@ -929,11 +952,12 @@ class ZampenYOLOTracker:
                 x1, y1, x2, y2 = bird.box
                 bw = max(1.0, float(x2 - x1))
                 bh = max(1.0, float(y2 - y1))
-                # Require saddle center inside the bird's core torso (not bleeding from a neighbour)
-                if (x1 <= scx <= x2) and (y1 <= scy <= y1 + 0.78 * bh):
+                # In top-down view, a downward-facing hen's saddle can sit in the lower half of the box;
+                # allow anywhere inside the bird box while weighting proximity toward the bird's center.
+                if (x1 <= scx <= x2) and (y1 <= scy <= y2):
                     dist = (
                         abs(scx - (x1 + x2) / 2) / bw
-                        + abs(scy - (y1 + 0.45 * bh)) / bh
+                        + abs(scy - (y1 + y2) / 2) / bh
                     )
                     candidates.append((dist, bird))
 

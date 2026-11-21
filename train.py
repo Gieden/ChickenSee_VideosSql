@@ -42,12 +42,12 @@ DEFAULT_CLASS_NAMES = {
 }
 
 CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
-# In the 3,000-image dataset, Saddle_Color_White (616) and Saddle_Color_Red (818)
-# have the fewest instances compared to Saddle_Color_Yellow (1,545), Blue (1,136),
-# and YellowGreen (1,112). Only oversample the genuinely underrepresented classes.
+# Oversample the saddle classes with the lowest validation recall/mAP
+# (poultry_v7 val: Blue R=0.467, White mAP50=0.720, Yellow mAP50=0.651).
 SADDLE_CLASSES_WITH_LOW_AP = {
-    "Saddle_Color_Red",
+    "Saddle_Color_Blue",
     "Saddle_Color_White",
+    "Saddle_Color_Yellow",
 }
 SADDLE_OVERSAMPLE_PREFIX = "__saddle_boost__"
 
@@ -303,8 +303,12 @@ def main():
     # ---------------------------------------------------------------------------
     # Step 4 — Train (tuned for 3,000-image top-down pen dataset on 4 GB GTX 1650)
     # ---------------------------------------------------------------------------
-    run_name = "poultry_v7"
+    run_name = "poultry_v8"
     batch_size = 8 if device != "cpu" else 4
+    # Use a gentle fine-tuning LR when resuming from already-converged custom_poultry.pt
+    # so early epochs refine weights instead of overshooting (lr0=0.01 peaked at ep 2 in v7).
+    is_finetune = os.path.abspath(base_model) == os.path.abspath(custom_weight)
+    lr0 = 0.002 if is_finetune else 0.01
     results = model.train(
         data=yaml_path,
         epochs=150,
@@ -312,6 +316,7 @@ def main():
         batch=batch_size,     # 8 fits comfortably in 4 GB VRAM for nano weights & stabilizes BN
         workers=4,            # safe for Windows multiprocessing on mixed HD/640p images
         device=device,
+        lr0=lr0,
         cos_lr=True,          # smooth cosine LR decay across 150 epochs
         close_mosaic=15,      # disable mosaic in last 15 epochs for crisp final boxes
         name=run_name,
