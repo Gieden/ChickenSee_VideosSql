@@ -90,50 +90,56 @@ export function clearManifestCache(): void {
   cachedManifest = null;
 }
 
+function reconcileArchiveManifest(parsed: Partial<ArchiveManifest>): ArchiveManifest {
+  const archives = parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {};
+  const activeDatesFromArchives = new Set<string>();
+  const restoredOnlyDates = new Set<string>();
+
+  for (const arch of Object.values(archives)) {
+    if (!arch || typeof arch !== 'object') continue;
+    const entryDates = new Set<string>();
+    if (Array.isArray(arch.dates)) {
+      for (const d of arch.dates) {
+        const clean = String(d).slice(0, 10);
+        if (clean) entryDates.add(clean);
+      }
+    }
+    if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate && arch.scope !== 'all') {
+      for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+        entryDates.add(d);
+      }
+    }
+    if (arch.status === 'archived') {
+      for (const d of Array.from(entryDates)) activeDatesFromArchives.add(d);
+    } else if (arch.status === 'restored') {
+      for (const d of Array.from(entryDates)) restoredOnlyDates.add(d);
+    }
+  }
+
+  const rawDates = Array.isArray(parsed.archivedDates) ? parsed.archivedDates : [];
+  const mergedDates = new Set<string>(activeDatesFromArchives);
+  for (const rawD of rawDates) {
+    const clean = String(rawD).slice(0, 10);
+    if (!clean) continue;
+    if (activeDatesFromArchives.has(clean) || !restoredOnlyDates.has(clean)) {
+      mergedDates.add(clean);
+    }
+  }
+
+  return {
+    version: 1,
+    archivedDates: Array.from(mergedDates).sort(),
+    archives,
+  };
+}
+
 export function readArchiveManifest(): ArchiveManifest {
   const manifestPath = getManifestPath();
   try {
     if (fs.existsSync(manifestPath)) {
       const raw = fs.readFileSync(manifestPath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<ArchiveManifest>;
-      const archives = parsed.archives && typeof parsed.archives === 'object' ? parsed.archives : {};
-
-      // If an archive is marked 'restored' or is an all_data archive, ensure dates are excluded from archivedDates
-      let hasRestoredAll = false;
-      const restoredDates = new Set<string>();
-      for (const [key, arch] of Object.entries(archives)) {
-        if (arch && typeof arch === 'object') {
-          const isAllScope = arch.scope === 'all' || /all_data/i.test(key) || /all_data/i.test(arch.fileName || '');
-          if (isAllScope) {
-            arch.status = 'restored';
-            hasRestoredAll = true;
-            break;
-          }
-          if (arch.status === 'restored') {
-            if (Array.isArray(arch.dates)) {
-              for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
-            }
-            if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
-              for (const d of enumerateDates(arch.startDate, arch.endDate)) {
-                restoredDates.add(d);
-              }
-            }
-          }
-        }
-      }
-
-      const rawDates = Array.isArray(parsed.archivedDates) ? parsed.archivedDates : [];
-      const cleanDates = hasRestoredAll
-        ? []
-        : rawDates
-            .map((d) => String(d).slice(0, 10))
-            .filter((d) => Boolean(d) && !restoredDates.has(d));
-
-      const result: ArchiveManifest = {
-        version: 1,
-        archivedDates: Array.from(new Set(cleanDates)).sort(),
-        archives,
-      };
+      const result = reconcileArchiveManifest(parsed);
       cachedManifest = result;
       return result;
     }
@@ -158,51 +164,15 @@ export async function syncManifestFromCloud(): Promise<ArchiveManifest> {
       if (!error && data) {
         const raw = await data.text();
         const remote = JSON.parse(raw) as Partial<ArchiveManifest>;
-        const archives = remote.archives && typeof remote.archives === 'object' ? remote.archives : {};
-
-        // Reconcile: If any all_data archive exists OR any archive has status 'restored', strip dates
-        let hasRestoredAll = false;
-        const restoredDates = new Set<string>();
-        for (const [key, arch] of Object.entries(archives)) {
-          if (arch && typeof arch === 'object') {
-            const isAllScope = arch.scope === 'all' || /all_data/i.test(key) || /all_data/i.test(arch.fileName || '');
-            if (isAllScope) {
-              arch.status = 'restored';
-              hasRestoredAll = true;
-              break;
-            }
-            if (arch.status === 'restored') {
-              if (Array.isArray(arch.dates)) {
-                for (const d of arch.dates) restoredDates.add(String(d).slice(0, 10));
-              }
-              if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
-                for (const d of enumerateDates(arch.startDate, arch.endDate)) {
-                  restoredDates.add(d);
-                }
-              }
-            }
-          }
-        }
-
-        const rawDates = Array.isArray(remote.archivedDates) ? remote.archivedDates : [];
-        const cleanDates = hasRestoredAll
-          ? []
-          : rawDates
-              .map((d) => String(d).slice(0, 10))
-              .filter((d) => Boolean(d) && !restoredDates.has(d));
-
-        const result: ArchiveManifest = {
-          version: 1,
-          archivedDates: Array.from(new Set(cleanDates)).sort(),
-          archives,
-        };
+        const result = reconcileArchiveManifest(remote);
         cachedManifest = result;
         try {
           fs.writeFileSync(getManifestPath(), JSON.stringify(result, null, 2), 'utf-8');
         } catch {}
 
         // If stale dates belonging to restored archives were purged, heal remote cloud manifest immediately
-        if (cleanDates.length !== rawDates.length || (hasRestoredAll && rawDates.length > 0)) {
+        const rawDates = Array.isArray(remote.archivedDates) ? remote.archivedDates : [];
+        if (result.archivedDates.length !== rawDates.length) {
           try {
             const { error: upErr } = await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${MANIFEST_FILE_NAME}`, JSON.stringify(result, null, 2), {
               contentType: 'application/json',
