@@ -348,15 +348,14 @@ class BehaviorAnalysisEngine:
                 else:
                     near_feeder = False
 
-            # Resting/nesting motionless behind the feeder (>=6s with <1.2 px/s) is Inactive, not Feeding
+            # Track motionless nesting/resting near the feeder: after >=6s of <1.2 px/s
+            # immobility, stop logging active Feeding bouts/HUD (switch live label to Inactive)
+            # while keeping is_in_feeder_zone=True for reduced_feeding & isolation exclusion.
             if near_feeder and len(state.recent_velocities) >= 3 and avg_vel < 1.2:
                 state.feeder_immobile_s += dt
-                if state.feeder_immobile_s >= 6.0:
-                    near_feeder = False
-            elif not near_feeder:
-                state.feeder_immobile_s = 0.0
             else:
                 state.feeder_immobile_s = 0.0
+            is_actively_feeding_now = near_feeder and state.feeder_immobile_s < 6.0
 
             if near_feeder:
                 state.feeding_time_s += dt
@@ -523,15 +522,16 @@ class BehaviorAnalysisEngine:
             nn_px = nn_dist_by_tid.get(tid, 0.0)
             nn_bl = nn_px / body_scale if nn_px > 0 else 0.0
             conf = float(getattr(bird, "confidence", 0.0) or 0.0)
+            is_actively_feeding = st.is_in_feeder_zone and st.feeder_immobile_s < 6.0
             is_inactive_now = (
-                not st.is_in_feeder_zone
+                not is_actively_feeding
                 and not st.is_in_waterer_zone
                 and len(st.recent_velocities) >= 2
                 and st.velocity_px_s < low_act_thresh
             )
 
             # Update live behavior label for video overlay (replaces confidence badge)
-            if st.is_in_feeder_zone:
+            if is_actively_feeding:
                 st.current_behavior = "Feeding"
             elif st.is_in_waterer_zone:
                 st.current_behavior = "Drinking"
@@ -542,7 +542,7 @@ class BehaviorAnalysisEngine:
             else:
                 st.current_behavior = "Active"
 
-            self._update_bout(tid, st.label, "feeding", st.is_in_feeder_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
+            self._update_bout(tid, st.label, "feeding", is_actively_feeding, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "drinking", st.is_in_waterer_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "inactive", is_inactive_now, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "social_isolation", tid in isolated_tids, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
