@@ -324,7 +324,6 @@ def get_detection_queue(limit: int = Query(default=500, le=500)):
         if item["status"] in (
             JobStatus.COMPLETED.value,
             JobStatus.FAILED.value,
-            JobStatus.CANCELLED.value,
         )
     ]
     history_items.sort(key=lambda item: item.get("completed_at") or item.get("created_at") or "", reverse=True)
