@@ -1,7 +1,7 @@
 {
-  "job_id": 482,
+  "job_id": 497,
   "video_filename": "video.mp4",
   "status": "COMPLETED",
   "paired_sensor_database": "sensors.sqlite",
-  "captured_at": "2026-11-22T16:34:03.776676Z"
+  "captured_at": "2026-11-22T21:35:18.423724Z"
 }
