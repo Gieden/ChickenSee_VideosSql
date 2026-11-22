@@ -172,7 +172,7 @@ export default function SqliteViewerTab() {
   const [modalSelectedHour, setModalSelectedHour] = useState('all');
   const [modalUpdating, setModalUpdating] = useState(false);
   const [modalActiveTable, setModalActiveTable] = useState<string>('sensor_logs');
-  const [modalChartMetric, setModalChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound' | 'thi' | 'all'>('temp_hum');
+  const [modalChartMetric, setModalChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound' | 'all'>('temp_hum');
   const [chartHoverIdx, setChartHoverIdx] = useState<number | null>(null);
   const [modalTableSearch, setModalTableSearch] = useState('');
   const [modalTablePage, setModalTablePage] = useState(1);
@@ -1075,7 +1075,7 @@ export default function SqliteViewerTab() {
               {/* Quick Session Aggregation Pill Bar */}
               {modalAverages && (
                 <div className="bg-slate-50/70 px-5 py-3 sm:px-6">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6 text-xs">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 text-xs">
                     <div className="rounded-lg bg-white border border-slate-200 p-2 shadow-2xs">
                       <span className="text-[10px] font-bold uppercase text-slate-400">Avg Temp</span>
                       <p className="font-extrabold text-slate-900">
@@ -1106,12 +1106,6 @@ export default function SqliteViewerTab() {
                         {formatDuration(modalAverages.durationSeconds)}
                       </p>
                     </div>
-                    <div className="rounded-lg bg-white border border-slate-200 p-2 shadow-2xs">
-                      <span className="text-[10px] font-bold uppercase text-slate-400">THI Index</span>
-                      <p className="font-extrabold text-slate-900">
-                        {modalAverages.thi !== null ? `${modalAverages.thi}` : '—'}
-                      </p>
-                    </div>
                   </div>
                 </div>
               )}
@@ -1132,7 +1126,6 @@ export default function SqliteViewerTab() {
                       { key: 'temp_hum', label: '🌡️ Temp & Humidity' },
                       { key: 'ammonia', label: '🧪 Ammonia (NH₃)' },
                       { key: 'sound', label: '🔊 Sound (dB)' },
-                      { key: 'thi', label: '☀️ THI Index' },
                     ].map(({ key, label }) => (
                       <button
                         key={key}
@@ -1216,13 +1209,6 @@ export default function SqliteViewerTab() {
                         </>
                       )}
 
-                      {modalChartMetric === 'thi' && (
-                        <>
-                          <path d={chartData.thiArea} fill="url(#modalThiGrad)" />
-                          <polyline fill="none" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={chartData.thiPoly} />
-                        </>
-                      )}
-
                       {/* Interactive hover hit boxes */}
                       {chartData.points.map((pt, idx) => (
                         <rect
@@ -1284,9 +1270,6 @@ export default function SqliteViewerTab() {
                         )}
                         {modalChartMetric === 'sound' && (
                           <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-purple-500" /> Sound Intensity (dB)</span>
-                        )}
-                        {modalChartMetric === 'thi' && (
-                          <span className="flex items-center gap-1.5"><span className="h-2 w-3 rounded-sm bg-rose-500" /> Thermal-Humidity Heat Index</span>
                         )}
                       </div>
 
