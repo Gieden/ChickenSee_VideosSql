@@ -35,19 +35,39 @@ async function syncAll() {
   }
 
   const files = fs.readdirSync(RESULTS_DIR).filter((f) => f.endsWith('.json'));
-  console.log(`Found ${files.length} JSON file(s) to synchronize.\n`);
+  const frameLogsDir = path.join(RESULTS_DIR, 'frame_logs');
+  const frameLogFiles = fs.existsSync(frameLogsDir)
+    ? fs.readdirSync(frameLogsDir).filter((f) => f.endsWith('.json'))
+    : [];
+  console.log(`Found ${files.length} result JSON file(s) and ${frameLogFiles.length} frame_log JSON file(s) to synchronize.\n`);
 
   let successCount = 0;
   let failCount = 0;
 
-  for (const file of files) {
-    const fullPath = path.join(RESULTS_DIR, file);
+  const uploadTargets = [
+    ...files.map((file) => ({
+      remoteName: file,
+      fullPath: path.join(RESULTS_DIR, file),
+      mirrorToRepo: true,
+    })),
+    ...frameLogFiles.map((file) => ({
+      remoteName: file.startsWith('frame_log_') ? file : `frame_log_${file}`,
+      fullPath: path.join(frameLogsDir, file),
+      mirrorToRepo: false,
+    })),
+  ];
+
+  for (const target of uploadTargets) {
+    const file = target.remoteName;
+    const fullPath = target.fullPath;
     const content = fs.readFileSync(fullPath);
 
-    // Keep repo data/results folder mirrored
-    try {
-      fs.writeFileSync(path.join(REPO_DATA_RESULTS, file), content);
-    } catch {}
+    // Keep repo data/results folder mirrored for top-level results
+    if (target.mirrorToRepo) {
+      try {
+        fs.writeFileSync(path.join(REPO_DATA_RESULTS, file), content);
+      } catch {}
+    }
 
     try {
       process.stdout.write(`Syncing ${file} (${content.length} B)... `);

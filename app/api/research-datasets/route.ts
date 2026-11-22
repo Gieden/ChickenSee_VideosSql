@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import initSqlJs from 'sql.js';
 import { AUTH_COOKIE_NAME, getSession } from '@/lib/auth';
-import { downloadStorageFile } from '@/lib/supabase-storage';
+import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
 import {
   ORDERED_BIRDS,
   mapBirdToDef,
@@ -177,6 +177,196 @@ export async function GET(req: NextRequest) {
   }
 
   // 2. ADDITIONAL VIDEOS from analytics/zampen_analytics.db
+  // 1b. REAL-TIME LIVE FRAME LOGS (Local disk + Supabase Storage results/frame_log_*.json)
+  // Enables newly processed videos to appear immediately on Vercel with exact frame-by-frame
+  // behavior bouts & tracking — no git push required and never falls back to fake #0-148 rows.
+  const liveFrameLogVideos = new Map<string, { localPath?: string; cloudKey?: string; updatedMs: number }>();
+
+  const localFrameLogsDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
+  if (fs.existsSync(localFrameLogsDir)) {
+    try {
+      for (const fname of fs.readdirSync(localFrameLogsDir)) {
+        if (!fname.endsWith('.json')) continue;
+        const vidName = fname.replace(/^frame_log_/, '').replace(/\.json$/i, '');
+        if (!vidName) continue;
+        const fullPath = path.join(localFrameLogsDir, fname);
+        const mtimeMs = fs.statSync(fullPath).mtimeMs || 0;
+        const prev = liveFrameLogVideos.get(vidName);
+        if (!prev || mtimeMs >= prev.updatedMs) {
+          liveFrameLogVideos.set(vidName, { ...prev, localPath: fullPath, updatedMs: mtimeMs });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not scan local frame_logs:', err);
+    }
+  }
+
+  try {
+    const cloudResultFiles = await listStorageFiles('results');
+    for (const cf of cloudResultFiles) {
+      const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+      if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
+      const vidName = base.slice('frame_log_'.length, -'.json'.length);
+      if (!vidName) continue;
+      const upMs = cf.uploadedAt ? Date.parse(cf.uploadedAt) || 0 : 0;
+      const prev = liveFrameLogVideos.get(vidName);
+      liveFrameLogVideos.set(vidName, {
+        localPath: prev?.localPath,
+        cloudKey: cf.storagePath || `results/${base}`,
+        updatedMs: Math.max(prev?.updatedMs || 0, upMs),
+      });
+    }
+  } catch (err) {
+    console.warn('Could not list cloud frame logs from Supabase Storage:', err);
+  }
+
+  // Add live frame-log videos newest-first so newly processed videos immediately appear at index 0
+  const sortedLiveEntries = Array.from(liveFrameLogVideos.entries()).sort(
+    (a, b) => b[1].updatedMs - a[1].updatedMs,
+  );
+  for (const [vidName] of sortedLiveEntries) {
+    videosList.add(vidName);
+  }
+
+  const exactLoadedVideos = new Set<string>();
+  const obsLoadedVideos = new Set<string>();
+
+  if (targetVideo !== excelVideoName) {
+    const liveTargets =
+      targetVideo === 'all'
+        ? sortedLiveEntries.slice(0, 1)
+        : sortedLiveEntries.filter(([vidName]) => vidName === targetVideo);
+
+    for (const [vidName, meta] of liveTargets) {
+      let rawText: string | null = null;
+      if (meta.localPath && fs.existsSync(meta.localPath)) {
+        try {
+          rawText = fs.readFileSync(meta.localPath, 'utf-8');
+        } catch {
+          rawText = null;
+        }
+      }
+      if (!rawText && meta.cloudKey) {
+        try {
+          const blob = await downloadStorageFile(meta.cloudKey);
+          rawText = await blob.text();
+        } catch {
+          rawText = null;
+        }
+      }
+      if (!rawText) continue;
+
+      try {
+        const fl = JSON.parse(rawText);
+        const startStr = formatSqlTimestamp(fl.start_time || '');
+        const endStr = formatSqlTimestamp(fl.end_time || '');
+        const baseStartMs = new Date(startStr.replace(' ', 'T')).getTime();
+        const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
+        const flFps = Number(fl.fps) || 20;
+        const flTotalFrames = Number(fl.total_frames) || 1;
+        const flDurS = Math.max(1, flTotalFrames / flFps);
+
+        if (Array.isArray(fl.behavior_events)) {
+          exactLoadedVideos.add(vidName);
+          for (const ev of fl.behavior_events) {
+            if (behaviorEvents.length >= 1500) break;
+            const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
+            const sS = Number(ev.start_s) || 0;
+            const eS = Number(ev.end_s) || sS;
+            const dS = Number(ev.duration_s) || Math.max(0, eS - sS);
+            behaviorEvents.push({
+              video: vidName,
+              track_id: Number(ev.track_id) || def.trackId,
+              chicken_id: def.shortId,
+              shortId: def.shortId,
+              chId: def.chId,
+              profileLabel: def.profileLabel,
+              saddle_color: def.saddleColor,
+              dotColor: def.dotColor,
+              identity_status: ev.bird_label && ev.bird_label !== 'Chicken' ? 'confirmed' : 'assigned_during_tracking',
+              behavior: String(ev.behavior || 'feeding'),
+              start_time: formatSqlTimestamp(new Date(safeBaseMs + sS * 1000).toISOString()),
+              end_time: formatSqlTimestamp(new Date(safeBaseMs + eS * 1000).toISOString()),
+              start_frame: Number(ev.start_frame) || Math.round(sS * flFps),
+              end_frame: Number(ev.end_frame) || Math.round(eS * flFps),
+              start_s: Math.round(sS * 10) / 10,
+              end_s: Math.round(eS * 10) / 10,
+              duration_s: Math.round(dS * 10) / 10,
+              tracking_visible_pct: Math.min(100, Math.round((dS / flDurS) * 1000) / 10),
+              mean_detection_conf: Number(ev.mean_detection_conf) || 0,
+              nearest_distance_mean_px: Number(ev.nearest_distance_mean_px) || 0,
+              nearest_distance_min_px: Number(ev.nearest_distance_min_px) || 0,
+              nearest_distance_max_px: Number(ev.nearest_distance_max_px) || 0,
+              nearest_distance_mean_body_lengths: Number(ev.nearest_distance_mean_body_lengths) || 0,
+              nearest_distance_min_body_lengths: Number(ev.nearest_distance_min_body_lengths) || 0,
+              nearest_distance_max_body_lengths: Number(ev.nearest_distance_max_body_lengths) || 0,
+            });
+          }
+        }
+
+        if (Array.isArray(fl.detection_tracking)) {
+          for (const dtRow of fl.detection_tracking) {
+            if (detectionTracking.length >= 3500) break;
+            const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
+            const elS = Number(dtRow.elapsed_s) || 0;
+            detectionTracking.push({
+              timestamp: formatSqlTimestamp(new Date(safeBaseMs + elS * 1000).toISOString()),
+              frame_number: Number(dtRow.frame_number) || 0,
+              chicken_id: def.shortId,
+              shortId: def.shortId,
+              chId: def.chId,
+              profileLabel: def.profileLabel,
+              saddle_color: def.saddleColor,
+              dotColor: def.dotColor,
+              track_id: Number(dtRow.track_id) || def.trackId,
+              x_center_px: Number(dtRow.x_center_px) || 0,
+              y_center_px: Number(dtRow.y_center_px) || 0,
+              bbox_width_px: Number(dtRow.bbox_width_px) || 56,
+              bbox_height_px: Number(dtRow.bbox_height_px) || 44,
+              detection_confidence: Number(dtRow.detection_confidence) || 0,
+              visibility_status: (dtRow.visibility_status || 'visible') as 'visible' | 'occluded' | 'lost',
+              in_feeder_zone: Boolean(dtRow.in_feeder_zone),
+              in_waterer_zone: Boolean(dtRow.in_waterer_zone),
+              nearest_neighbor_distance_px: Number(dtRow.nearest_neighbor_distance_px) || 0,
+              nearest_neighbor_distance_body_lengths: Number(dtRow.nearest_neighbor_distance_body_lengths) || 0,
+              visible_chicken_count: Number(dtRow.visible_chicken_count) || 1,
+            });
+          }
+        }
+
+        if (Array.isArray(fl.bird_records) && fl.bird_records.length > 0) {
+          obsLoadedVideos.add(vidName);
+          for (const br of fl.bird_records) {
+            const def = mapBirdToDef(String(br.bird_label || ''), Number(br.track_id));
+            const winDur = Math.max(1, Number(br.window_duration_s) || Math.round(flDurS));
+            const validS = Math.min(winDur, Math.max(0, Number(br.valid_observation_duration_s) || 0));
+            const occS = Math.min(Math.max(0, winDur - validS), Math.max(0, Number(br.occluded_duration_s) || 0));
+            const lostS = Math.max(0, winDur - validS - occS);
+            observationWindows.push({
+              video: vidName,
+              chicken_id: def.shortId,
+              shortId: def.shortId,
+              chId: def.chId,
+              profileLabel: def.profileLabel,
+              saddleColor: def.saddleColor,
+              dotColor: def.dotColor,
+              window_start: startStr,
+              window_end: endStr,
+              window_duration_s: winDur,
+              valid_observation_duration_s: validS,
+              occluded_duration_s: occS,
+              lost_duration_s: lostS,
+              valid_observation_pct: Number(br.valid_observation_pct) || Math.round((validS / winDur) * 1000) / 10,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn(`Could not parse live frame log for ${vidName}:`, err);
+      }
+    }
+  }
+
+  // 2. SECONDARY SOURCE: Real processed videos from analytics/zampen_analytics.db (for legacy videos without frame logs)
   const dbPath = path.join(process.cwd(), 'analytics', 'zampen_analytics.db');
   if (fs.existsSync(dbPath)) {
     try {
@@ -211,23 +401,28 @@ export async function GET(req: NextRequest) {
           const filteredJobs = targetVideo === 'all' ? jobs.slice(0, 5) : jobs.filter((j) => j.video === targetVideo);
 
           for (const job of filteredJobs) {
+            if (exactLoadedVideos.has(job.video) && obsLoadedVideos.has(job.video)) {
+              continue;
+            }
             const wStart = formatSqlTimestamp(job.startTime);
             const wEnd = formatSqlTimestamp(job.endTime);
 
             // Check for exact frame-by-frame verification log (local disk first, then Supabase Storage for Vercel)
             const frameLogPath = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs', `${job.video}.json`);
-            let hasExactFrameLog = false;
+            let hasExactFrameLog = exactLoadedVideos.has(job.video);
             let rawFrameLogText: string | null = null;
-            if (fs.existsSync(frameLogPath)) {
-              rawFrameLogText = fs.readFileSync(frameLogPath, 'utf-8');
-            } else {
-              for (const cloudKey of [`results/frame_log_${job.video}.json`, `frame_logs/${job.video}.json`]) {
-                try {
-                  const cloudBlob = await downloadStorageFile(cloudKey);
-                  rawFrameLogText = await cloudBlob.text();
-                  if (rawFrameLogText) break;
-                } catch {
-                  rawFrameLogText = null;
+            if (!hasExactFrameLog) {
+              if (fs.existsSync(frameLogPath)) {
+                rawFrameLogText = fs.readFileSync(frameLogPath, 'utf-8');
+              } else {
+                for (const cloudKey of [`results/frame_log_${job.video}.json`, `frame_logs/${job.video}.json`]) {
+                  try {
+                    const cloudBlob = await downloadStorageFile(cloudKey);
+                    rawFrameLogText = await cloudBlob.text();
+                    if (rawFrameLogText) break;
+                  } catch {
+                    rawFrameLogText = null;
+                  }
                 }
               }
             }

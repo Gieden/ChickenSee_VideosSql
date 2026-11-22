@@ -1011,9 +1011,11 @@ class ZampenAnalyticsWorker:
             frame_logs_dir.mkdir(parents=True, exist_ok=True)
             all_behavior_events = []
             all_detection_tracking = []
+            all_bird_records = []
             for s in chunk_summaries:
                 all_behavior_events.extend(getattr(s, "behavior_events", []) or [])
                 all_detection_tracking.extend(getattr(s, "detection_tracking", []) or [])
+                all_bird_records.extend(getattr(s, "bird_records", []) or [])
             frame_log_path = frame_logs_dir / f"{filename}.json"
             frame_log_payload = {
                 "video": filename,
@@ -1023,6 +1025,7 @@ class ZampenAnalyticsWorker:
                 "end_time": end_dt.isoformat(),
                 "behavior_events": all_behavior_events,
                 "detection_tracking": all_detection_tracking,
+                "bird_records": all_bird_records,
             }
             frame_log_path.write_text(json.dumps(frame_log_payload), encoding="utf-8")
             print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames)")
@@ -1050,6 +1053,7 @@ class ZampenAnalyticsWorker:
                         data=b"",
                         method="POST",
                         headers={
+                            "user-agent": "ChickenSee-Worker/1.0",
                             "x-sync-secret": sync_secret,
                             "x-filename": _urlparse.quote(sync_name),
                             "x-action": "get-upload-url",
@@ -1065,6 +1069,7 @@ class ZampenAnalyticsWorker:
                             data=payload_bytes,
                             method="PUT",
                             headers={
+                                "user-agent": "ChickenSee-Worker/1.0",
                                 "content-type": "application/json",
                                 "content-length": str(len(payload_bytes)),
                                 "x-upsert": "true",
