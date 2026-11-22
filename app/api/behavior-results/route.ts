@@ -8,6 +8,7 @@ import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
+import { listSyncedDatabases } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -86,6 +87,57 @@ function formatFullTimeLabel(dateStr: string, timeSlot: string): string {
 }
 
 
+interface SessionTimeSlot {
+  hour: number;
+  minute: number;
+  folderName?: string;
+}
+
+/**
+ * Parses paired video/sensor folder names such as:
+ *   rec_2026-10-20_09-00-00_000000
+ *   rec_2026 - 10-20_09-00-00_000000
+ */
+function parseRecFolderDateTime(raw: string): { date: string; hour: number; minute: number; folderName: string } | null {
+  if (!raw) return null;
+  const m = raw.match(/rec[_\s-]*(\d{4})\s*-\s*(\d{2})\s*-\s*(\d{2})[_\s]+(\d{2})\s*-\s*(\d{2})(?:\s*-\s*(\d{2}))?(?:[_\s]+\d+)?/i);
+  if (!m) return null;
+  const year = m[1];
+  const month = m[2];
+  const day = m[3];
+  const hour = Number.parseInt(m[4], 10);
+  const minute = Number.parseInt(m[5], 10);
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+    return null;
+  }
+  return {
+    date: `${year}-${month}-${day}`,
+    hour,
+    minute,
+    folderName: m[0].trim(),
+  };
+}
+
+function addSessionTime(
+  map: Map<string, Map<string, SessionTimeSlot>>,
+  date: string,
+  hour: number,
+  minute: number,
+  folderName?: string,
+) {
+  if (!date || hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+  let dayMap = map.get(date);
+  if (!dayMap) {
+    dayMap = new Map();
+    map.set(date, dayMap);
+  }
+  const key = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  const existing = dayMap.get(key);
+  if (!existing || (folderName && !existing.folderName)) {
+    dayMap.set(key, { hour, minute, folderName });
+  }
+}
+
 async function loadAnalyticsDbData() {
   const candidateDbPaths = [
     path.join(os.tmpdir(), 'zampen_analytics.db'),
@@ -106,10 +158,12 @@ async function loadAnalyticsDbData() {
 
   try {
     const metricsRes = db.exec(`
-      SELECT id, date_slot, hour_slot, temp_avg_c, humidity_avg_pct,
-             ammonia_ppm_avg, thi_avg, sensor_data_available
-      FROM half_hour_metrics
-      ORDER BY date_slot ASC, hour_slot ASC
+      SELECT hm.id, hm.date_slot, hm.hour_slot, hm.temp_avg_c, hm.humidity_avg_pct,
+             hm.ammonia_ppm_avg, hm.thi_avg, hm.sensor_data_available,
+             pj.video_path, pj.video_filename
+      FROM half_hour_metrics hm
+      LEFT JOIN processing_jobs pj ON pj.id = hm.job_id
+      ORDER BY hm.date_slot ASC, hm.hour_slot ASC
     `);
 
     const birdsRes = db.exec(`
@@ -339,14 +393,70 @@ export async function GET(req: NextRequest) {
 
     const availableDates = Array.from(new Set(activeIntervals.map((i) => i.date))).sort().reverse();
 
-    return NextResponse.json({
-      success: true,
-      source: 'zampen_analytics.db + Supabase sensor_logs',
-      count: filtered.length,
-      availableDates,
-      archivedDates: Array.from(archivedSet),
-      intervals: filtered,
-    });
+    // Build per-date session time slots from paired video/data-sensor folders (rec_YYYY-MM-DD_HH-MM-SS_...)
+    const sessionTimesMap = new Map<string, Map<string, SessionTimeSlot>>();
+    try {
+      const syncedDbs = await listSyncedDatabases({ includeArchived: false });
+      for (const dbMeta of syncedDbs) {
+        const candidates = [dbMeta.sessionFolder, dbMeta.pathname, dbMeta.storagePath, dbMeta.localPath];
+        for (const cand of candidates) {
+          if (!cand) continue;
+          const parsed = parseRecFolderDateTime(cand);
+          if (parsed) {
+            addSessionTime(sessionTimesMap, parsed.date, parsed.hour, parsed.minute, parsed.folderName);
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Could not list paired sensor session folders for behavior chart times:', err);
+    }
+
+    try {
+      const analyticsForTimes = await loadAnalyticsDbData();
+      for (const row of analyticsForTimes.metrics) {
+        const rawDate = String(row[1] || '');
+        const hourSlot = String(row[2] || '');
+        const videoPath = String(row[8] || '');
+        const videoFilename = String(row[9] || '');
+        const parsedFolder = parseRecFolderDateTime(videoPath) || parseRecFolderDateTime(videoFilename);
+        if (parsedFolder) {
+          addSessionTime(sessionTimesMap, parsedFolder.date, parsedFolder.hour, parsedFolder.minute, parsedFolder.folderName);
+        } else {
+          const normDate = normalizeIsoDate(rawDate);
+          const h = Number.parseInt(hourSlot, 10);
+          if (normDate && Number.isInteger(h) && h >= 0 && h < 24 && !sessionTimesMap.has(normDate)) {
+            addSessionTime(sessionTimesMap, normDate, h, 0);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal: paired sensor folders still populate sessionTimesMap
+    }
+
+    const sessionTimesByDate: Record<string, SessionTimeSlot[]> = {};
+    for (const [d, slotMap] of Array.from(sessionTimesMap.entries())) {
+      sessionTimesByDate[d] = Array.from(slotMap.values()).sort(
+        (a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute),
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        source: 'zampen_analytics.db + Supabase sensor_logs',
+        count: filtered.length,
+        availableDates,
+        archivedDates: Array.from(archivedSet),
+        sessionTimesByDate,
+        intervals: filtered,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      },
+    );
   } catch (error: unknown) {
     return NextResponse.json(
       {

@@ -528,6 +528,9 @@ export default function BehaviorResultsTab() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRealData, setIsRealData] = useState<boolean>(true);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [sessionTimesByDate, setSessionTimesByDate] = useState<
+    Record<string, Array<{ hour: number; minute: number; folderName?: string }>>
+  >({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -549,6 +552,7 @@ export default function BehaviorResultsTab() {
         if (!active) return;
         setIntervals(data.intervals);
         setAvailableDates(data.availableDates);
+        setSessionTimesByDate(data.sessionTimesByDate || {});
         setIsRealData(true);
       } catch (err) {
         console.error('Failed to load behavior results from database:', err);
@@ -703,36 +707,74 @@ export default function BehaviorResultsTab() {
 
   const isSingleDayView = consolidatedChartIntervals.length === 1;
 
-  // When a Specific Day is selected, expand that day into 12 per-hour intervals (6:00 AM – 5:00 PM) for the graph
+  // When a Specific Day is selected, build the X-axis Time Range dynamically from the paired
+  // video + data sensor folder timestamps (rec_YYYY-MM-DD_HH-MM-SS_...) for that day.
   const chartSeriesIntervals = useMemo(() => {
     if (!isSingleDayView) return consolidatedChartIntervals;
     const daySummary = consolidatedChartIntervals[0];
     if (!daySummary) return [];
 
-    const hourlySlots = [
-      { h: 6, shortLabel: '6:00 AM', rangeLabel: '6:00 AM–7:00 AM' },
-      { h: 7, shortLabel: '7:00 AM', rangeLabel: '7:00 AM–8:00 AM' },
-      { h: 8, shortLabel: '8:00 AM', rangeLabel: '8:00 AM–9:00 AM' },
-      { h: 9, shortLabel: '9:00 AM', rangeLabel: '9:00 AM–10:00 AM' },
-      { h: 10, shortLabel: '10:00 AM', rangeLabel: '10:00 AM–11:00 AM' },
-      { h: 11, shortLabel: '11:00 AM', rangeLabel: '11:00 AM–12:00 PM' },
-      { h: 12, shortLabel: '12:00 PM', rangeLabel: '12:00 PM–1:00 PM' },
-      { h: 13, shortLabel: '1:00 PM', rangeLabel: '1:00 PM–2:00 PM' },
-      { h: 14, shortLabel: '2:00 PM', rangeLabel: '2:00 PM–3:00 PM' },
-      { h: 15, shortLabel: '3:00 PM', rangeLabel: '3:00 PM–4:00 PM' },
-      { h: 16, shortLabel: '4:00 PM', rangeLabel: '4:00 PM–5:00 PM' },
-      { h: 17, shortLabel: '5:00 PM', rangeLabel: '5:00 PM–6:00 PM' },
-    ];
+    const formatClock12h = (hour24: number, minute = 0) => {
+      const hNorm = ((hour24 % 24) + 24) % 24;
+      const period = hNorm >= 12 ? 'PM' : 'AM';
+      const h12 = hNorm % 12 === 0 ? 12 : hNorm % 12;
+      return `${h12}:${String(minute).padStart(2, '0')} ${period}`;
+    };
+
+    const pairedSlots = sessionTimesByDate[daySummary.date] || [];
+    let hourlySlots: Array<{ h: number; m: number; shortLabel: string; rangeLabel: string }> = [];
+
+    if (pairedSlots.length === 1) {
+      // Single paired rec_YYYY-MM-DD_HH-MM-SS folder -> show its exact 1-hour span in 10-min intervals
+      const base = pairedSlots[0];
+      const baseTotalMin = base.hour * 60 + base.minute;
+      hourlySlots = Array.from({ length: 7 }, (_, step) => {
+        const curMin = baseTotalMin + step * 10;
+        const nextMin = curMin + 10;
+        const h = Math.floor(curMin / 60) % 24;
+        const m = curMin % 60;
+        const nh = Math.floor(nextMin / 60) % 24;
+        const nm = nextMin % 60;
+        return {
+          h,
+          m,
+          shortLabel: formatClock12h(h, m),
+          rangeLabel: `${formatClock12h(h, m)}–${formatClock12h(nh, nm)}`,
+        };
+      });
+    } else if (pairedSlots.length >= 2) {
+      // Multiple paired rec_YYYY-MM-DD_HH-MM-SS folders -> follow their exact folder timestamps
+      hourlySlots = pairedSlots.map((slot) => {
+        const nextH = (slot.hour + 1) % 24;
+        return {
+          h: slot.hour,
+          m: slot.minute,
+          shortLabel: formatClock12h(slot.hour, slot.minute),
+          rangeLabel: `${formatClock12h(slot.hour, slot.minute)}–${formatClock12h(nextH, slot.minute)}`,
+        };
+      });
+    } else {
+      // Fallback when no paired rec_ folder timestamp exists for a legacy date
+      hourlySlots = Array.from({ length: 12 }, (_, i) => {
+        const h = 6 + i;
+        return {
+          h,
+          m: 0,
+          shortLabel: formatClock12h(h, 0),
+          rangeLabel: `${formatClock12h(h, 0)}–${formatClock12h((h + 1) % 24, 0)}`,
+        };
+      });
+    }
 
     const baseTemp = daySummary.tempC ?? 31.8;
     const baseHum = daySummary.humidityPct ?? 62.0;
     const baseSound = daySummary.soundDb ?? 74.5;
     const baseNh3 = daySummary.ammoniaPpm ?? 0.00004;
 
-    const hourWeights = [0.06, 0.09, 0.10, 0.09, 0.08, 0.07, 0.08, 0.09, 0.10, 0.09, 0.08, 0.07];
+    const slotCount = Math.max(1, hourlySlots.length);
 
     return hourlySlots.map((slot, idx): IntervalTelemetry => {
-      const phase = ((slot.h - 6) / 11) * Math.PI;
+      const phase = slotCount > 1 ? (idx / (slotCount - 1)) * Math.PI : Math.PI / 2;
       const diurnal = Math.sin(phase) - 0.6; // centered around 0
       const wave = Math.cos(idx * 1.3) * 0.4;
 
@@ -743,7 +785,7 @@ export default function BehaviorResultsTab() {
         ? Number(Math.max(0.5, baseNh3 + diurnal * 1.8 + wave * 0.5).toFixed(1))
         : Number(Math.max(0.00001, baseNh3 * (1 + diurnal * 0.15)).toFixed(5));
 
-      const w = hourWeights[idx];
+      const w = 1 / slotCount;
       const hourlyBehaviors: IntervalTelemetry['behaviorsByBird'] = {};
       for (const profile of CHICKEN_PROFILES) {
         const b = daySummary.behaviorsByBird[profile.id] || {
@@ -756,8 +798,8 @@ export default function BehaviorResultsTab() {
         };
         const scaleCount = (totalVal: number, salt: number) => {
           if (totalVal <= 0) return 0;
-          if (totalVal <= 12) {
-            return ((idx + salt) % Math.max(1, Math.round(12 / totalVal))) === 0 ? 1 : 0;
+          if (totalVal <= slotCount) {
+            return ((idx + salt) % Math.max(1, Math.round(slotCount / totalVal))) === 0 ? 1 : 0;
           }
           return Math.max(1, Math.min(100, Math.round(totalVal * w * (0.9 + ((idx + salt) % 3) * 0.1))));
         };
@@ -777,8 +819,8 @@ export default function BehaviorResultsTab() {
 
       return {
         ...daySummary,
-        id: `hourly_${daySummary.date}_${slot.h}`,
-        timeSlot: `${String(slot.h).padStart(2, '0')}:00`,
+        id: `hourly_${daySummary.date}_${slot.h}_${slot.m}`,
+        timeSlot: `${String(slot.h).padStart(2, '0')}:${String(slot.m).padStart(2, '0')}`,
         dateLabel: slot.shortLabel,
         intervalLabel: `${daySummary.dateLabel} · ${slot.rangeLabel}`,
         fullTimeLabel: `${daySummary.intervalLabel} · ${slot.rangeLabel}`,
@@ -789,7 +831,7 @@ export default function BehaviorResultsTab() {
         behaviorsByBird: hourlyBehaviors,
       };
     });
-  }, [isSingleDayView, consolidatedChartIntervals]);
+  }, [isSingleDayView, consolidatedChartIntervals, sessionTimesByDate]);
 
   const effectiveWindowSize = isSingleDayView ? 12 : CHART_WINDOW_SIZE;
   const maxChartSlideIndex = Math.max(0, chartSeriesIntervals.length - effectiveWindowSize);
