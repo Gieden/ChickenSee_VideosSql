@@ -866,7 +866,11 @@ class ZampenAnalyticsWorker:
                     self.behavior_engine.process_frame(frame_out, dt)
                     frames_processed += 1
                     if writer is not None:
-                        annotated = self.tracker.annotate_frame(frame, frame_out)
+                        annotated = self.tracker.annotate_frame(
+                            frame,
+                            frame_out,
+                            live_behaviors=self.behavior_engine.get_live_bird_behaviors(),
+                        )
                         writer.write(annotated)
 
                 frame_idx += 1

@@ -1591,8 +1591,13 @@ class ZampenYOLOTracker:
             drinkers=drinkers
         )
 
-    def annotate_frame(self, frame: np.ndarray, frame_out: TrackerFrameOutput) -> np.ndarray:
-        """Draws bounding boxes, track IDs, saddle anchors, and a detection HUD onto a copy of the frame."""
+    def annotate_frame(
+        self,
+        frame: np.ndarray,
+        frame_out: TrackerFrameOutput,
+        live_behaviors: Optional[Dict[int, str]] = None,
+    ) -> np.ndarray:
+        """Draws bounding boxes, track IDs, live behaviors, saddle anchors, and a detection HUD onto a copy of the frame."""
         vis = frame.copy()
         height, width = vis.shape[:2]
 
@@ -1616,7 +1621,11 @@ class ZampenYOLOTracker:
             cv2.rectangle(vis, (x1, y1), (x2, y2), color, 1, cv2.LINE_AA)
 
             display_label = animal_display_label(label, det.track_id)
-            text = f"{display_label} ({det.confidence:.2f})"
+            if fallback_name not in ("Feeder", "Drinker") and live_behaviors is not None and det.track_id is not None:
+                beh_text = live_behaviors.get(det.track_id, "Active")
+                text = f"{display_label} [{beh_text}]"
+            else:
+                text = f"{display_label} ({det.confidence:.2f})"
             # Compact, non-intrusive label size so neighboring chickens remain clearly visible
             font_scale = max(0.24, min(0.30, width / 2300.0))
             (text_width, text_height), baseline = cv2.getTextSize(

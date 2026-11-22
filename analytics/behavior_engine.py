@@ -69,6 +69,10 @@ class BirdTrackState:
     valid_observation_s: float = 0.0
     occluded_s: float = 0.0
     unobserved_streak_s: float = 0.0
+    last_feeder_center_dist: Optional[float] = None
+    last_drinker_center_dist: Optional[float] = None
+    feeder_immobile_s: float = 0.0
+    current_behavior: str = "Active"
 
 
 @dataclass
@@ -142,6 +146,10 @@ class BehaviorAnalysisEngine:
         self._active_bouts.clear()
         self._completed_bouts.clear()
         self._detection_tracking_rows.clear()
+
+    def get_live_bird_behaviors(self) -> Dict[int, str]:
+        """Returns the current live behavior label for every tracked bird ID (for video HUD overlays)."""
+        return {tid: st.current_behavior for tid, st in self.bird_states.items()}
 
     def _update_bout(
         self,
@@ -283,25 +291,72 @@ class BehaviorAnalysisEngine:
             state.instant_velocity_px_s = velocity
 
             # ---------------------------------------------------------
-            # 1 & 2. Feeding & Drinking Zone Check (Mutually Exclusive)
-            # A bird cannot feed and drink simultaneously; if near both,
-            # assign only to whichever equipment box is closer.
+            # 1 & 2. Feeding & Drinking Zone Check (Mutually Exclusive + Motion/Posture Gated)
+            # - Requires close box contact (<= 10px)
+            # - Excludes birds walking past or actively leaving the feeder/drinker
+            # - Excludes birds resting completely motionless (>= 6s) behind the feeder
             # ---------------------------------------------------------
-            feeder_dist = min(
-                (self._box_distance(bird.box, f.box) for f in frame_out.feeders),
-                default=float("inf"),
+            best_feeder = min(
+                frame_out.feeders,
+                key=lambda f: self._box_distance(bird.box, f.box),
+                default=None,
             )
-            drinker_dist = min(
-                (self._box_distance(bird.box, d.box) for d in frame_out.drinkers),
-                default=float("inf"),
+            best_drinker = min(
+                frame_out.drinkers,
+                key=lambda d: self._box_distance(bird.box, d.box),
+                default=None,
             )
-            near_feeder = feeder_dist <= self.cfg.feeder_zone_proximity_px
-            near_drinker = drinker_dist <= self.cfg.waterer_zone_proximity_px
+            feeder_dist = self._box_distance(bird.box, best_feeder.box) if best_feeder else float("inf")
+            drinker_dist = self._box_distance(bird.box, best_drinker.box) if best_drinker else float("inf")
+
+            feeder_center_dist = (
+                self._calc_euclidean(bird.centroid, best_feeder.centroid) if best_feeder else None
+            )
+            drinker_center_dist = (
+                self._calc_euclidean(bird.centroid, best_drinker.centroid) if best_drinker else None
+            )
+
+            # Detect walking past / moving away from feeder or drinker
+            moving_away_feeder = (
+                feeder_center_dist is not None
+                and state.last_feeder_center_dist is not None
+                and (feeder_center_dist - state.last_feeder_center_dist) / dt > 12.0
+            )
+            moving_away_drinker = (
+                drinker_center_dist is not None
+                and state.last_drinker_center_dist is not None
+                and (drinker_center_dist - state.last_drinker_center_dist) / dt > 12.0
+            )
+            state.last_feeder_center_dist = feeder_center_dist
+            state.last_drinker_center_dist = drinker_center_dist
+
+            station_speed_ok = (velocity <= 35.0 and avg_vel <= 22.0)
+
+            near_feeder = (
+                feeder_dist <= self.cfg.feeder_zone_proximity_px
+                and station_speed_ok
+                and not (moving_away_feeder and feeder_dist > 0.0)
+            )
+            near_drinker = (
+                drinker_dist <= self.cfg.waterer_zone_proximity_px
+                and station_speed_ok
+                and not (moving_away_drinker and drinker_dist > 0.0)
+            )
             if near_feeder and near_drinker:
                 if feeder_dist <= drinker_dist:
                     near_drinker = False
                 else:
                     near_feeder = False
+
+            # Resting/nesting motionless behind the feeder (>=6s with <1.2 px/s) is Inactive, not Feeding
+            if near_feeder and len(state.recent_velocities) >= 3 and avg_vel < 1.2:
+                state.feeder_immobile_s += dt
+                if state.feeder_immobile_s >= 6.0:
+                    near_feeder = False
+            elif not near_feeder:
+                state.feeder_immobile_s = 0.0
+            else:
+                state.feeder_immobile_s = 0.0
 
             if near_feeder:
                 state.feeding_time_s += dt
@@ -474,6 +529,18 @@ class BehaviorAnalysisEngine:
                 and len(st.recent_velocities) >= 2
                 and st.velocity_px_s < low_act_thresh
             )
+
+            # Update live behavior label for video overlay (replaces confidence badge)
+            if st.is_in_feeder_zone:
+                st.current_behavior = "Feeding"
+            elif st.is_in_waterer_zone:
+                st.current_behavior = "Drinking"
+            elif tid in isolated_tids:
+                st.current_behavior = "Isolated"
+            elif is_inactive_now:
+                st.current_behavior = "Inactive"
+            else:
+                st.current_behavior = "Active"
 
             self._update_bout(tid, st.label, "feeding", st.is_in_feeder_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "drinking", st.is_in_waterer_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
