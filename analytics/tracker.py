@@ -145,8 +145,8 @@ class ZampenYOLOTracker:
         "Saddle_Color_YellowGreen": 0.18,
     }
     REIDENTIFICATION_MAX_GAP_FRAMES = 90
-    REIDENTIFICATION_DISTANCE_RATIO = 0.22
-    REIDENTIFICATION_MIN_DISTANCE_PX = 30.0
+    REIDENTIFICATION_DISTANCE_RATIO = 0.30
+    REIDENTIFICATION_MIN_DISTANCE_PX = 40.0
     REIDENTIFICATION_STALE_RATIO = 0.15
     REIDENTIFICATION_STALE_AFTER_FRAMES = 45
     REIDENTIFICATION_SIZE_TOLERANCE = 0.75
@@ -407,23 +407,31 @@ class ZampenYOLOTracker:
                 bird.track_id = display_id
                 assigned_ids.add(display_id)
 
+        has_native_saddle_classes = any(
+            str(name).startswith("Saddle_Color_") for name in getattr(self, "class_map", {}).values()
+        )
         candidate_pairs = []
         for bird, raw_track_id in pending:
-            if raw_track_id is None:
-                continue  # No ByteTrack ID -> no prior position history to re-ID against
             x1, y1, x2, y2 = bird.box
             center = ((x1 + x2) / 2, (y1 + y2) / 2)
             bird_size = math.sqrt(max(1, x2 - x1) * max(1, y2 - y1))
             bird_hist = self._extract_appearance_hist(frame, bird.box) if frame is not None else None
-            # Quick HSV color check if bird is clearly visible (not occluded)
+            # Only use raw HSV saddle veto for legacy models without native Saddle_Color_* classes;
+            # on native saddle models, raw HSV flags black feathers as Blue and blocks valid Re-ID.
             bird_hsv_label = (
                 detect_saddle_color(frame, bird.box)
-                if frame is not None and id(bird) not in occluded_objs and bird.class_name != "Rooster"
+                if not has_native_saddle_classes
+                and frame is not None
+                and id(bird) not in occluded_objs
+                and bird.class_name != "Rooster"
                 else None
             )
             for display_id, (last_center, last_seen) in list(self.short_track_positions.items()):
                 gap = current_frame - last_seen
                 if display_id in assigned_ids or not 1 <= gap <= self.REIDENTIFICATION_MAX_GAP_FRAMES:
+                    continue
+                # Never match a detected Rooster to a confirmed Hen fixed ID (1..5)
+                if bird.class_name == "Rooster" and display_id in FIXED_ID_TO_HEN:
                     continue
                 # Velocity-predicted position (clamped to <= 6 frames of motion to avoid overshoot)
                 vx, vy = self.short_track_velocities.get(display_id, (0.0, 0.0))
@@ -439,8 +447,7 @@ class ZampenYOLOTracker:
                 if last_size and abs(bird_size - last_size) / max(last_size, 1.0) > self.REIDENTIFICATION_SIZE_TOLERANCE:
                     continue
 
-                # Saddle-color veto: if returning bird clearly shows a different saddle color
-                # than the candidate display_id's confirmed hen label, reject the swap!
+                # Saddle-color veto (legacy non-native models only)
                 cand_confirmed_label = getattr(self, "track_label_cache", {}).get(display_id)
                 if bird_hsv_label and cand_confirmed_label and bird_hsv_label != cand_confirmed_label:
                     continue
@@ -455,6 +462,10 @@ class ZampenYOLOTracker:
                     cost = norm_dist + 0.85 * (1.0 - hist_sim)
                 else:
                     cost = norm_dist
+
+                # Strongly prefer re-attaching a detected Rooster to fixed Rooster ID 6
+                if bird.class_name == "Rooster" and display_id == 6:
+                    cost *= 0.25
 
                 candidate_pairs.append(
                     (cost, distance, display_id, raw_track_id, bird, center)
@@ -1126,7 +1137,7 @@ class ZampenYOLOTracker:
         # Saddle_Color_* YOLO classes. On native saddle models (custom_poultry.pt),
         # raw HSV misclassifies cool bluish glare on black feathers as Hen2 (Blue).
         has_native_saddle_classes = any(
-            str(name).startswith("Saddle_Color_") for name in self.class_map.values()
+            str(name).startswith("Saddle_Color_") for name in getattr(self, "class_map", {}).values()
         )
         if not hasattr(self, "track_tag_confirmed"):
             self.track_tag_confirmed: set = set()

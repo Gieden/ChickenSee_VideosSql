@@ -68,6 +68,15 @@ class AgriByteTracker(BYTETracker):
                 track_h = self._size_by_track.get(track.track_id)
                 if not track_h:
                     continue
+                try:
+                    tx1, ty1, tx2, ty2 = track.xyxy
+                    tcx = (float(tx1) + float(tx2)) * 0.5
+                    tcy = (float(ty1) + float(ty2)) * 0.5
+                    tdiag = max(20.0, float(np.hypot(float(tx2) - float(tx1), float(ty2) - float(ty1))))
+                except Exception:
+                    tcx = tcy = None
+                    tdiag = 60.0
+
                 apex_iou = np.zeros(len(detections), dtype=np.float32)
                 size_ok = np.zeros(len(detections), dtype=bool)
                 predicted_apex = self._apex_by_track.get(track.track_id)
@@ -80,6 +89,19 @@ class AgriByteTracker(BYTETracker):
                             predicted_apex,
                             apex_box([float(dx1), float(dy1), float(dx2), float(dy2)]),
                         )
+                    # Fast-running rescue: when a bird sprints or turns quickly, box IoU
+                    # can momentarily drop near 0 even though the Kalman-predicted center
+                    # is still close. Pull cost below match_thresh (0.60) for nearby
+                    # size-consistent boxes so ByteTrack stays locked during fast movement.
+                    if tcx is not None and size_ok[di] and dists[ti, di] > 0.55:
+                        dcx = (float(dx1) + float(dx2)) * 0.5
+                        dcy = (float(dy1) + float(dy2)) * 0.5
+                        center_dist = float(np.hypot(dcx - tcx, dcy - tcy))
+                        max_sprint_dist = 1.6 * tdiag
+                        if center_dist <= max_sprint_dist:
+                            sprint_cost = 0.25 + 0.30 * (center_dist / max_sprint_dist)
+                            if sprint_cost < dists[ti, di]:
+                                dists[ti, di] = sprint_cost
                 agreed = (apex_iou >= self.apex_agree) & size_ok
                 if agreed.any():
                     penalty = np.where(agreed, 0.20, 0.0)

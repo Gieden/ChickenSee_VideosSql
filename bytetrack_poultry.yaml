@@ -18,9 +18,9 @@
 #     registered by edge/tracker.py (feet/lower-body IoU instead of torso-only IoU).
 #     Change it back to "bytetrack" to get stock association with the same thresholds.
 tracker_type: agribytetrack
-track_high_thresh: 0.45   # First association: confident, fully-visible detections
+track_high_thresh: 0.40   # First association: confident detections (tolerates slight motion blur)
 track_low_thresh: 0.15    # Keep everything the detector saw (matches CONF_THRESHOLD)
-new_track_thresh: 0.60    # Confidence required before a brand-new ID may be created
-track_buffer: 90          # ~6 s @ 15 FPS of parked identity for occlusion / walking recovery
-match_thresh: 0.60        # Max association cost (1 - fused IoU) for first-stage matching
+new_track_thresh: 0.50    # Confidence required before a brand-new ID may be created
+track_buffer: 120         # ~8-12 s of parked identity for occlusion / fast-running recovery
+match_thresh: 0.60        # Strict IoU gate for crowded birds (AgriByteTracker rescues fast sprints)
 fuse_score: true          # Fuse detection confidence into the association cost
