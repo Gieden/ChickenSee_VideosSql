@@ -1,26 +1,45 @@
 -- ============================================================================
--- ChickenSee (ZAMPEN Poultry Analytics) — Supabase / PostgreSQL Schema for ERD
--- Paste directly into Supabase SQL Editor (Schema Visualizer), dbdiagram.io,
--- DrawSQL, Lucidchart, or pgAdmin to generate the full Entity-Relationship Diagram.
+-- ChickenSee (ZAMPEN Poultry Analytics) — Complete Connected Supabase/PostgreSQL ERD
+-- All 12 tables with explicit PRIMARY KEY and FOREIGN KEY relationships
+-- (zero orphan tables). Paste into Supabase SQL Editor -> Schema Visualizer,
+-- dbdiagram.io, DrawSQL, Lucidchart, or pgAdmin.
 -- ============================================================================
 
--- 1. Live IoT Sensor Telemetry (Supabase Cloud Table: sensor_logs)
+-- 1. Staff & Admin Accounts (persisted in Supabase Storage auth/staff-accounts.json)
+CREATE TABLE IF NOT EXISTS public.staff_accounts (
+    id            TEXT PRIMARY KEY,
+    username      VARCHAR(64) NOT NULL UNIQUE,
+    display_name  VARCHAR(128) NOT NULL,
+    role          VARCHAR(16) NOT NULL DEFAULT 'staff'
+                  CHECK (role IN ('admin', 'staff')),
+    password_hash TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by    VARCHAR(64) REFERENCES public.staff_accounts(username) ON DELETE SET NULL
+);
+
+-- 2. Archive & Retention Registry (created by an admin user)
+CREATE TABLE IF NOT EXISTS public.chickensee_archive_registry (
+    archive_id          TEXT PRIMARY KEY,
+    file_name           TEXT NOT NULL,
+    scope               VARCHAR(16) NOT NULL,
+    start_date          DATE NOT NULL,
+    end_date            DATE NOT NULL,
+    archived_dates_json JSONB NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by          VARCHAR(64) NOT NULL REFERENCES public.staff_accounts(username) ON DELETE RESTRICT
+);
+
+-- 3. Live IoT Sensor Telemetry (Supabase Cloud Postgres Table: public.sensor_logs)
 CREATE TABLE IF NOT EXISTS public.sensor_logs (
     id              BIGSERIAL PRIMARY KEY,
     recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     temperature     DOUBLE PRECISION,
     humidity        DOUBLE PRECISION,
     ammonia_ppm     DOUBLE PRECISION,
-    ammonia_raw     INTEGER,
-    sound_db        DOUBLE PRECISION,
-    sound_raw       INTEGER,
-    temp_status     INTEGER,
-    hum_status      INTEGER,
-    ammonia_status  INTEGER,
-    sound_status    INTEGER
+    sound_db        DOUBLE PRECISION
 );
 
--- 2. Paired Video Recording Metadata (from paired sensors.sqlite)
+-- 4. Paired Video Recording Metadata (from paired sensors.sqlite)
 CREATE TABLE IF NOT EXISTS public.recording (
     id                BIGSERIAL PRIMARY KEY,
     video_file        TEXT NOT NULL,
@@ -34,10 +53,11 @@ CREATE TABLE IF NOT EXISTS public.recording (
     save_reason       TEXT NOT NULL DEFAULT 'recording'
 );
 
--- 3. Frame-Synced Video Sensor Readings (linked to recording)
+-- 5. Frame-Synced Video Sensor Readings (links recording <-> cloud sensor_logs)
 CREATE TABLE IF NOT EXISTS public.video_sensor_logs (
     id                BIGSERIAL PRIMARY KEY,
-    recording_id      BIGINT REFERENCES public.recording(id) ON DELETE CASCADE,
+    recording_id      BIGINT NOT NULL REFERENCES public.recording(id) ON DELETE CASCADE,
+    sensor_log_id     BIGINT REFERENCES public.sensor_logs(id) ON DELETE SET NULL,
     frame_index       INTEGER NOT NULL,
     elapsed_seconds   DOUBLE PRECISION NOT NULL,
     video_time        TEXT NOT NULL,
@@ -55,10 +75,11 @@ CREATE TABLE IF NOT EXISTS public.video_sensor_logs (
     sound_status      INTEGER
 );
 
--- 4. Video Processing Queue & Job State Manager (analytics/zampen_analytics.db)
+-- 6. Video Processing Queue & Job State Manager (analytics/zampen_analytics.db)
 CREATE TABLE IF NOT EXISTS public.processing_jobs (
     id                BIGSERIAL PRIMARY KEY,
     recording_id      BIGINT REFERENCES public.recording(id) ON DELETE SET NULL,
+    triggered_by      VARCHAR(64) REFERENCES public.staff_accounts(username) ON DELETE SET NULL,
     video_filename    VARCHAR(255) NOT NULL UNIQUE,
     video_path        VARCHAR(512) NOT NULL,
     date_slot         VARCHAR(32) NOT NULL,   -- YYYY-MM-DD
@@ -79,7 +100,7 @@ CREATE TABLE IF NOT EXISTS public.processing_jobs (
     completed_at      TIMESTAMPTZ
 );
 
--- 5. 30-Minute Chunk Flock & Environment Metrics (1-to-Many from processing_jobs)
+-- 7. 30-Minute Chunk Flock & Environment Metrics (1-to-Many from processing_jobs)
 CREATE TABLE IF NOT EXISTS public.half_hour_metrics (
     id                           BIGSERIAL PRIMARY KEY,
     job_id                       BIGINT NOT NULL REFERENCES public.processing_jobs(id) ON DELETE CASCADE,
@@ -125,7 +146,7 @@ CREATE TABLE IF NOT EXISTS public.half_hour_metrics (
     created_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 6. Per-Bird Tracked Behavior Metrics (1-to-Many from half_hour_metrics)
+-- 8. Per-Bird Tracked Behavior Metrics (1-to-Many from half_hour_metrics)
 CREATE TABLE IF NOT EXISTS public.bird_track_metrics (
     id                      BIGSERIAL PRIMARY KEY,
     chunk_metric_id         BIGINT NOT NULL REFERENCES public.half_hour_metrics(id) ON DELETE CASCADE,
@@ -144,9 +165,10 @@ CREATE TABLE IF NOT EXISTS public.bird_track_metrics (
     avg_velocity_px_s       DOUBLE PRECISION NOT NULL DEFAULT 0.0
 );
 
--- 7. Edge Hourly Flock Telemetry Rollup (agent/data/chicken_telemetry.db)
+-- 9. Edge Hourly Flock Telemetry Rollup (linked to processing_jobs)
 CREATE TABLE IF NOT EXISTS public.hourly_flock_telemetry (
     id                          BIGSERIAL PRIMARY KEY,
+    processing_job_id           BIGINT REFERENCES public.processing_jobs(id) ON DELETE SET NULL,
     date                        DATE NOT NULL,
     hour_slot                   VARCHAR(32) NOT NULL,
     start_time                  TIMESTAMPTZ NOT NULL,
@@ -179,10 +201,10 @@ CREATE TABLE IF NOT EXISTS public.hourly_flock_telemetry (
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 8. Edge Per-Bird Hourly Behavior (1-to-Many from hourly_flock_telemetry)
+-- 10. Edge Per-Bird Hourly Behavior (1-to-Many from hourly_flock_telemetry)
 CREATE TABLE IF NOT EXISTS public.bird_hourly_behavior (
     id                  BIGSERIAL PRIMARY KEY,
-    hourly_telemetry_id BIGINT REFERENCES public.hourly_flock_telemetry(id) ON DELETE CASCADE,
+    hourly_telemetry_id BIGINT NOT NULL REFERENCES public.hourly_flock_telemetry(id) ON DELETE CASCADE,
     date                DATE NOT NULL,
     hour_slot           VARCHAR(32) NOT NULL,
     track_id            INTEGER NOT NULL,
@@ -200,46 +222,39 @@ CREATE TABLE IF NOT EXISTS public.bird_hourly_behavior (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Edge Raw Environmental Sensor Logs
+-- 11. Edge Raw Environmental Sensor Logs (aggregated into hourly_flock_telemetry)
 CREATE TABLE IF NOT EXISTS public.environmental_logs_raw (
-    id                BIGSERIAL PRIMARY KEY,
-    timestamp         TIMESTAMPTZ NOT NULL,
-    temperature_c     DOUBLE PRECISION NOT NULL,
-    humidity_pct      DOUBLE PRECISION NOT NULL,
-    ammonia_ppm       DOUBLE PRECISION NOT NULL,
-    lux               DOUBLE PRECISION NOT NULL,
-    thi               DOUBLE PRECISION NOT NULL,
-    heat_stress_level VARCHAR(32) NOT NULL
+    id                  BIGSERIAL PRIMARY KEY,
+    hourly_telemetry_id BIGINT REFERENCES public.hourly_flock_telemetry(id) ON DELETE SET NULL,
+    timestamp           TIMESTAMPTZ NOT NULL,
+    temperature_c       DOUBLE PRECISION NOT NULL,
+    humidity_pct        DOUBLE PRECISION NOT NULL,
+    ammonia_ppm         DOUBLE PRECISION NOT NULL,
+    lux                 DOUBLE PRECISION NOT NULL,
+    thi                 DOUBLE PRECISION NOT NULL,
+    heat_stress_level   VARCHAR(32) NOT NULL
 );
 
--- 10. Edge Device System Health Telemetry
+-- 12. Edge Device System Health Telemetry (recorded per hourly_flock_telemetry window)
 CREATE TABLE IF NOT EXISTS public.edge_system_health (
-    id        BIGSERIAL PRIMARY KEY,
-    timestamp TIMESTAMPTZ NOT NULL,
-    hour_slot VARCHAR(32) NOT NULL,
-    cpu_pct   DOUBLE PRECISION NOT NULL,
-    ram_mb    DOUBLE PRECISION NOT NULL,
-    fps       DOUBLE PRECISION NOT NULL,
-    status    VARCHAR(32) NOT NULL
-);
-
--- 11. Archive & Retention Registry
-CREATE TABLE IF NOT EXISTS public.chickensee_archive_registry (
-    archive_id          TEXT PRIMARY KEY,
-    file_name           TEXT NOT NULL,
-    scope               VARCHAR(16) NOT NULL,
-    start_date          DATE NOT NULL,
-    end_date            DATE NOT NULL,
-    archived_dates_json JSONB NOT NULL,
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_by          TEXT NOT NULL
+    id                  BIGSERIAL PRIMARY KEY,
+    hourly_telemetry_id BIGINT REFERENCES public.hourly_flock_telemetry(id) ON DELETE SET NULL,
+    timestamp           TIMESTAMPTZ NOT NULL,
+    hour_slot           VARCHAR(32) NOT NULL,
+    cpu_pct             DOUBLE PRECISION NOT NULL,
+    ram_mb              DOUBLE PRECISION NOT NULL,
+    fps                 DOUBLE PRECISION NOT NULL,
+    status              VARCHAR(32) NOT NULL
 );
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sensor_logs_recorded_at ON public.sensor_logs (recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_video_sensor_recording ON public.video_sensor_logs (recording_id, frame_index);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_date_hour ON public.processing_jobs (date_slot, hour_slot);
 CREATE INDEX IF NOT EXISTS idx_processing_jobs_status ON public.processing_jobs (status);
 CREATE INDEX IF NOT EXISTS idx_half_hour_job_id ON public.half_hour_metrics (job_id);
 CREATE INDEX IF NOT EXISTS idx_half_hour_date_hour ON public.half_hour_metrics (date_slot, hour_slot);
 CREATE INDEX IF NOT EXISTS idx_bird_track_chunk_id ON public.bird_track_metrics (chunk_metric_id);
 CREATE INDEX IF NOT EXISTS idx_bird_track_id ON public.bird_track_metrics (track_id);
+CREATE INDEX IF NOT EXISTS idx_hourly_env_raw ON public.environmental_logs_raw (hourly_telemetry_id);
+CREATE INDEX IF NOT EXISTS idx_hourly_edge_health ON public.edge_system_health (hourly_telemetry_id);
