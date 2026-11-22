@@ -421,6 +421,17 @@ export default function ResearchDatasetsTab() {
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2">
+            {videos.length > 0 && selectedVideo !== 'all' && selectedVideo !== videos[0] && (
+              <button
+                type="button"
+                onClick={() => setSelectedVideo(videos[0])}
+                title={`Switch to latest processed video: ${videos[0]}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-orange-300 bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-800 transition hover:bg-orange-100"
+              >
+                <span className="h-2 w-2 rounded-full bg-orange-500 animate-pulse" />
+                <span className="max-w-[160px] truncate">Latest: {videos[0]}</span>
+              </button>
+            )}
             <button
               onClick={() => setLiveEnabled((prev) => !prev)}
               title={liveEnabled ? 'Real-time polling active (every 5s) — click to pause' : 'Real-time polling paused — click to resume'}

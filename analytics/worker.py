@@ -1016,9 +1016,10 @@ class ZampenAnalyticsWorker:
                 all_behavior_events.extend(getattr(s, "behavior_events", []) or [])
                 all_detection_tracking.extend(getattr(s, "detection_tracking", []) or [])
                 all_bird_records.extend(getattr(s, "bird_records", []) or [])
-            frame_log_path = frame_logs_dir / f"{filename}.json"
+            log_video_name = str(getattr(job, "video_filename", "") or filename)
+            frame_log_path = frame_logs_dir / f"{log_video_name}.json"
             frame_log_payload = {
-                "video": filename,
+                "video": log_video_name,
                 "fps": round(float(fps), 2),
                 "total_frames": int(total_frames),
                 "start_time": start_dt.isoformat(),
@@ -1047,7 +1048,7 @@ class ZampenAnalyticsWorker:
                 if sync_url and sync_secret:
                     import urllib.request as _urlreq
                     import urllib.parse as _urlparse
-                    sync_name = f"frame_log_{filename}.json"
+                    sync_name = f"frame_log_{log_video_name}.json"
                     sign_req = _urlreq.Request(
                         sync_url,
                         data=b"",
@@ -1059,7 +1060,7 @@ class ZampenAnalyticsWorker:
                             "x-action": "get-upload-url",
                         },
                     )
-                    with _urlreq.urlopen(sign_req, timeout=15) as _sresp:
+                    with _urlreq.urlopen(sign_req, timeout=20) as _sresp:
                         up_info = json.loads(_sresp.read().decode("utf-8"))
                     up_url = up_info.get("uploadUrl")
                     if up_url:
@@ -1075,7 +1076,7 @@ class ZampenAnalyticsWorker:
                                 "x-upsert": "true",
                             },
                         )
-                        with _urlreq.urlopen(put_req, timeout=20) as _uresp:
+                        with _urlreq.urlopen(put_req, timeout=60) as _uresp:
                             print(f"[CLOUD SYNC] Uploaded {up_info.get('storagePath')} ({_uresp.status})")
             except Exception as up_err:
                 print(f"[CLOUD SYNC WARN] Could not upload frame log via /api/sync: {up_err}")
