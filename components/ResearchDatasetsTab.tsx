@@ -70,11 +70,13 @@ const SHEETS: SheetMeta[] = [
 
 export default function ResearchDatasetsTab() {
   const [activeSheet, setActiveSheet] = useState<ExcelSheetName>('behavior_events');
-  const [selectedVideo, setSelectedVideo] = useState<string>('rec_2026-11-13_07-00-00_060564__video');
+  const [selectedVideo, setSelectedVideo] = useState<string>('all');
   const [idFormat, setIdFormat] = useState<ChickenIdDisplayFormat>('short');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [liveEnabled, setLiveEnabled] = useState<boolean>(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string>('');
 
   // Data states for the 4 sheets
   const [videos, setVideos] = useState<string[]>([]);
@@ -93,11 +95,11 @@ export default function ResearchDatasetsTab() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const fetchDataset = useCallback(async () => {
+  const fetchDataset = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError(null);
-      const url = `/api/research-datasets?video=${encodeURIComponent(selectedVideo)}&sheet=all`;
+      const url = `/api/research-datasets?video=${encodeURIComponent(selectedVideo)}&sheet=all&_t=${Date.now()}`;
       const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load research datasets');
@@ -113,20 +115,36 @@ export default function ResearchDatasetsTab() {
       setDetectionTracking(data.detection_tracking || []);
       setObservationWindows(data.observation_windows || []);
       setEnvironmentReadings(data.environment_readings || []);
+      setLastUpdatedAt(
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      );
 
       if (data.videos?.length > 0 && selectedVideo === 'all') {
-        setSelectedVideo(data.videos[0]);
+        setSelectedVideo(data.defaultVideo || data.videos[0]);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error fetching research datasets.');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Error fetching research datasets.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedVideo]);
 
   useEffect(() => {
-    fetchDataset();
+    fetchDataset(false);
   }, [fetchDataset]);
+
+  // Real-time background polling every 5 seconds while tab is visible
+  useEffect(() => {
+    if (!liveEnabled) return;
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchDataset(true);
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [liveEnabled, fetchDataset]);
 
   // Reset page when switching sheet, video, or searching
   useEffect(() => {
@@ -404,7 +422,33 @@ export default function ResearchDatasetsTab() {
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={fetchDataset}
+              onClick={() => setLiveEnabled((prev) => !prev)}
+              title={liveEnabled ? 'Real-time polling active (every 5s) — click to pause' : 'Real-time polling paused — click to resume'}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                liveEnabled
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                  : 'border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span className="relative flex h-2 w-2">
+                {liveEnabled && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex h-2 w-2 rounded-full ${
+                    liveEnabled ? 'bg-emerald-500' : 'bg-slate-400'
+                  }`}
+                />
+              </span>
+              <span>{liveEnabled ? 'Live · 5s' : 'Paused'}</span>
+              {lastUpdatedAt && (
+                <span className="hidden text-[10px] font-normal opacity-75 sm:inline">
+                  ({lastUpdatedAt})
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => fetchDataset(false)}
               disabled={loading}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
             >

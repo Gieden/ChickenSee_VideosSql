@@ -188,7 +188,7 @@ export async function GET(req: NextRequest) {
           SELECT id, video_filename, date_slot, hour_slot, start_time, end_time, total_frames
           FROM processing_jobs
           WHERE status = 'COMPLETED'
-          ORDER BY id DESC
+          ORDER BY completed_at DESC, id DESC
           LIMIT 50
         `);
 
@@ -546,28 +546,38 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Keep the newest completed videos first (preserving SQLite ORDER BY id DESC),
-  // with the static Raw Research Dataset pinned right after or at the top.
+  // Keep the newest completed live videos first (ORDER BY completed_at DESC, id DESC),
+  // with the static Raw Research Dataset placed after live analyzed videos.
   const allVideos = Array.from(videosList);
   const excelIdx = allVideos.indexOf(excelVideoName);
-  if (excelIdx > 0) {
+  if (excelIdx !== -1 && allVideos.length > 1) {
     allVideos.splice(excelIdx, 1);
-    allVideos.unshift(excelVideoName);
+    allVideos.push(excelVideoName);
   }
+  const defaultVideo = allVideos[0] || excelVideoName;
 
-  return NextResponse.json({
-    success: true,
-    videos: allVideos,
-    defaultVideo: excelVideoName,
-    sheetCounts: {
-      behavior_events: behaviorEvents.length,
-      detection_tracking: detectionTracking.length,
-      observation_windows: observationWindows.length,
-      environment_readings: environmentReadings.length,
+  return NextResponse.json(
+    {
+      success: true,
+      serverTime: new Date().toISOString(),
+      videos: allVideos,
+      defaultVideo,
+      sheetCounts: {
+        behavior_events: behaviorEvents.length,
+        detection_tracking: detectionTracking.length,
+        observation_windows: observationWindows.length,
+        environment_readings: environmentReadings.length,
+      },
+      observation_windows: targetSheet === 'all' || targetSheet === 'observation_windows' ? observationWindows : [],
+      behavior_events: targetSheet === 'all' || targetSheet === 'behavior_events' ? behaviorEvents : [],
+      detection_tracking: targetSheet === 'all' || targetSheet === 'detection_tracking' ? detectionTracking : [],
+      environment_readings: targetSheet === 'all' || targetSheet === 'environment_readings' ? environmentReadings : [],
     },
-    observation_windows: targetSheet === 'all' || targetSheet === 'observation_windows' ? observationWindows : [],
-    behavior_events: targetSheet === 'all' || targetSheet === 'behavior_events' ? behaviorEvents : [],
-    detection_tracking: targetSheet === 'all' || targetSheet === 'detection_tracking' ? detectionTracking : [],
-    environment_readings: targetSheet === 'all' || targetSheet === 'environment_readings' ? environmentReadings : [],
-  });
+    {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+      },
+    },
+  );
 }
