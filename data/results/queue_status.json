@@ -11,7 +11,7 @@
     "waiting": 0,
     "completed": 460,
     "failed": 4,
-    "cancelled": 17
+    "cancelled": 0
   },
   "items": [
     {
@@ -23,16 +23,6 @@
       "details": null,
       "created_at": "2026-11-22T15:24:19.199321",
       "completed_at": "2026-11-22T16:34:03.751332"
-    },
-    {
-      "item_id": "job-481",
-      "video_filename": "rec_2026-11-21_12-00-01_702288_video.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.7,
-      "frames": "399 / 54002",
-      "details": "Cancelled by user.",
-      "created_at": "2026-11-22T15:22:54.487997",
-      "completed_at": null
     },
     {
       "item_id": "job-480",
@@ -93,26 +83,6 @@
       "details": null,
       "created_at": "2026-11-22T01:27:27.080851",
       "completed_at": "2026-11-22T01:42:57.598345"
-    },
-    {
-      "item_id": "job-474",
-      "video_filename": "ttttt.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "1 / 3843",
-      "details": "Cancelled by user.",
-      "created_at": "2026-11-22T01:24:12.757405",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-473",
-      "video_filename": "ttt.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 63.9,
-      "frames": "6099 / 9548",
-      "details": "Cancelled by user.",
-      "created_at": "2026-11-22T01:14:23.188902",
-      "completed_at": null
     },
     {
       "item_id": "job-472",
@@ -305,16 +275,6 @@
       "completed_at": "2026-11-16T23:46:21.930096"
     },
     {
-      "item_id": "job-454",
-      "video_filename": "maonani.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 8.9,
-      "frames": "1299 / 14530",
-      "details": "Cancelled by user.",
-      "created_at": "2026-11-16T23:38:19.426113",
-      "completed_at": null
-    },
-    {
       "item_id": "job-453",
       "video_filename": "yy.mp4",
       "status": "COMPLETED",
@@ -323,16 +283,6 @@
       "details": null,
       "created_at": "2026-11-16T23:38:02.564586",
       "completed_at": "2026-11-16T23:38:13.323223"
-    },
-    {
-      "item_id": "job-452",
-      "video_filename": "t.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 10.3,
-      "frames": "1499 / 14530",
-      "details": "Cancelled by user.",
-      "created_at": "2026-11-16T23:05:04.444392",
-      "completed_at": null
     },
     {
       "item_id": "job-451",
@@ -725,56 +675,6 @@
       "completed_at": "2026-10-27T14:00:25.263241"
     },
     {
-      "item_id": "job-411",
-      "video_filename": "chickensee-test-20261027-214811-459237.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "0 / 2200",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T13:48:11.949701",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-409",
-      "video_filename": "recording1.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "0 / 2200",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T13:46:46.863820",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-408",
-      "video_filename": "video_64fca9ff9fa1.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "0 / 861",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T13:44:42.906501",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-407",
-      "video_filename": "chickensee-test-20261026-201005-964183.mp4",
-      "status": "CANCELLED",
-      "progress_percent": null,
-      "frames": "\u2014",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T13:41:47.328248",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-406",
-      "video_filename": "video_cc8d76ba3bae.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 24.8,
-      "frames": "13399 / 54002",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T05:35:17.071724",
-      "completed_at": null
-    },
-    {
       "item_id": "job-405",
       "video_filename": "jhon.mp4",
       "status": "COMPLETED",
@@ -853,36 +753,6 @@
       "details": null,
       "created_at": "2026-10-27T03:10:00.652440",
       "completed_at": "2026-10-27T03:16:25.402488"
-    },
-    {
-      "item_id": "job-397",
-      "video_filename": "tubol4.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 1.1,
-      "frames": "50 / 4501",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T03:03:51.611353",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-396",
-      "video_filename": "tubol3.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 13.3,
-      "frames": "600 / 4500",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T03:03:12.649735",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-395",
-      "video_filename": "video_99455b0774f7.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 62.2,
-      "frames": "2800 / 4500",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-27T02:59:56.170828",
-      "completed_at": null
     },
     {
       "item_id": "job-394",
@@ -4575,36 +4445,6 @@
       "completed_at": "2026-10-20T03:11:00.211153"
     },
     {
-      "item_id": "job-25",
-      "video_filename": "recording_557cb97eee7b.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "0 / 2200",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-20T03:06:26.853184",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-24",
-      "video_filename": "recording.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 0.0,
-      "frames": "0 / 2200",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-20T03:06:20.240296",
-      "completed_at": null
-    },
-    {
-      "item_id": "job-23",
-      "video_filename": "rec_2026 - 10-20_10-00-00_000000.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 19.8,
-      "frames": "4300 / 21720",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-20T02:59:22.142957",
-      "completed_at": null
-    },
-    {
       "item_id": "job-22",
       "video_filename": "chickensee-test-20261020-003305-839188.mp4",
       "status": "COMPLETED",
@@ -4753,16 +4593,6 @@
       "details": null,
       "created_at": "2026-10-15T13:39:31.040924",
       "completed_at": "2026-10-15T13:39:37.451620"
-    },
-    {
-      "item_id": "job-7",
-      "video_filename": "20260914_110756_tp00013.mp4",
-      "status": "CANCELLED",
-      "progress_percent": 13.4,
-      "frames": "2400 / 17880",
-      "details": "Cancelled by user.",
-      "created_at": "2026-10-15T13:14:07.794574",
-      "completed_at": null
     },
     {
       "item_id": "job-6",

@@ -787,8 +787,8 @@ interface DetectionQueueListProps {
   fetchQueueStatus: () => void;
   queueDateFilter: string;
   setQueueDateFilter: (val: string) => void;
-  queueStatusFilter: 'All' | 'Completed' | 'Failed' | 'Cancelled';
-  setQueueStatusFilter: (val: 'All' | 'Completed' | 'Failed' | 'Cancelled') => void;
+  queueStatusFilter: 'All' | 'Completed' | 'Failed';
+  setQueueStatusFilter: (val: 'All' | 'Completed' | 'Failed') => void;
   collapsedDateGroups: Record<string, boolean>;
   setCollapsedDateGroups: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }
@@ -821,6 +821,7 @@ function DetectionQueueList({
 
     for (const item of items) {
       const statusUpper = (item.status || '').toUpperCase();
+      if (statusUpper === 'CANCELLED') continue;
       if (ACTIVE_SET.has(statusUpper)) {
         active.push(item);
       } else {
@@ -966,7 +967,7 @@ function DetectionQueueList({
           {/* Status Pills */}
           <div className="flex flex-wrap items-center gap-1.5 sm:ml-2">
             <span className="font-semibold text-slate-700 mr-1">Status:</span>
-            {(['All', 'Completed', 'Failed', 'Cancelled'] as const).map((st) => {
+            {(['All', 'Completed', 'Failed'] as const).map((st) => {
               const isActive = queueStatusFilter === st;
               return (
                 <button
@@ -1444,7 +1445,7 @@ export default function DashboardPage() {
 
   // ── Queue Segregation & Filter State ──
   const [queueDateFilter, setQueueDateFilter] = useState<string>('All dates');
-  const [queueStatusFilter, setQueueStatusFilter] = useState<'All' | 'Completed' | 'Failed' | 'Cancelled'>('All');
+  const [queueStatusFilter, setQueueStatusFilter] = useState<'All' | 'Completed' | 'Failed'>('All');
   const [collapsedDateGroups, setCollapsedDateGroups] = useState<Record<string, boolean>>({});
 
   const [videos, setVideos] = useState<SyncedFileMeta[]>([]);

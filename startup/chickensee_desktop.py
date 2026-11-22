@@ -1426,7 +1426,7 @@ class ChickenSeeDesktop:
 
         self._queue_status_var = tk.StringVar(value="All")
         self._status_pills: Dict[str, tk.Label] = {}
-        for pill_label in ("All", "Completed", "Failed", "Cancelled"):
+        for pill_label in ("All", "Completed", "Failed"):
             is_active = (pill_label == "All")
             pill_lbl = tk.Label(
                 filter_bar,
@@ -2791,8 +2791,8 @@ class ChickenSeeDesktop:
         for item_id in self.queue_tree.get_children():
             self.queue_tree.delete(item_id)
 
-        items = queue_data.get("items", [])
-        HISTORY_STATUSES = {"COMPLETED", "FAILED", "CANCELLED"}
+        items = [i for i in queue_data.get("items", []) if str(i.get("status", "")).upper() != "CANCELLED"]
+        HISTORY_STATUSES = {"COMPLETED", "FAILED"}
         active_items = [i for i in items if i.get("status", "") not in HISTORY_STATUSES]
         history_items = [i for i in items if i.get("status", "") in HISTORY_STATUSES]
 
