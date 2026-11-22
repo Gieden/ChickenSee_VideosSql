@@ -491,10 +491,10 @@ class BehaviorAnalysisEngine:
                 "is_prolonged_low_activity": flag_reduced_locomotor,
                 "inactivity_s": round(s.total_inactivity_s, 1),
                 "is_lethargic": flag_reduced_locomotor,
-                # Legacy compatibility aliases
+                # Legacy DB column carries pure social_isolation_events (no legacy pecking fallback)
                 "reduced_eating_flag": flag_reduced_feeding,
-                "pecking_aggressor_count": s.social_isolation_events if s.social_isolation_events > 0 else s.pecking_aggressor_count,
-                "pecking_victim_count": s.pecking_victim_count,
+                "pecking_aggressor_count": s.social_isolation_events,
+                "pecking_victim_count": 0,
                 "avg_velocity_px_s": round(s.velocity_px_s, 2),
             })
 

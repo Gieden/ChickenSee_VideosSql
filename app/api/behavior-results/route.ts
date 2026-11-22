@@ -73,7 +73,9 @@ function formatFullTimeLabel(dateStr: string, timeSlot: string): string {
   const normalized = normalizeIsoDate(dateStr) ?? dateStr;
   const dateLbl = formatShortDay(normalized);
   const year = normalized.slice(0, 4);
-  if (timeSlot === '06:00') {
+  if (timeSlot === '00:00') {
+    return `${dateLbl} ${year} · 12:00 AM – 06:00 AM`;
+  } else if (timeSlot === '06:00') {
     return `${dateLbl} ${year} · 06:00 AM – 12:00 PM`;
   } else if (timeSlot === '12:00') {
     return `${dateLbl} ${year} · 12:00 PM – 06:00 PM`;
@@ -88,17 +90,15 @@ async function loadAnalyticsDbData() {
   const candidateDbPaths = [
     path.join(os.tmpdir(), 'zampen_analytics.db'),
     path.join(process.cwd(), 'analytics', 'zampen_analytics.db'),
-  ];
-  let dbPath: string | null = null;
-  for (const p of candidateDbPaths) {
-    if (fs.existsSync(p)) {
-      dbPath = p;
-      break;
-    }
-  }
-  if (!dbPath) {
+  ].filter((p) => fs.existsSync(p));
+
+  if (candidateDbPaths.length === 0) {
     throw new Error('The behavior analytics database is not available.');
   }
+
+  // Pick the most recently updated database file so a stale /tmp copy never masks fresh analytics
+  candidateDbPaths.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  const dbPath = candidateDbPaths[0];
 
   const SQL = await initSqlJs();
   const buf = fs.readFileSync(dbPath);
@@ -119,7 +119,7 @@ async function loadAnalyticsDbData() {
              sum(case when drinking_bouts = 0 and drinking_s < 1.0 then 1 else 0 end) as low_drink,
              sum(is_lethargic) as leth,
              sum(case when inactivity_s > 60.0 then 1 else 0 end) as inact,
-             sum(pecking_aggressor_count + pecking_victim_count) as pecking
+             sum(pecking_aggressor_count) as isolation_events
       FROM bird_track_metrics
       GROUP BY chunk_metric_id, bird_label
     `);
@@ -128,7 +128,7 @@ async function loadAnalyticsDbData() {
     const birds = birdsRes?.[0]?.values || [];
     const birdsByChunk = new Map<number, Record<string, BirdBehaviorCounts>>();
     for (const row of birds) {
-      const [chunkId, label, redEat, lowFeed, lowDrink, leth, inact, pecking] = row as [
+      const [chunkId, label, redEat, lowFeed, lowDrink, leth, inact, isoEvents] = row as [
         number, string, number, number, number, number, number, number
       ];
       const birdId = BIRD_LABEL_TO_ID[label];
@@ -138,7 +138,7 @@ async function loadAnalyticsDbData() {
       const feedCount = Math.max(Number(redEat) || 0, Number(lowFeed) || 0);
       const drinkCount = Number(lowDrink) || 0;
       const locomotorCount = Math.max(Number(leth) || 0, Number(inact) || 0);
-      const isolationCount = Number(pecking) || 0;
+      const isolationCount = Number(isoEvents) || 0;
 
       birdsByChunk.get(chunkId)![birdId] = {
         reducedFeeding: feedCount,
@@ -238,9 +238,9 @@ export async function GET(req: NextRequest) {
         ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown];
         const date = normalizeIsoDate(rawDate);
         const hour = Number.parseInt(hourSlot, 10);
-        if (!date || !Number.isInteger(hour) || hour < 6 || hour >= 24) continue;
+        if (!date || !Number.isInteger(hour) || hour < 0 || hour >= 24) continue;
 
-        const startHour = hour < 12 ? 6 : hour < 18 ? 12 : 18;
+        const startHour = hour < 6 ? 0 : hour < 12 ? 6 : hour < 18 ? 12 : 18;
         const slot = `${String(startHour).padStart(2, '0')}:00`;
         const key = `${date}_${slot}`;
         if (!grouped.has(key)) {
