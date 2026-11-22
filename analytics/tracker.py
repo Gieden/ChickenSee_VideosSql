@@ -913,9 +913,12 @@ class ZampenYOLOTracker:
         # This keeps identity memory attached to the stable displayed ID when
         # ByteTrack recreates a raw track after a brief occlusion.
         self._assign_display_ids(birds, frame.shape, frame=frame)
-        occluded_bird_objs = self._find_occluded_bird_ids(birds, iou_thresh=0.12)
+        # Only compute hen-to-hen occlusion for saddle protection (Roosters never wear saddles,
+        # so overlapping a Rooster must not block confirming a hen's live saddle).
+        non_rooster_birds = [b for b in birds if b.class_name != "Rooster"]
+        occluded_bird_objs = self._find_occluded_bird_ids(non_rooster_birds, iou_thresh=0.12)
         occluded_track_ids = {
-            b.track_id for b in birds if b.track_id is not None and id(b) in occluded_bird_objs
+            b.track_id for b in non_rooster_birds if b.track_id is not None and id(b) in occluded_bird_objs
         }
         for bird in birds:
             if bird.track_id is None:
@@ -1028,16 +1031,21 @@ class ZampenYOLOTracker:
             active_tids = {b.track_id for b in birds if b.track_id is not None}
             incumbent_is_active = (incumbent_tid is not None and incumbent_tid in active_tids)
             last_yolo_saddle_frame = getattr(self, "hen_last_yolo_saddle_frame", {}).get(hen_label, -9999)
-            incumbent_has_no_recent_yolo_saddle = (current_frame - last_yolo_saddle_frame) >= 10
+            # High-confidence live YOLO saddle (>=0.55) on another bird recovers a crossing swap
+            # within 2 frames; moderate-confidence detections wait 8 frames without incumbent saddle.
+            reclaim_gap = 2 if sconf >= 0.55 else 8
+            incumbent_has_no_recent_yolo_saddle = (current_frame - last_yolo_saddle_frame) >= reclaim_gap
 
             # Rule: When the system detects a higher confidence of that saddle,
             # then the detection (bytetrack) must remain with the incumbent hen — UNLESS
-            # the incumbent has had NO live YOLO saddle on it for >=10 frames (e.g., an
+            # the incumbent has had NO live YOLO saddle on it for >=8 frames (e.g., an
             # unsaddled chicken that falsely grabbed the label) while win_tid has a real
             # live YOLO saddle detection right on its back!
+            # Note: allow reclaiming even when win_tid touches incumbent_tid (crossing pair)
+            # because the ambiguity gate already verified the saddle center belongs to win_tid.
             reclaimed_from_unsaddled = False
             if incumbent_tid is not None and incumbent_tid != win_tid:
-                if incumbent_is_active and incumbent_has_no_recent_yolo_saddle and sconf >= 0.30 and win_tid not in occluded_track_ids:
+                if incumbent_is_active and incumbent_has_no_recent_yolo_saddle and sconf >= 0.25:
                     reclaimed_from_unsaddled = True
                 elif incumbent_is_active and sconf <= incumbent_conf:
                     # Incumbent hen had higher confidence — detection MUST remain with incumbent!
@@ -1054,6 +1062,7 @@ class ZampenYOLOTracker:
                 self.track_tag_confirmed.discard(incumbent_tid)
                 self.track_last_label.pop(incumbent_tid, None)
                 self.track_saddle_conf.pop(incumbent_tid, None)
+                self.label_owner.pop(hen_label, None)
                 for b_old in birds:
                     if b_old.track_id == incumbent_tid:
                         b_old.bird_label = "Chicken"
@@ -1093,11 +1102,11 @@ class ZampenYOLOTracker:
             votes = self.track_label_votes.get(win_tid, [])
             if win_tid in self.track_label_cache:
                 self.track_tag_confirmed.add(win_tid)
-            elif not is_bird_occluded and self.processed_frame_count > 2 and sconf >= 0.35:
+            elif (reclaimed_from_unsaddled or not is_bird_occluded) and self.processed_frame_count > 2 and sconf >= 0.30:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
                 self.track_label_votes[win_tid] = deque([hen_label] * 10, maxlen=15)
-            elif not is_bird_occluded and sconf >= 0.15 and len(votes) >= 3 and votes.count(hen_label) >= 3:
+            elif not is_bird_occluded and sconf >= 0.12 and len(votes) >= 3 and votes.count(hen_label) >= 3:
                 self.track_label_cache[win_tid] = hen_label
                 self.track_tag_confirmed.add(win_tid)
 
@@ -1113,7 +1122,12 @@ class ZampenYOLOTracker:
                 if getattr(best_bird, "raw_track_id", None) is not None:
                     self.short_id_map[best_bird.raw_track_id] = fixed_id
 
-        # Fallback saddle check for unconfirmed chickens
+        # Fallback HSV saddle check — ONLY for legacy models that do NOT have native
+        # Saddle_Color_* YOLO classes. On native saddle models (custom_poultry.pt),
+        # raw HSV misclassifies cool bluish glare on black feathers as Hen2 (Blue).
+        has_native_saddle_classes = any(
+            str(name).startswith("Saddle_Color_") for name in self.class_map.values()
+        )
         if not hasattr(self, "track_tag_confirmed"):
             self.track_tag_confirmed: set = set()
         active_hen_owners = {
@@ -1122,7 +1136,7 @@ class ZampenYOLOTracker:
             if lbl in self.hen_track_owners and self.hen_track_owners[lbl] in {b.track_id for b in birds}
         }
         birds_with_yolo_saddle = set(assigned_birds)
-        for bird in birds:
+        for bird in ([] if has_native_saddle_classes else birds):
             if bird.track_id is None or bird.class_name == "Rooster":
                 continue
             if bird.track_id in self.track_label_cache:
