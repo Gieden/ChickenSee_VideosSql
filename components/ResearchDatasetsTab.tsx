@@ -158,11 +158,14 @@ export default function ResearchDatasetsTab() {
     [idFormat],
   );
 
-  // Filtered rows for current sheet
+  // Filtered rows for current sheet (hide social_isolation from display while threshold is being calibrated, without deleting underlying logs)
   const filteredBehaviorEvents = useMemo(() => {
+    const visibleEvents = behaviorEvents.filter(
+      (r) => r.behavior.toLowerCase() !== 'social_isolation',
+    );
     const q = searchQuery.toLowerCase().trim();
-    if (!q) return behaviorEvents;
-    return behaviorEvents.filter(
+    if (!q) return visibleEvents;
+    return visibleEvents.filter(
       (r) =>
         r.video.toLowerCase().includes(q) ||
         r.chicken_id.toLowerCase().includes(q) ||

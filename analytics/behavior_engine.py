@@ -226,13 +226,62 @@ class BehaviorAnalysisEngine:
         return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
     @staticmethod
-    def _box_distance(box1: List[int], box2: List[int]) -> float:
-        """Minimum edge-to-edge distance between two bounding boxes (0 if intersecting)."""
-        x1_min, y1_min, x1_max, y1_max = box1
-        x2_min, y2_min, x2_max, y2_max = box2
-        dx = max(0, max(x1_min, x2_min) - min(x1_max, x2_max))
-        dy = max(0, max(y1_min, y2_min) - min(y1_max, y2_max))
+    def _point_to_box_distance(pt: Tuple[float, float], box: List[int]) -> float:
+        """Minimum Euclidean distance from a point (cx, cy) to a bounding box (0 if inside)."""
+        px, py = pt
+        x1, y1, x2, y2 = box
+        dx = max(0.0, max(x1 - px, px - x2))
+        dy = max(0.0, max(y1 - py, py - y2))
         return math.hypot(dx, dy)
+
+    @classmethod
+    def _is_reaching_circular_station(
+        cls,
+        bird_box: List[int],
+        bird_centroid: Tuple[int, int],
+        station_box: List[int],
+        station_centroid: Tuple[int, int],
+        reach_margin_px: float,
+    ) -> Tuple[bool, float]:
+        """
+        Checks if a bird is genuinely reaching a circular Feeder/Drinker rim rather than:
+          - grazing an empty corner of the equipment's square bounding box (tail tip), or
+          - walking/standing parallel alongside the feeder facing perpendicular to it.
+        Returns (is_reaching, dist_to_rim_px).
+        """
+        sx1, sy1, sx2, sy2 = station_box
+        sw = max(1.0, float(sx2 - sx1))
+        sh = max(1.0, float(sy2 - sy1))
+        station_radius = 0.44 * min(sw, sh)
+
+        # Closest distance from the circular station's center to the bird's box
+        dist_to_center = cls._point_to_box_distance(station_centroid, bird_box)
+        rim_gap = max(0.0, dist_to_center - station_radius)
+        if rim_gap > reach_margin_px:
+            return False, rim_gap
+
+        # Bird's centroid must be within realistic neck-reach of the circular rim
+        bx1, by1, bx2, by2 = bird_box
+        bw = max(1.0, float(bx2 - bx1))
+        bh = max(1.0, float(by2 - by1))
+        bird_len = max(bw, bh)
+        centroid_dist = math.hypot(
+            bird_centroid[0] - station_centroid[0],
+            bird_centroid[1] - station_centroid[1],
+        )
+        if centroid_dist > station_radius + 0.58 * bird_len:
+            return False, rim_gap
+
+        # Perpendicular-passing veto: a bird walking vertically alongside the left/right
+        # edge of the feeder (or horizontally past the top/bottom) is passing by, not eating.
+        dx = abs(bird_centroid[0] - station_centroid[0])
+        dy = abs(bird_centroid[1] - station_centroid[1])
+        if dx > 1.35 * dy and bh > 1.30 * bw:
+            return False, rim_gap
+        if dy > 1.35 * dx and bw > 1.30 * bh:
+            return False, rim_gap
+
+        return True, rim_gap
 
     def process_frame(self, frame_out: TrackerFrameOutput, dt: float):
         """
@@ -291,23 +340,37 @@ class BehaviorAnalysisEngine:
             state.instant_velocity_px_s = velocity
 
             # ---------------------------------------------------------
-            # 1 & 2. Feeding & Drinking Zone Check (Mutually Exclusive + Motion/Posture Gated)
-            # - Requires close box contact (<= 10px)
-            # - Excludes birds walking past or actively leaving the feeder/drinker
-            # - Excludes birds resting completely motionless (>= 6s) behind the feeder
+            # 1 & 2. Feeding & Drinking Zone Check (Circular Rim + Orientation + Motion Gated)
+            # - Checks actual circular feeder/drinker rim (ignores empty square corners)
+            # - Rejects birds walking parallel past the feeder or moving away
+            # - Mutually exclusive: assigns only to whichever station is closer
             # ---------------------------------------------------------
             best_feeder = min(
                 frame_out.feeders,
-                key=lambda f: self._box_distance(bird.box, f.box),
+                key=lambda f: self._point_to_box_distance(f.centroid, bird.box),
                 default=None,
             )
             best_drinker = min(
                 frame_out.drinkers,
-                key=lambda d: self._box_distance(bird.box, d.box),
+                key=lambda d: self._point_to_box_distance(d.centroid, bird.box),
                 default=None,
             )
-            feeder_dist = self._box_distance(bird.box, best_feeder.box) if best_feeder else float("inf")
-            drinker_dist = self._box_distance(bird.box, best_drinker.box) if best_drinker else float("inf")
+            feeder_ok, feeder_dist = (
+                self._is_reaching_circular_station(
+                    bird.box, bird.centroid, best_feeder.box, best_feeder.centroid,
+                    self.cfg.feeder_zone_proximity_px,
+                )
+                if best_feeder
+                else (False, float("inf"))
+            )
+            drinker_ok, drinker_dist = (
+                self._is_reaching_circular_station(
+                    bird.box, bird.centroid, best_drinker.box, best_drinker.centroid,
+                    self.cfg.waterer_zone_proximity_px,
+                )
+                if best_drinker
+                else (False, float("inf"))
+            )
 
             feeder_center_dist = (
                 self._calc_euclidean(bird.centroid, best_feeder.centroid) if best_feeder else None
@@ -333,12 +396,12 @@ class BehaviorAnalysisEngine:
             station_speed_ok = (velocity <= 35.0 and avg_vel <= 22.0)
 
             near_feeder = (
-                feeder_dist <= self.cfg.feeder_zone_proximity_px
+                feeder_ok
                 and station_speed_ok
                 and not (moving_away_feeder and feeder_dist > 0.0)
             )
             near_drinker = (
-                drinker_dist <= self.cfg.waterer_zone_proximity_px
+                drinker_ok
                 and station_speed_ok
                 and not (moving_away_drinker and drinker_dist > 0.0)
             )
@@ -531,12 +594,12 @@ class BehaviorAnalysisEngine:
             )
 
             # Update live behavior label for video overlay (replaces confidence badge)
+            # Note: social_isolation is still tracked internally in BirdTrackState & logs,
+            # but hidden from the live overlay while thresholds are being calibrated.
             if is_actively_feeding:
                 st.current_behavior = "Feeding"
             elif st.is_in_waterer_zone:
                 st.current_behavior = "Drinking"
-            elif tid in isolated_tids:
-                st.current_behavior = "Isolated"
             elif is_inactive_now:
                 st.current_behavior = "Inactive"
             else:
