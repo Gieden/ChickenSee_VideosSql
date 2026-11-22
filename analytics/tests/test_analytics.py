@@ -1242,7 +1242,7 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertFalse(self.engine.bird_states[3].is_in_feeder_zone)
         self.assertNotEqual(self.engine.bird_states[3].current_behavior, "Feeding")
 
-        # Case 4: Another bird's Head overlaps Drinker rim -> Drinking
+        # Case 4: Another bird's Head genuinely enters Drinker rim -> Drinking
         bird_drinking = TrackedDetection(
             track_id=4, class_id=0, class_name="Chicken", confidence=0.84,
             box=[535, 220, 625, 280], centroid=(580, 250), bird_label="ID4_H4 White",
@@ -1254,6 +1254,32 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         )
         self.assertTrue(self.engine.bird_states[4].is_in_waterer_zone)
         self.assertEqual(self.engine.bird_states[4].current_behavior, "Drinking")
+
+        # Case 5: Bird standing right outside Drinker (head barely touching outside edge, not entering) -> NOT Drinking
+        bird_outside_head = TrackedDetection(
+            track_id=8, class_id=0, class_name="Chicken", confidence=0.80,
+            box=[390, 220, 449, 280], centroid=(419, 250), bird_label="ID8_Chicken",
+            head_box=[430, 240, 451, 260], head_conf=0.35,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=5, timestamp_s=0.5, birds=[bird_outside_head], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertFalse(self.engine.bird_states[8].is_in_waterer_zone)
+        self.assertNotEqual(self.engine.bird_states[8].current_behavior, "Drinking")
+
+        # Case 6: Bird standing outside Drinker with head_box=None (no box overlap) -> NOT Drinking
+        bird_outside_no_head = TrackedDetection(
+            track_id=8, class_id=0, class_name="Chicken", confidence=0.80,
+            box=[388, 220, 448, 280], centroid=(418, 250), bird_label="ID8_Chicken",
+            head_box=None, head_conf=0.0,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=6, timestamp_s=0.6, birds=[bird_outside_no_head], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertFalse(self.engine.bird_states[8].is_in_waterer_zone)
+        self.assertNotEqual(self.engine.bird_states[8].current_behavior, "Drinking")
 
 
 if __name__ == "__main__":

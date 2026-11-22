@@ -236,24 +236,36 @@ class BehaviorAnalysisEngine:
         dy = max(0.0, max(y1 - py, py - y2))
         return math.hypot(dx, dy)
 
+    @staticmethod
+    def _boxes_strictly_overlap(box_a: List[int], box_b: List[int], min_overlap_px: int = 2) -> bool:
+        """Returns True only when box_a genuinely enters box_b by at least min_overlap_px in both X and Y."""
+        ov_x = min(box_a[2], box_b[2]) - max(box_a[0], box_b[0])
+        ov_y = min(box_a[3], box_b[3]) - max(box_a[1], box_b[1])
+        return ov_x >= min_overlap_px and ov_y >= min_overlap_px
+
     @classmethod
     def _head_overlaps_circular_station(
         cls,
         head_box: List[int],
         station_box: List[int],
         station_centroid: Tuple[int, int],
-        margin_px: float = 6.0,
+        margin_px: float = 0.0,
+        min_overlap_px: int = 3,
     ) -> Tuple[bool, float]:
         """
-        Direct head/beak-to-station overlap check against the circular rim of a
-        Feeder or Drinker. Returns (is_overlapping, rim_gap_px).
+        Strict head/beak-to-station entry check: the Head bounding box must genuinely
+        enter the Feeder/Drinker bounding box (by at least min_overlap_px in X and Y)
+        AND reach its circular rim (margin_px=0.0, no exterior halo).
+        Returns (is_overlapping, rim_gap_px).
         """
         sx1, sy1, sx2, sy2 = station_box
         sw = max(1.0, float(sx2 - sx1))
         sh = max(1.0, float(sy2 - sy1))
-        station_radius = 0.48 * min(sw, sh)
+        station_radius = 0.50 * min(sw, sh)
         dist_to_center = cls._point_to_box_distance(station_centroid, head_box)
         rim_gap = max(0.0, dist_to_center - station_radius)
+        if not cls._boxes_strictly_overlap(head_box, station_box, min_overlap_px=min_overlap_px):
+            return False, max(rim_gap, 1.0)
         return (rim_gap <= margin_px), rim_gap
 
     @classmethod
@@ -267,6 +279,7 @@ class BehaviorAnalysisEngine:
     ) -> Tuple[bool, float]:
         """
         Checks if a bird is genuinely reaching a circular Feeder/Drinker rim rather than:
+          - standing outside the station bounding box (no box overlap),
           - grazing an empty corner of the equipment's square bounding box (tail tip), or
           - walking/standing parallel alongside the feeder facing perpendicular to it.
         Returns (is_reaching, dist_to_rim_px).
@@ -279,7 +292,10 @@ class BehaviorAnalysisEngine:
         # Closest distance from the circular station's center to the bird's box
         dist_to_center = cls._point_to_box_distance(station_centroid, bird_box)
         rim_gap = max(0.0, dist_to_center - station_radius)
-        if rim_gap > reach_margin_px:
+        # Require actual entry into the station bounding box (no exterior proximity halo)
+        if not cls._boxes_strictly_overlap(bird_box, station_box, min_overlap_px=3):
+            return False, max(rim_gap, 1.0)
+        if rim_gap > min(reach_margin_px, 2.0):
             return False, rim_gap
 
         # Bird's centroid must be within realistic neck-reach of the circular rim
@@ -387,22 +403,22 @@ class BehaviorAnalysisEngine:
                 )
                 feeder_ok, feeder_dist = (
                     self._head_overlaps_circular_station(
-                        head_box, best_feeder.box, best_feeder.centroid, margin_px=6.0
+                        head_box, best_feeder.box, best_feeder.centroid, margin_px=0.0, min_overlap_px=3
                     )
                     if best_feeder
                     else (False, float("inf"))
                 )
                 drinker_ok, drinker_dist = (
                     self._head_overlaps_circular_station(
-                        head_box, best_drinker.box, best_drinker.centroid, margin_px=6.0
+                        head_box, best_drinker.box, best_drinker.centroid, margin_px=0.0, min_overlap_px=3
                     )
                     if best_drinker
                     else (False, float("inf"))
                 )
                 if feeder_ok:
-                    state.head_feeder_grace_s = 0.6
+                    state.head_feeder_grace_s = 0.25
                 if drinker_ok:
-                    state.head_drinker_grace_s = 0.6
+                    state.head_drinker_grace_s = 0.25
             else:
                 best_feeder = min(
                     frame_out.feeders,
@@ -417,7 +433,7 @@ class BehaviorAnalysisEngine:
                 feeder_ok, feeder_dist = (
                     self._is_reaching_circular_station(
                         bird.box, bird.centroid, best_feeder.box, best_feeder.centroid,
-                        self.cfg.feeder_zone_proximity_px,
+                        0.0,
                     )
                     if best_feeder
                     else (False, float("inf"))
@@ -425,22 +441,32 @@ class BehaviorAnalysisEngine:
                 drinker_ok, drinker_dist = (
                     self._is_reaching_circular_station(
                         bird.box, bird.centroid, best_drinker.box, best_drinker.centroid,
-                        self.cfg.waterer_zone_proximity_px,
+                        0.0,
                     )
                     if best_drinker
                     else (False, float("inf"))
                 )
                 bx1, by1, bx2, by2 = bird.box
                 bird_len = max(1.0, float(max(bx2 - bx1, by2 - by1)))
-                if not feeder_ok and state.head_feeder_grace_s > 0.0 and best_feeder is not None:
+                if (
+                    not feeder_ok
+                    and state.head_feeder_grace_s > 0.0
+                    and best_feeder is not None
+                    and self._boxes_strictly_overlap(bird.box, best_feeder.box, min_overlap_px=3)
+                ):
                     fsx1, fsy1, fsx2, fsy2 = best_feeder.box
                     f_rad = 0.48 * min(max(1.0, float(fsx2 - fsx1)), max(1.0, float(fsy2 - fsy1)))
-                    if self._calc_euclidean(bird.centroid, best_feeder.centroid) <= f_rad + 0.65 * bird_len:
+                    if self._calc_euclidean(bird.centroid, best_feeder.centroid) <= f_rad + 0.58 * bird_len:
                         feeder_ok, feeder_dist = True, 0.0
-                if not drinker_ok and state.head_drinker_grace_s > 0.0 and best_drinker is not None:
+                if (
+                    not drinker_ok
+                    and state.head_drinker_grace_s > 0.0
+                    and best_drinker is not None
+                    and self._boxes_strictly_overlap(bird.box, best_drinker.box, min_overlap_px=3)
+                ):
                     dsx1, dsy1, dsx2, dsy2 = best_drinker.box
                     d_rad = 0.48 * min(max(1.0, float(dsx2 - dsx1)), max(1.0, float(dsy2 - dsy1)))
-                    if self._calc_euclidean(bird.centroid, best_drinker.centroid) <= d_rad + 0.65 * bird_len:
+                    if self._calc_euclidean(bird.centroid, best_drinker.centroid) <= d_rad + 0.58 * bird_len:
                         drinker_ok, drinker_dist = True, 0.0
 
             feeder_center_dist = (
