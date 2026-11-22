@@ -8,7 +8,7 @@ import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
 import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
-import { listSyncedDatabases } from '@/lib/supabase-storage';
+import { downloadStorageFile, listStorageFiles, listSyncedDatabases } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -267,6 +267,7 @@ export async function GET(req: NextRequest) {
       intervals = cached;
     } else {
       const analyticsData = await loadAnalyticsDbData();
+      const dbVideoNames = new Set<string>();
       const grouped = new Map<string, {
         date: string;
         slot: string;
@@ -289,7 +290,10 @@ export async function GET(req: NextRequest) {
           ammoniaAvg,
           thiAvg,
           sensorDataAvailable,
-        ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown];
+          ,
+          rawVideoFilename,
+        ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown, unknown, unknown];
+        if (rawVideoFilename) dbVideoNames.add(String(rawVideoFilename));
         const date = normalizeIsoDate(rawDate);
         const hour = Number.parseInt(hourSlot, 10);
         if (!date || !Number.isInteger(hour) || hour < 0 || hour >= 24) continue;
@@ -337,6 +341,119 @@ export async function GET(req: NextRequest) {
           current.socialIsolation += counts.socialIsolation ?? counts.featherPecking;
           current.reducedLocomotor += counts.reducedLocomotor ?? counts.prolongedInactivity;
         }
+      }
+
+      // Real-time cloud & local frame-log merge: distribute newly uploaded/processed videos
+      // across Behavior Results immediately (even before any git deploy updates zampen_analytics.db)
+      const liveLogs = new Map<string, { localPath?: string; cloudKey?: string; uploadedAt?: string }>();
+      const localFlDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
+      if (fs.existsSync(localFlDir)) {
+        try {
+          for (const fname of fs.readdirSync(localFlDir)) {
+            if (!fname.endsWith('.json')) continue;
+            const vid = fname.replace(/^frame_log_/, '').replace(/\.json$/i, '');
+            if (vid) liveLogs.set(vid, { localPath: path.join(localFlDir, fname) });
+          }
+        } catch {}
+      }
+      try {
+        const cloudFiles = await listStorageFiles('results');
+        for (const cf of cloudFiles) {
+          const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+          if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
+          const vid = base.slice('frame_log_'.length, -'.json'.length);
+          if (!vid) continue;
+          const prev = liveLogs.get(vid);
+          liveLogs.set(vid, {
+            localPath: prev?.localPath,
+            cloudKey: cf.storagePath || `results/${base}`,
+            uploadedAt: cf.uploadedAt,
+          });
+        }
+      } catch {}
+
+      for (const [vid, meta] of Array.from(liveLogs.entries())) {
+        if (dbVideoNames.has(vid)) continue;
+        let rawText: string | null = null;
+        if (meta.localPath && fs.existsSync(meta.localPath)) {
+          try { rawText = fs.readFileSync(meta.localPath, 'utf-8'); } catch {}
+        }
+        if (!rawText && meta.cloudKey) {
+          try { rawText = await (await downloadStorageFile(meta.cloudKey)).text(); } catch {}
+        }
+        if (!rawText) continue;
+        try {
+          const fl = JSON.parse(rawText);
+          const parsedRec = parseRecFolderDateTime(String(fl.video || vid));
+          const rawStart = String(fl.start_time || meta.uploadedAt || '');
+          const isoDate = parsedRec?.date || normalizeIsoDate(rawStart.slice(0, 10));
+          if (!isoDate) continue;
+          let hour = parsedRec?.hour ?? 8;
+          if (!parsedRec && rawStart.length >= 13) {
+            const hParsed = Number.parseInt(rawStart.slice(11, 13), 10);
+            if (Number.isInteger(hParsed) && hParsed >= 0 && hParsed < 24) hour = hParsed;
+          }
+          const startHour = hour < 6 ? 0 : hour < 12 ? 6 : hour < 18 ? 12 : 18;
+          const slot = `${String(startHour).padStart(2, '0')}:00`;
+          const key = `${isoDate}_${slot}`;
+          if (!grouped.has(key)) {
+            grouped.set(key, {
+              date: isoDate,
+              slot,
+              startHour,
+              endHour: startHour + 6,
+              tempValues: [],
+              humidityValues: [],
+              ammoniaValues: [],
+              thiValues: [],
+              behaviorsByBird: {},
+            });
+          }
+          const interval = grouped.get(key)!;
+          if (Array.isArray(fl.bird_records) && fl.bird_records.length > 0) {
+            for (const br of fl.bird_records) {
+              const birdId = BIRD_LABEL_TO_ID[String(br.bird_label || '')] || 'chicken_orange';
+              const cur = interval.behaviorsByBird[birdId] ??= {
+                reducedFeeding: 0,
+                reducedDrinking: 0,
+                prolongedInactivity: 0,
+                featherPecking: 0,
+                socialIsolation: 0,
+                reducedLocomotor: 0,
+              };
+              const feedFlag = Number(br.reduced_feeding_flag) || Number(br.reduced_eating_flag) || 0;
+              const drinkFlag = Number(br.reduced_drinking_flag) || 0;
+              const locoFlag = Number(br.is_reduced_locomotor) || Number(br.is_lethargic) || 0;
+              const isoEvents = Number(br.social_isolation_events) || 0;
+              cur.reducedFeeding += feedFlag;
+              cur.reducedDrinking += drinkFlag;
+              cur.prolongedInactivity += locoFlag;
+              cur.reducedLocomotor += locoFlag;
+              cur.featherPecking += isoEvents;
+              cur.socialIsolation += isoEvents;
+            }
+          } else if (Array.isArray(fl.behavior_events)) {
+            for (const ev of fl.behavior_events) {
+              const birdId = BIRD_LABEL_TO_ID[String(ev.bird_label || '')] || 'chicken_orange';
+              const cur = interval.behaviorsByBird[birdId] ??= {
+                reducedFeeding: 0,
+                reducedDrinking: 0,
+                prolongedInactivity: 0,
+                featherPecking: 0,
+                socialIsolation: 0,
+                reducedLocomotor: 0,
+              };
+              const beh = String(ev.behavior || '').toLowerCase();
+              if (beh === 'inactive') {
+                cur.prolongedInactivity += 1;
+                cur.reducedLocomotor += 1;
+              } else if (beh === 'social_isolation') {
+                cur.socialIsolation += 1;
+                cur.featherPecking += 1;
+              }
+            }
+          }
+        } catch {}
       }
 
       const builtIntervals: IntervalTelemetry[] = [];

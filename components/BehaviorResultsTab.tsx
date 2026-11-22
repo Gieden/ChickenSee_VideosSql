@@ -536,10 +536,12 @@ export default function BehaviorResultsTab() {
 
   useEffect(() => {
     let active = true;
-    async function loadTelemetry() {
+    async function loadTelemetry(silent = false) {
       try {
-        setIsLoading(true);
-        setLoadError(null);
+        if (!silent) {
+          setIsLoading(true);
+          setLoadError(null);
+        }
         const url = `/api/behavior-results?refresh=true&t=${Date.now()}`;
         const res = await fetch(url, { cache: 'no-store' });
         const data = await res.json();
@@ -556,19 +558,26 @@ export default function BehaviorResultsTab() {
         setIsRealData(true);
       } catch (err) {
         console.error('Failed to load behavior results from database:', err);
-        if (active) {
+        if (active && !silent) {
           setIntervals([]);
           setAvailableDates([]);
           setIsRealData(false);
           setLoadError(err instanceof Error ? err.message : 'Failed to load behavior results.');
         }
       } finally {
-        if (active) setIsLoading(false);
+        if (active && !silent) setIsLoading(false);
       }
     }
-    loadTelemetry();
+    loadTelemetry(false);
+    // Real-time background polling every 10 seconds while tab is visible
+    const pollTimer = window.setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        loadTelemetry(true);
+      }
+    }, 10000);
     return () => {
       active = false;
+      window.clearInterval(pollTimer);
     };
   }, [refreshKey]);
 
@@ -851,19 +860,8 @@ export default function BehaviorResultsTab() {
     );
   }, [chartSeriesIntervals, safeChartSlideIndex, effectiveWindowSize]);
 
-  // Profile cards reflecting totals matching user specification
+  // Profile cards reflecting live recorded totals from real telemetry intervals
   const dynamicProfiles = useMemo(() => {
-    // Reference totals matching image specification
-    const fixedTotals: Record<string, number> = {
-      hen1_yellow: 604,
-      hen2_blue: 8348,
-      hen3_red: 2318,
-      hen4_white: 349,
-      hen5_yellowgreen: 9999,
-      rooster: 23659,
-      chicken_orange: 97827,
-    };
-
     return CHICKEN_PROFILES.map((p) => {
       let redFeed = 0;
       let redDrink = 0;
@@ -880,11 +878,7 @@ export default function BehaviorResultsTab() {
       });
 
       const intervalSum = redFeed + redDrink + inact + isolation;
-      // Default to reference total if showing all intervals / default view
-      const displayTotal =
-        filteredIntervals.length >= 9 && fixedTotals[p.id] !== undefined
-          ? fixedTotals[p.id]
-          : intervalSum;
+      const displayTotal = intervalSum;
 
       // Distribute bar proportions
       const pFeed = intervalSum > 0 ? (redFeed / intervalSum) * 100 : 25;
