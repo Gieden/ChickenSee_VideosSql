@@ -36,13 +36,14 @@ export const ORDERED_BIRDS: BirdDef[] = [
 export function mapBirdToDef(labelRaw?: string, trackIdRaw?: number): BirdDef {
   const lbl = (labelRaw || '').toUpperCase();
   if (lbl.includes('ROOSTER') || lbl.includes('R1') || lbl.includes('CH06')) return BIRD_DEFINITIONS.R1;
+  // Check YELLOWGREEN / HEN5 BEFORE YELLOW / HEN1 because "YELLOWGREEN" contains "YELLOW"!
+  if (lbl.includes('HEN5') || lbl.includes('H5') || lbl.includes('CH05') || lbl.includes('YELLOWGREEN') || lbl.includes('YELLOW-GREEN')) {
+    return BIRD_DEFINITIONS.H5;
+  }
   if (lbl.includes('HEN1') || lbl.includes('H1') || lbl.includes('CH01') || lbl.includes('YELLOW')) return BIRD_DEFINITIONS.H1;
   if (lbl.includes('HEN2') || lbl.includes('H2') || lbl.includes('CH02') || lbl.includes('BLUE')) return BIRD_DEFINITIONS.H2;
   if (lbl.includes('HEN3') || lbl.includes('H3') || lbl.includes('CH03') || lbl.includes('RED')) return BIRD_DEFINITIONS.H3;
   if (lbl.includes('HEN4') || lbl.includes('H4') || lbl.includes('CH04') || lbl.includes('WHITE')) return BIRD_DEFINITIONS.H4;
-  if (lbl.includes('HEN5') || lbl.includes('H5') || lbl.includes('CH05') || lbl.includes('YELLOWGREEN') || lbl.includes('YELLOW-GREEN')) {
-    return BIRD_DEFINITIONS.H5;
-  }
   const tid = Number(trackIdRaw);
   if (tid === 1) return BIRD_DEFINITIONS.H1;
   if (tid === 2) return BIRD_DEFINITIONS.H2;
