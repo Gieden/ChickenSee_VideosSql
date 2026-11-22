@@ -4,6 +4,7 @@ import path from 'path';
 import initSqlJs from 'sql.js';
 import { AUTH_COOKIE_NAME, getSession } from '@/lib/auth';
 import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
+import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
 import {
   ORDERED_BIRDS,
   mapBirdToDef,
@@ -32,6 +33,9 @@ export async function GET(req: NextRequest) {
   const targetVideo = searchParams.get('video') || 'all';
   const targetSheet = searchParams.get('sheet') || 'all';
 
+  await syncManifestFromCloud();
+  const archivedSet = getArchivedDatesSet();
+
   const observationWindows: ObservationWindowRow[] = [];
   const behaviorEvents: BehaviorEventRow[] = [];
   const detectionTracking: DetectionTrackingRow[] = [];
@@ -42,7 +46,7 @@ export async function GET(req: NextRequest) {
   const rawDataPath = path.join(process.cwd(), 'data', 'research_raw_data.json');
   const excelVideoName = 'rec_2026-11-13_07-00-00_060564__video';
 
-  if (fs.existsSync(rawDataPath)) {
+  if (fs.existsSync(rawDataPath) && !archivedSet.has('2026-11-13')) {
     try {
       const rawPayload = JSON.parse(fs.readFileSync(rawDataPath, 'utf-8'));
       videosList.add(excelVideoName);
@@ -220,11 +224,18 @@ export async function GET(req: NextRequest) {
     console.warn('Could not list cloud frame logs from Supabase Storage:', err);
   }
 
-  // Add live frame-log videos newest-first so newly processed videos immediately appear at index 0
+  // Add live frame-log videos newest-first (excluding any video whose date is archived)
   const sortedLiveEntries = Array.from(liveFrameLogVideos.entries()).sort(
     (a, b) => b[1].updatedMs - a[1].updatedMs,
   );
-  for (const [vidName] of sortedLiveEntries) {
+  for (const [vidName, meta] of sortedLiveEntries) {
+    const recMatch = vidName.match(/(\d{4}-\d{2}-\d{2})/);
+    const approxDate = recMatch
+      ? recMatch[1]
+      : meta.updatedMs > 0
+        ? new Date(meta.updatedMs).toISOString().slice(0, 10)
+        : '';
+    if (approxDate && archivedSet.has(approxDate)) continue;
     videosList.add(vidName);
   }
 
@@ -260,6 +271,12 @@ export async function GET(req: NextRequest) {
         const fl = JSON.parse(rawText);
         const startStr = formatSqlTimestamp(fl.start_time || '');
         const endStr = formatSqlTimestamp(fl.end_time || '');
+        const recMatch = vidName.match(/(\d{4}-\d{2}-\d{2})/);
+        const flDate = recMatch ? recMatch[1] : startStr.slice(0, 10);
+        if (flDate && archivedSet.has(flDate)) {
+          videosList.delete(vidName);
+          continue;
+        }
         const baseStartMs = new Date(startStr.replace(' ', 'T')).getTime();
         const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
         const flFps = Number(fl.fps) || 20;
@@ -382,15 +399,17 @@ export async function GET(req: NextRequest) {
           LIMIT 50
         `);
 
-        const jobs = (jobsRes?.[0]?.values || []).map((row) => ({
-          id: Number(row[0]),
-          video: String(row[1] || `video_${row[0]}.mp4`),
-          dateSlot: String(row[2] || '2026-11-17'),
-          hourSlot: String(row[3] || '08:00'),
-          startTime: String(row[4] || '2026-11-17 08:31:49'),
-          endTime: String(row[5] || '2026-11-17 08:35:01'),
-          totalFrames: Number(row[6]) || 3843,
-        }));
+        const jobs = (jobsRes?.[0]?.values || [])
+          .map((row) => ({
+            id: Number(row[0]),
+            video: String(row[1] || `video_${row[0]}.mp4`),
+            dateSlot: String(row[2] || '2026-11-17'),
+            hourSlot: String(row[3] || '08:00'),
+            startTime: String(row[4] || '2026-11-17 08:31:49'),
+            endTime: String(row[5] || '2026-11-17 08:35:01'),
+            totalFrames: Number(row[6]) || 3843,
+          }))
+          .filter((job) => !archivedSet.has(job.dateSlot.slice(0, 10)));
 
         for (const job of jobs) {
           videosList.add(job.video);

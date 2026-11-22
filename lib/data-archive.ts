@@ -242,27 +242,7 @@ async function writeArchiveManifestAsync(manifest: ArchiveManifest): Promise<voi
  */
 export function getArchivedDatesSet(): Set<string> {
   const manifest = readArchiveManifest();
-  const archives = manifest.archives && typeof manifest.archives === 'object' ? manifest.archives : {};
-  const hasRestoredAll = Object.values(archives).some(
-    (a) => a && typeof a === 'object' && (a.scope === 'all' || /all_data/i.test(a.fileName || ''))
-  );
-  if (hasRestoredAll) {
-    return new Set<string>();
-  }
-  const restoredDates = new Set<string>();
-  for (const a of Object.values(archives)) {
-    if (a && typeof a === 'object' && a.status === 'restored') {
-      if (Array.isArray(a.dates)) {
-        for (const d of a.dates) restoredDates.add(String(d).slice(0, 10));
-      }
-      if (a.startDate && a.endDate && a.startDate <= a.endDate) {
-        for (const d of enumerateDates(a.startDate, a.endDate)) {
-          restoredDates.add(d);
-        }
-      }
-    }
-  }
-  return new Set((manifest.archivedDates || []).filter((d) => !restoredDates.has(d)));
+  return new Set(manifest.archivedDates || []);
 }
 
 /**
