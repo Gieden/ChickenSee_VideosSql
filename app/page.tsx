@@ -42,6 +42,7 @@ import {
   FolderOpen,
   Settings,
   FileSpreadsheet,
+  Bell,
 } from 'lucide-react';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
@@ -1177,6 +1178,20 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<DashboardTab>('sensors');
   const [sensorInitialMode, setSensorInitialMode] = useState<'live' | 'recorded'>('live');
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readNotificationIds, setReadNotificationIds] = useState<Record<string, boolean>>({});
+  const notificationsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (notificationsRef.current && !notificationsRef.current.contains(e.target as Node)) {
+        setNotificationsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [notificationsOpen]);
 
   // ── Signed-in user (role drives which tabs are available) ──
   const [sessionUser, setSessionUser] = useState<{ username: string; name: string; role: 'admin' | 'staff' } | null>(null);
@@ -1238,6 +1253,49 @@ export default function DashboardPage() {
   }, [sessionUser, activeTab, handleTabChange]);
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
+
+  // Build real-time system notifications from queue status & recent completed videos
+  const systemNotifications = useMemo(() => {
+    const items: Array<{ id: string; title: string; detail: string; tone: 'info' | 'success' | 'warn'; tab: DashboardTab }> = [];
+    if (queueError) {
+      items.push({
+        id: `queue_err_${queueError}`,
+        title: 'Desktop sync delayed',
+        detail: queueError,
+        tone: 'warn',
+        tab: 'queue',
+      });
+    }
+    if (queueStatus?.is_queueing && queueStatus.active_video) {
+      items.push({
+        id: `active_${queueStatus.active_video}`,
+        title: `Processing ${queueStatus.active_video}`,
+        detail: `Live progress: ${queueStatus.active_progress ?? 0}%`,
+        tone: 'info',
+        tab: 'queue',
+      });
+    }
+    const recentCompleted = (queueStatus?.items || [])
+      .filter((it) => it.status === 'COMPLETED')
+      .slice(0, 4);
+    for (const item of recentCompleted) {
+      items.push({
+        id: `done_${item.item_id}_${item.completed_at || ''}`,
+        title: `Completed: ${item.video_filename}`,
+        detail: item.completed_at
+          ? `Finished ${new Date(item.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — ready in Research Logs & Behavior Results`
+          : 'Ready in Research Logs & Behavior Results',
+        tone: 'success',
+        tab: 'datasets',
+      });
+    }
+    return items;
+  }, [queueError, queueStatus]);
+
+  const unreadNotificationsCount = useMemo(
+    () => systemNotifications.filter((n) => !readNotificationIds[n.id]).length,
+    [systemNotifications, readNotificationIds],
+  );
   const [loadingQueue, setLoadingQueue] = useState(false);
   const queueRequestInFlight = useRef(false);
 
@@ -2534,7 +2592,97 @@ export default function DashboardPage() {
               <p className="text-xs text-slate-400 hidden sm:block">Supabase Storage &amp; SQLite Bridge</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
+            {/* Notification Bell Dropdown */}
+            <div ref={notificationsRef} className="relative">
+              <button
+                type="button"
+                aria-label="Notifications"
+                title="Notifications"
+                onClick={() => setNotificationsOpen((prev) => !prev)}
+                className={`relative flex min-h-10 min-w-10 items-center justify-center rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                  notificationsOpen
+                    ? 'border-orange-300 bg-orange-50 text-orange-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-orange-300 hover:bg-orange-50/60 hover:text-orange-700'
+                }`}
+              >
+                <Bell className="h-4 w-4" />
+                {unreadNotificationsCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-600 px-1 text-[9px] font-bold text-white shadow-xs">
+                    {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3.5 py-2.5">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                      <Bell className="h-3.5 w-3.5 text-orange-600" />
+                      <span>Notifications</span>
+                      {unreadNotificationsCount > 0 && (
+                        <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                          {unreadNotificationsCount} new
+                        </span>
+                      )}
+                    </div>
+                    {unreadNotificationsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next: Record<string, boolean> = { ...readNotificationIds };
+                          systemNotifications.forEach((n) => { next[n.id] = true; });
+                          setReadNotificationIds(next);
+                        }}
+                        className="text-[11px] font-semibold text-orange-600 hover:text-orange-700"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+                    {systemNotifications.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-xs text-slate-400">
+                        No new notifications right now.
+                      </div>
+                    ) : (
+                      systemNotifications.map((notif) => {
+                        const isUnread = !readNotificationIds[notif.id];
+                        return (
+                          <button
+                            key={notif.id}
+                            type="button"
+                            onClick={() => {
+                              setReadNotificationIds((prev) => ({ ...prev, [notif.id]: true }));
+                              handleTabChange(notif.tab);
+                              setNotificationsOpen(false);
+                            }}
+                            className={`flex w-full items-start gap-2.5 px-3.5 py-2.5 text-left transition hover:bg-slate-50 ${
+                              isUnread ? 'bg-orange-50/40' : 'bg-white'
+                            }`}
+                          >
+                            <span
+                              className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
+                                notif.tone === 'warn'
+                                  ? 'bg-rose-500'
+                                  : notif.tone === 'success'
+                                    ? 'bg-emerald-500'
+                                    : 'bg-orange-500 animate-pulse'
+                              }`}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-semibold text-slate-800">{notif.title}</p>
+                              <p className="mt-0.5 text-[11px] text-slate-500">{notif.detail}</p>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {sessionUser && (
               <div
                 title={`Signed in as ${sessionUser.username}`}
@@ -2551,6 +2699,24 @@ export default function DashboardPage() {
                 </span>
               </div>
             )}
+
+            {isAdminUser && (
+              <button
+                type="button"
+                onClick={() => handleTabChange('settings')}
+                aria-label="Admin Settings"
+                title="Settings"
+                className={`flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                  activeTab === 'settings'
+                    ? 'border-orange-400 bg-orange-100 text-orange-800 shadow-xs'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700'
+                }`}
+              >
+                <Settings className="h-4 w-4" />
+                <span className="hidden md:inline">Settings</span>
+              </button>
+            )}
+
             <button aria-label="Refresh current page" onClick={refreshAll} disabled={isRefreshing} className="flex min-h-10 min-w-10 items-center justify-center gap-1.5 rounded-lg border border-slate-700/80 bg-slate-800/60 px-2 sm:px-3 sm:py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 hover:text-white">
               <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">Refresh</span>
@@ -2605,18 +2771,11 @@ export default function DashboardPage() {
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">4 Sheets</span>
             </button>
             {isAdminUser && (
-              <>
-                <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-                  <Users className="h-4 w-4" />
-                  <span>Staff Accounts</span>
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
-                </button>
-                <button onClick={() => handleTabChange('settings')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'settings' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-                  <Settings className="h-4 w-4" />
-                  <span>Settings</span>
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
-                </button>
-              </>
+              <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+                <Users className="h-4 w-4" />
+                <span>Staff Accounts</span>
+                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-bold text-orange-700">Admin</span>
+              </button>
             )}
           </nav>
         </div>
