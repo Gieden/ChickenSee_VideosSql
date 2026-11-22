@@ -645,6 +645,19 @@ class ZampenYOLOTracker:
         class_history[cls_id] = (observations + 1, confidence_sum + confidence)
         self.track_class_last_seen[track_id] = self.processed_frame_count
 
+        # Track consecutive high-confidence live detections per track so a Rooster↔Hen
+        # ByteTrack crossing swap breaks out of stale 200-frame class history within 3 frames.
+        if not hasattr(self, "_class_streak"):
+            self._class_streak: Dict[int, Tuple[int, int]] = {}
+        prev_streak_cls, prev_streak_len = self._class_streak.get(track_id, (-1, 0))
+        if cls_id == prev_streak_cls and confidence >= 0.65:
+            streak_len = prev_streak_len + 1
+        elif confidence >= 0.65:
+            streak_len = 1
+        else:
+            streak_len = 0
+        self._class_streak[track_id] = (cls_id, streak_len)
+
         candidate_cls_id = max(
             class_history,
             key=lambda candidate_id: (
@@ -653,15 +666,30 @@ class ZampenYOLOTracker:
             ),
         )
         resolved_cls_id = self.track_resolved_classes.get(track_id, candidate_cls_id)
-        if candidate_cls_id != resolved_cls_id:
+        rooster_cls_id = next(
+            (k for k, v in self.class_map.items() if v == "Rooster"), 8
+        )
+        # Fast swap-recovery: 3 consecutive confident live Rooster detections override stale Chicken history
+        # (and 5 consecutive confident live Chicken detections override stale Rooster history).
+        if cls_id == rooster_cls_id and resolved_cls_id != rooster_cls_id and streak_len >= 3:
+            resolved_cls_id = rooster_cls_id
+            class_history.clear()
+            class_history[rooster_cls_id] = (streak_len, confidence * streak_len)
+            # Clear any stale Hen saddle label that this Rooster track inherited during a crossing swap
+            stale_hen = self.track_label_cache.pop(track_id, None)
+            self.track_label_votes.pop(track_id, None)
+            self.track_tag_confirmed.discard(track_id)
+            self.track_last_label.pop(track_id, None)
+            if stale_hen and self.hen_track_owners.get(stale_hen) == track_id:
+                self.hen_track_owners.pop(stale_hen, None)
+                self.hen_owner_conf.pop(stale_hen, None)
+        elif cls_id != rooster_cls_id and resolved_cls_id == rooster_cls_id and streak_len >= 5:
+            resolved_cls_id = cls_id
+            class_history.clear()
+            class_history[cls_id] = (streak_len, confidence * streak_len)
+        elif candidate_cls_id != resolved_cls_id:
             resolved_count = class_history.get(resolved_cls_id, (0, 0.0))[0]
             candidate_count = class_history[candidate_cls_id][0]
-            # Extra protection: a track confirmed as Rooster (class 8) can only
-            # switch away if the challenger has CLASS_SWITCH_MARGIN * 2 more
-            # observations, guarding against occasional Roosterâ†’Chicken flips.
-            rooster_cls_id = next(
-                (k for k, v in self.class_map.items() if v == "Rooster"), 8
-            )
             margin = (
                 self.CLASS_SWITCH_MARGIN * 2
                 if resolved_cls_id == rooster_cls_id
@@ -932,6 +960,8 @@ class ZampenYOLOTracker:
             b.track_id for b in non_rooster_birds if b.track_id is not None and id(b) in occluded_bird_objs
         }
         for bird in birds:
+            bird.raw_class_name = bird.class_name
+            bird.raw_confidence = bird.confidence
             if bird.track_id is None:
                 continue
             resolved_cls_id, resolved_name, resolved_confidence = self._resolve_track_class(
@@ -961,8 +991,13 @@ class ZampenYOLOTracker:
             for bird in birds:
                 if bird.track_id is None:
                     continue
-                if bird.class_name == "Rooster":
-                    continue  # Rooster cannot wear a hen saddle
+                # Skip a bird only if live YOLO actively classifies it as a high-confidence Rooster.
+                # If a Hen got swapped onto ID6 (stale Rooster history) while wearing a real saddle,
+                # allow the saddle to match so lines below reclaim it back to Chicken/Hen!
+                raw_cls = getattr(bird, "raw_class_name", bird.class_name)
+                raw_conf = getattr(bird, "raw_confidence", bird.confidence)
+                if bird.class_name == "Rooster" and raw_cls == "Rooster" and raw_conf >= 0.60:
+                    continue
                 x1, y1, x2, y2 = bird.box
                 bw = max(1.0, float(x2 - x1))
                 bh = max(1.0, float(y2 - y1))
@@ -1371,7 +1406,11 @@ class ZampenYOLOTracker:
             )
             winner_rooster = max(
                 rooster_candidates,
-                key=lambda b: (float(b.confidence), 1 if b.track_id == 6 else 0),
+                key=lambda b: (
+                    1 if getattr(b, "raw_class_name", b.class_name) == "Rooster" else 0,
+                    float(getattr(b, "raw_confidence", b.confidence)),
+                    1 if b.track_id == 6 else 0,
+                ),
             )
             for bird in rooster_candidates:
                 if bird is winner_rooster:
