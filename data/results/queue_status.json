@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-22T14:32:14.540031Z",
+  "updated_at": "2026-11-22T16:42:40.098769Z",
   "is_queueing": false,
   "active_video": null,
   "active_progress": null,
@@ -9,11 +9,41 @@
     "processing": 0,
     "queued": 0,
     "waiting": 0,
-    "completed": 458,
+    "completed": 460,
     "failed": 4,
-    "cancelled": 16
+    "cancelled": 17
   },
   "items": [
+    {
+      "item_id": "job-482",
+      "video_filename": "rec_2026-11-21_07-00-00_036768_video.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "54001 / 54001",
+      "details": null,
+      "created_at": "2026-11-22T15:24:19.199321",
+      "completed_at": "2026-11-22T16:34:03.751332"
+    },
+    {
+      "item_id": "job-481",
+      "video_filename": "rec_2026-11-21_12-00-01_702288_video.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.7,
+      "frames": "399 / 54002",
+      "details": "Cancelled by user.",
+      "created_at": "2026-11-22T15:22:54.487997",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-480",
+      "video_filename": "pls.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-22T14:58:43.563231",
+      "completed_at": "2026-11-22T15:17:12.987127"
+    },
     {
       "item_id": "job-444",
       "video_filename": "testing.mp4",
@@ -22,7 +52,7 @@
       "frames": "3843 / 3843",
       "details": null,
       "created_at": "2026-11-10T14:00:22.195956",
-      "completed_at": "2026-11-22T14:11:06.069602"
+      "completed_at": "2026-11-22T14:49:32.353898"
     },
     {
       "item_id": "job-479",
