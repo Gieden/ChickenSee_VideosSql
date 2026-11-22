@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     } else {
       const staff = await authenticateStaff(username, password);
       if (staff) {
-        user = { username: staff.username, name: staff.display_name, role: 'staff' };
+        user = { username: staff.username, name: staff.display_name, role: staff.role };
       }
     }
 
