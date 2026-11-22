@@ -45,8 +45,8 @@ export default function SensorLiveMonitoringTab({
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [realtimePacketsReceived, setRealtimePacketsReceived] = useState<number>(0);
 
-  // Settings & Filter states
-  const [autoRefreshSec, setAutoRefreshSec] = useState<number>(3);
+  // Settings & Filter states (fixed 5s sync interval)
+  const autoRefreshSec = 5;
   const [fetchLimit, setFetchLimit] = useState<number>(50);
   const [statusFilter, setStatusFilter] = useState<'all' | 'normal' | 'alert'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -443,24 +443,6 @@ export default function SensorLiveMonitoringTab({
 
           {/* Controls */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Poll interval */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 py-1.5 text-xs font-medium text-slate-600">
-              <Clock className="h-3.5 w-3.5 text-slate-400" />
-              <span>Sync:</span>
-              <select
-                aria-label="Polling interval"
-                value={autoRefreshSec}
-                onChange={(e) => setAutoRefreshSec(Number(e.target.value))}
-                className="cursor-pointer bg-transparent font-semibold text-slate-800 outline-none"
-              >
-                <option value={2}>2 s</option>
-                <option value={3}>3 s</option>
-                <option value={5}>5 s</option>
-                <option value={10}>10 s</option>
-                <option value={0}>Manual</option>
-              </select>
-            </div>
-
             {/* Manual refresh */}
             <button
               onClick={() => fetchSensorLogs(true)}
