@@ -1180,7 +1180,54 @@ export default function DashboardPage() {
   const [sensorInitialMode, setSensorInitialMode] = useState<'live' | 'recorded'>('live');
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [readNotificationIds, setReadNotificationIds] = useState<Record<string, boolean>>({});
+  const [latestLiveSensor, setLatestLiveSensor] = useState<{
+    id?: number;
+    recorded_at?: string;
+    temperature?: number | null;
+    humidity?: number | null;
+    ammonia_ppm?: number | null;
+    sound_db?: number | null;
+  } | null>(null);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('chickensee_read_notifications');
+      if (saved) setReadNotificationIds(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  const markNotificationsRead = useCallback((ids: string[]) => {
+    setReadNotificationIds((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = true;
+      try {
+        localStorage.setItem('chickensee_read_notifications', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // Lightweight 15s poll of latest sensor packet for live environmental threshold alerts
+  useEffect(() => {
+    let cancelled = false;
+    const pollLatestSensor = async () => {
+      try {
+        const res = await fetch('/api/sensors/live?limit=1', { cache: 'no-store' });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && json.success && Array.isArray(json.data) && json.data.length > 0) {
+          setLatestLiveSensor(json.data[0]);
+        }
+      } catch {}
+    };
+    pollLatestSensor();
+    const t = setInterval(pollLatestSensor, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   useEffect(() => {
     if (!notificationsOpen) return;
@@ -1254,43 +1301,139 @@ export default function DashboardPage() {
   const [queueStatus, setQueueStatus] = useState<QueueStatusData | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
 
-  // Build real-time system notifications from queue status & recent completed videos
+  // Build real-time system notifications: corrupted/failed files, environmental alerts,
+  // active processing, and successfully processed videos.
   const systemNotifications = useMemo(() => {
-    const items: Array<{ id: string; title: string; detail: string; tone: 'info' | 'success' | 'warn'; tab: DashboardTab }> = [];
+    const items: Array<{
+      id: string;
+      category: 'Corrupted / Failed' | 'Sensor Alert' | 'Processing' | 'Detected & Processed' | 'Sync Warning';
+      title: string;
+      detail: string;
+      tone: 'error' | 'warn' | 'info' | 'success';
+      tab: DashboardTab;
+    }> = [];
+
+    // 1. Corrupted or failed detection files
+    const failedItems = (queueStatus?.items || []).filter((it) => it.status === 'FAILED');
+    for (const item of failedItems.slice(0, 6)) {
+      const reason = item.details?.trim() || 'File may be corrupted, unreadable, or truncated';
+      items.push({
+        id: `failed_${item.item_id}_${item.video_filename}`,
+        category: 'Corrupted / Failed',
+        title: `Corrupted / Failed: ${item.video_filename}`,
+        detail: reason,
+        tone: 'error',
+        tab: 'queue',
+      });
+    }
+
+    // 2. Live poultry house environmental sensor alerts
+    if (latestLiveSensor) {
+      const temp = latestLiveSensor.temperature;
+      const hum = latestLiveSensor.humidity;
+      const nh3 = latestLiveSensor.ammonia_ppm;
+      const sound = latestLiveSensor.sound_db;
+      const dayTag = (latestLiveSensor.recorded_at || '').slice(0, 13);
+
+      if (temp !== null && temp !== undefined && temp > 28) {
+        items.push({
+          id: `sensor_temp_high_${dayTag}`,
+          category: 'Sensor Alert',
+          title: `Elevated Coop Temperature (${temp.toFixed(1)}°C)`,
+          detail: 'Exceeds optimal 18–26°C layer comfort range. Check ventilation.',
+          tone: 'warn',
+          tab: 'sensors',
+        });
+      } else if (temp !== null && temp !== undefined && temp < 18) {
+        items.push({
+          id: `sensor_temp_low_${dayTag}`,
+          category: 'Sensor Alert',
+          title: `Low Coop Temperature (${temp.toFixed(1)}°C)`,
+          detail: 'Below optimal 18–26°C layer comfort range.',
+          tone: 'warn',
+          tab: 'sensors',
+        });
+      }
+
+      if (nh3 !== null && nh3 !== undefined && nh3 > 10) {
+        items.push({
+          id: `sensor_nh3_${dayTag}`,
+          category: 'Sensor Alert',
+          title: `High Ammonia Level (${nh3.toFixed(2)} ppm)`,
+          detail: 'Exceeds 10 ppm safe threshold. Inspect litter & airflow.',
+          tone: 'error',
+          tab: 'sensors',
+        });
+      }
+
+      if (hum !== null && hum !== undefined && (hum > 75 || hum < 45)) {
+        items.push({
+          id: `sensor_hum_${dayTag}`,
+          category: 'Sensor Alert',
+          title: hum > 75 ? `High Humidity (${hum.toFixed(1)}% RH)` : `Low Humidity (${hum.toFixed(1)}% RH)`,
+          detail: 'Outside target 50–70% RH poultry house comfort zone.',
+          tone: 'warn',
+          tab: 'sensors',
+        });
+      }
+
+      if (sound !== null && sound !== undefined && sound > 75) {
+        items.push({
+          id: `sensor_sound_${dayTag}`,
+          category: 'Sensor Alert',
+          title: `High Flock Vocalization (${sound.toFixed(1)} dB)`,
+          detail: 'Above 75 dB distress/agitation threshold. Check flock status.',
+          tone: 'warn',
+          tab: 'sensors',
+        });
+      }
+    }
+
+    // 3. Desktop sync / API connectivity warning
     if (queueError) {
       items.push({
         id: `queue_err_${queueError}`,
+        category: 'Sync Warning',
         title: 'Desktop sync delayed',
         detail: queueError,
         tone: 'warn',
         tab: 'queue',
       });
     }
+
+    // 4. Active video detection in progress
     if (queueStatus?.is_queueing && queueStatus.active_video) {
+      const queuedWaiting = queueStatus.summary?.queued || 0;
       items.push({
         id: `active_${queueStatus.active_video}`,
-        title: `Processing ${queueStatus.active_video}`,
-        detail: `Live progress: ${queueStatus.active_progress ?? 0}%`,
+        category: 'Processing',
+        title: `Detecting ${queueStatus.active_video}`,
+        detail: `Live progress: ${queueStatus.active_progress ?? 0}%${queuedWaiting > 0 ? ` · ${queuedWaiting} waiting in queue` : ''}`,
         tone: 'info',
         tab: 'queue',
       });
     }
+
+    // 5. Successfully detected & processed videos
     const recentCompleted = (queueStatus?.items || [])
       .filter((it) => it.status === 'COMPLETED')
-      .slice(0, 4);
+      .slice(0, 5);
     for (const item of recentCompleted) {
+      const frameNote = item.frames ? ` (${item.frames} frames)` : '';
       items.push({
         id: `done_${item.item_id}_${item.completed_at || ''}`,
-        title: `Completed: ${item.video_filename}`,
+        category: 'Detected & Processed',
+        title: `Success: ${item.video_filename}`,
         detail: item.completed_at
-          ? `Finished ${new Date(item.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} — ready in Research Logs & Behavior Results`
-          : 'Ready in Research Logs & Behavior Results',
+          ? `Processed ${new Date(item.completed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${frameNote} — logs & behavior updated`
+          : `Detection complete${frameNote} — logs & behavior updated`,
         tone: 'success',
         tab: 'datasets',
       });
     }
+
     return items;
-  }, [queueError, queueStatus]);
+  }, [queueError, queueStatus, latestLiveSensor]);
 
   const unreadNotificationsCount = useMemo(
     () => systemNotifications.filter((n) => !readNotificationIds[n.id]).length,
@@ -2615,11 +2758,11 @@ export default function DashboardPage() {
               </button>
 
               {notificationsOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute right-0 z-50 mt-2 w-96 max-w-[92vw] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                   <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3.5 py-2.5">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
                       <Bell className="h-3.5 w-3.5 text-orange-600" />
-                      <span>Notifications</span>
+                      <span>System Notifications</span>
                       {unreadNotificationsCount > 0 && (
                         <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
                           {unreadNotificationsCount} new
@@ -2629,31 +2772,43 @@ export default function DashboardPage() {
                     {unreadNotificationsCount > 0 && (
                       <button
                         type="button"
-                        onClick={() => {
-                          const next: Record<string, boolean> = { ...readNotificationIds };
-                          systemNotifications.forEach((n) => { next[n.id] = true; });
-                          setReadNotificationIds(next);
-                        }}
+                        onClick={() => markNotificationsRead(systemNotifications.map((n) => n.id))}
                         className="text-[11px] font-semibold text-orange-600 hover:text-orange-700"
                       >
                         Mark all read
                       </button>
                     )}
                   </div>
-                  <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+                  <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
                     {systemNotifications.length === 0 ? (
                       <div className="px-4 py-6 text-center text-xs text-slate-400">
-                        No new notifications right now.
+                        All clear — no alerts or pending events.
                       </div>
                     ) : (
                       systemNotifications.map((notif) => {
                         const isUnread = !readNotificationIds[notif.id];
+                        const badgeClass =
+                          notif.tone === 'error'
+                            ? 'bg-rose-100 text-rose-700 border-rose-200'
+                            : notif.tone === 'warn'
+                              ? 'bg-amber-100 text-amber-800 border-amber-200'
+                              : notif.tone === 'success'
+                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                : 'bg-orange-100 text-orange-700 border-orange-200';
+                        const dotClass =
+                          notif.tone === 'error'
+                            ? 'bg-rose-500'
+                            : notif.tone === 'warn'
+                              ? 'bg-amber-500'
+                              : notif.tone === 'success'
+                                ? 'bg-emerald-500'
+                                : 'bg-orange-500 animate-pulse';
                         return (
                           <button
                             key={notif.id}
                             type="button"
                             onClick={() => {
-                              setReadNotificationIds((prev) => ({ ...prev, [notif.id]: true }));
+                              markNotificationsRead([notif.id]);
                               handleTabChange(notif.tab);
                               setNotificationsOpen(false);
                             }}
@@ -2661,18 +2816,15 @@ export default function DashboardPage() {
                               isUnread ? 'bg-orange-50/40' : 'bg-white'
                             }`}
                           >
-                            <span
-                              className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                                notif.tone === 'warn'
-                                  ? 'bg-rose-500'
-                                  : notif.tone === 'success'
-                                    ? 'bg-emerald-500'
-                                    : 'bg-orange-500 animate-pulse'
-                              }`}
-                            />
+                            <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-semibold text-slate-800">{notif.title}</p>
-                              <p className="mt-0.5 text-[11px] text-slate-500">{notif.detail}</p>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                                  {notif.category}
+                                </span>
+                              </div>
+                              <p className="mt-1 truncate text-xs font-semibold text-slate-800">{notif.title}</p>
+                              <p className="mt-0.5 text-[11px] leading-snug text-slate-500">{notif.detail}</p>
                             </div>
                           </button>
                         );
