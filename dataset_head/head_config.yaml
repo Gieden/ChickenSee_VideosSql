@@ -1,0 +1,5 @@
+path: C:/Users/Kairi/Documents/ChickenSee_Videos(sql)/dataset_head
+train: images/train
+val: images/val
+names:
+  0: Head

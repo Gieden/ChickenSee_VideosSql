@@ -22,29 +22,30 @@ val_img_dir   = os.path.join(dataset_dir, "val",   "images")
 val_lbl_dir   = os.path.join(dataset_dir, "val",   "labels")
 
 # ---------------------------------------------------------------------------
-# Class definitions — reflect the live dataset currently on disk.
-# The current export is a 9-class Label Studio schema:
-#   0 Chicken, 1 Drinker, 2 Feeder, 3 Rooster,
-#   4 Saddle_Color_Blue, 5 Saddle_Color_Red,
-#   6 Saddle_Color_White, 7 Saddle_Color_Yellow,
-#   8 Saddle_Color_YellowGreen
+# Class definitions — reflect the live 10-class Label Studio dataset on disk:
+#   0 Chicken, 1 Drinker, 2 Feeder, 3 Head, 4 Rooster,
+#   5 Saddle_Color_Blue, 6 Saddle_Color_Red,
+#   7 Saddle_Color_White, 8 Saddle_Color_Yellow,
+#   9 Saddle_Color_YellowGreen
 # ---------------------------------------------------------------------------
 DEFAULT_CLASS_NAMES = {
     0: "Chicken",
     1: "Drinker",
     2: "Feeder",
-    3: "Rooster",
-    4: "Saddle_Color_Blue",
-    5: "Saddle_Color_Red",
-    6: "Saddle_Color_White",
-    7: "Saddle_Color_Yellow",
-    8: "Saddle_Color_YellowGreen",
+    3: "Head",
+    4: "Rooster",
+    5: "Saddle_Color_Blue",
+    6: "Saddle_Color_Red",
+    7: "Saddle_Color_White",
+    8: "Saddle_Color_Yellow",
+    9: "Saddle_Color_YellowGreen",
 }
 
 CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
-# Oversample the saddle classes with the lowest validation recall/mAP
-# (poultry_v7 val: Blue R=0.467, White mAP50=0.720, Yellow mAP50=0.651).
+# Oversample underrepresented / lower-AP classes:
+# Head currently has 580 boxes in 171/3000 images, and Blue/White/Yellow saddles had lower AP.
 SADDLE_CLASSES_WITH_LOW_AP = {
+    "Head",
     "Saddle_Color_Blue",
     "Saddle_Color_White",
     "Saddle_Color_Yellow",
@@ -168,7 +169,7 @@ def oversample_weak_saddle_images(image_dir, label_dir, class_names):
     saddle_class_ids = {
         int(class_id)
         for class_id, class_name in class_names.items()
-        if class_name.startswith("Saddle_Color_")
+        if class_name.startswith("Saddle_Color_") or class_name == "Head"
     }
     image_classes = {}
     class_counts = Counter()
@@ -305,10 +306,15 @@ def main():
     # ---------------------------------------------------------------------------
     run_name = "poultry_v8"
     batch_size = 8 if device != "cpu" else 4
-    # Use a gentle fine-tuning LR when resuming from already-converged custom_poultry.pt
-    # so early epochs refine weights instead of overshooting (lr0=0.01 peaked at ep 2 in v7).
-    is_finetune = os.path.abspath(base_model) == os.path.abspath(custom_weight)
-    lr0 = 0.002 if is_finetune else 0.01
+    # If the dataset class count changed (e.g. 9 -> 10 with new 'Head' class), Ultralytics
+    # re-initializes the classification head, so use lr0=0.005 for clean head convergence;
+    # otherwise use gentle lr0=0.002 for same-schema fine-tuning.
+    base_nc = len(getattr(model, "names", {}) or {})
+    is_same_schema_finetune = (
+        os.path.abspath(base_model) == os.path.abspath(custom_weight)
+        and base_nc == len(CLASS_NAMES)
+    )
+    lr0 = 0.002 if is_same_schema_finetune else (0.005 if os.path.abspath(base_model) == os.path.abspath(custom_weight) else 0.01)
     results = model.train(
         data=yaml_path,
         epochs=150,

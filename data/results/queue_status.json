@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-11-18T02:37:58.102488Z",
+  "updated_at": "2026-11-22T14:16:27.075450Z",
   "is_queueing": false,
   "active_video": null,
   "active_progress": null,
@@ -9,11 +9,171 @@
     "processing": 0,
     "queued": 0,
     "waiting": 0,
-    "completed": 446,
+    "completed": 458,
     "failed": 4,
-    "cancelled": 14
+    "cancelled": 16
   },
   "items": [
+    {
+      "item_id": "job-444",
+      "video_filename": "testing.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-10T14:00:22.195956",
+      "completed_at": "2026-11-22T14:11:06.069602"
+    },
+    {
+      "item_id": "job-479",
+      "video_filename": "k.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-22T04:49:59.352041",
+      "completed_at": "2026-11-22T04:53:27.013058"
+    },
+    {
+      "item_id": "job-478",
+      "video_filename": "j.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-22T02:25:03.576414",
+      "completed_at": "2026-11-22T02:36:47.224888"
+    },
+    {
+      "item_id": "job-476",
+      "video_filename": "revised.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-22T01:44:36.433333",
+      "completed_at": "2026-11-22T01:49:16.422562"
+    },
+    {
+      "item_id": "job-475",
+      "video_filename": "aa.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-22T01:27:27.080851",
+      "completed_at": "2026-11-22T01:42:57.598345"
+    },
+    {
+      "item_id": "job-474",
+      "video_filename": "ttttt.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 0.0,
+      "frames": "1 / 3843",
+      "details": "Cancelled by user.",
+      "created_at": "2026-11-22T01:24:12.757405",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-473",
+      "video_filename": "ttt.mp4",
+      "status": "CANCELLED",
+      "progress_percent": 63.9,
+      "frames": "6099 / 9548",
+      "details": "Cancelled by user.",
+      "created_at": "2026-11-22T01:14:23.188902",
+      "completed_at": null
+    },
+    {
+      "item_id": "job-472",
+      "video_filename": "tr.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-21T17:37:34.158782",
+      "completed_at": "2026-11-21T17:45:56.328485"
+    },
+    {
+      "item_id": "job-471",
+      "video_filename": "video2_c9ced2ca.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "54001 / 54001",
+      "details": null,
+      "created_at": "2026-11-20T14:35:40.162588",
+      "completed_at": "2026-11-20T15:28:16.957375"
+    },
+    {
+      "item_id": "job-470",
+      "video_filename": "lv_0_20261006140110_3cd6a7f7.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "2200 / 2200",
+      "details": null,
+      "created_at": "2026-11-20T13:24:45.329082",
+      "completed_at": "2026-11-20T13:28:18.813332"
+    },
+    {
+      "item_id": "job-465",
+      "video_filename": "1786430727108_0_0033b060.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "1478 / 1478",
+      "details": null,
+      "created_at": "2026-11-19T15:39:47.277043",
+      "completed_at": "2026-11-20T13:21:45.010396"
+    },
+    {
+      "item_id": "job-469",
+      "video_filename": "kininapud.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-19T23:05:02.650999",
+      "completed_at": "2026-11-19T23:19:58.471587"
+    },
+    {
+      "item_id": "job-468",
+      "video_filename": "rere.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-19T22:51:47.895070",
+      "completed_at": "2026-11-19T23:00:10.344110"
+    },
+    {
+      "item_id": "job-467",
+      "video_filename": "potoy.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "3843 / 3843",
+      "details": null,
+      "created_at": "2026-11-19T22:29:11.152576",
+      "completed_at": "2026-11-19T22:37:29.336269"
+    },
+    {
+      "item_id": "job-466",
+      "video_filename": "yea.mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-19T15:41:00.600435",
+      "completed_at": "2026-11-19T15:52:51.750573"
+    },
+    {
+      "item_id": "job-458",
+      "video_filename": "video (1).mp4",
+      "status": "COMPLETED",
+      "progress_percent": 100.0,
+      "frames": "9548 / 9548",
+      "details": null,
+      "created_at": "2026-11-17T00:35:16.206634",
+      "completed_at": "2026-11-18T14:51:37.341125"
+    },
     {
       "item_id": "job-448",
       "video_filename": "itoy.mp4",
@@ -83,16 +243,6 @@
       "details": null,
       "created_at": "2026-11-17T01:01:18.826294",
       "completed_at": "2026-11-17T01:04:41.818337"
-    },
-    {
-      "item_id": "job-458",
-      "video_filename": "video (1).mp4",
-      "status": "COMPLETED",
-      "progress_percent": 100.0,
-      "frames": "3843 / 3843",
-      "details": null,
-      "created_at": "2026-11-17T00:35:16.206634",
-      "completed_at": "2026-11-17T00:44:20.347422"
     },
     {
       "item_id": "job-457",
@@ -213,16 +363,6 @@
       "details": null,
       "created_at": "2026-11-10T15:54:14.963151",
       "completed_at": "2026-11-10T16:19:55.878233"
-    },
-    {
-      "item_id": "job-444",
-      "video_filename": "testing.mp4",
-      "status": "COMPLETED",
-      "progress_percent": 100.0,
-      "frames": "14530 / 14530",
-      "details": null,
-      "created_at": "2026-11-10T14:00:22.195956",
-      "completed_at": "2026-11-10T15:14:28.503445"
     },
     {
       "item_id": "job-443",
