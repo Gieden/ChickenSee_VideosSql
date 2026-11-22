@@ -403,14 +403,14 @@ class BehaviorAnalysisEngine:
                 )
                 feeder_ok, feeder_dist = (
                     self._head_overlaps_circular_station(
-                        head_box, best_feeder.box, best_feeder.centroid, margin_px=0.0, min_overlap_px=3
+                        head_box, best_feeder.box, best_feeder.centroid, margin_px=0.0, min_overlap_px=1
                     )
                     if best_feeder
                     else (False, float("inf"))
                 )
                 drinker_ok, drinker_dist = (
                     self._head_overlaps_circular_station(
-                        head_box, best_drinker.box, best_drinker.centroid, margin_px=0.0, min_overlap_px=3
+                        head_box, best_drinker.box, best_drinker.centroid, margin_px=0.0, min_overlap_px=1
                     )
                     if best_drinker
                     else (False, float("inf"))
@@ -508,14 +508,9 @@ class BehaviorAnalysisEngine:
                 else:
                     near_feeder = False
 
-            # Track motionless nesting/resting near the feeder: after >=6s of <1.2 px/s
-            # immobility, stop logging active Feeding bouts/HUD (switch live label to Inactive)
-            # while keeping is_in_feeder_zone=True for reduced_feeding & isolation exclusion.
-            if near_feeder and len(state.recent_velocities) >= 3 and avg_vel < 1.2:
-                state.feeder_immobile_s += dt
-            else:
-                state.feeder_immobile_s = 0.0
-            is_actively_feeding_now = near_feeder and state.feeder_immobile_s < 6.0
+            # A bird actively within the feeder/drinker zone stays Feeding/Drinking even when
+            # standing still to eat or drink — never misclassify stationary eating as Inactive.
+            state.feeder_immobile_s = 0.0
 
             if near_feeder:
                 state.feeding_time_s += dt
@@ -568,11 +563,18 @@ class BehaviorAnalysisEngine:
 
             # ---------------------------------------------------------
             # 3. Prolonged Low Activity Tracking
+            # Exclude birds currently Feeding or Drinking (standing still to eat/drink is
+            # normal intake behavior, not inactivity/lethargy).
             # Require >=2 velocity samples so a bird's very first frame
             # (before any displacement is measured) doesn't log fake 0.1s inactivity.
             # ---------------------------------------------------------
             low_act_thresh = getattr(self.cfg, "low_activity_velocity_threshold_px_s", 3.0)
-            if len(state.recent_velocities) >= 2 and avg_vel < low_act_thresh:
+            if (
+                not near_feeder
+                and not near_drinker
+                and len(state.recent_velocities) >= 2
+                and avg_vel < low_act_thresh
+            ):
                 state.continuous_stationary_s += dt
                 state.total_inactivity_s += dt
                 sustained_limit = getattr(self.cfg, "prolonged_low_activity_duration_s", 60.0)
@@ -682,7 +684,7 @@ class BehaviorAnalysisEngine:
             nn_px = nn_dist_by_tid.get(tid, 0.0)
             nn_bl = nn_px / body_scale if nn_px > 0 else 0.0
             conf = float(getattr(bird, "confidence", 0.0) or 0.0)
-            is_actively_feeding = st.is_in_feeder_zone and st.feeder_immobile_s < 6.0
+            is_actively_feeding = st.is_in_feeder_zone
             is_inactive_now = (
                 not is_actively_feeding
                 and not st.is_in_waterer_zone

@@ -1255,11 +1255,11 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         self.assertTrue(self.engine.bird_states[4].is_in_waterer_zone)
         self.assertEqual(self.engine.bird_states[4].current_behavior, "Drinking")
 
-        # Case 5: Bird standing right outside Drinker (head barely touching outside edge, not entering) -> NOT Drinking
+        # Case 5: Bird standing right outside Drinker (head outside Drinker box, no entry) -> NOT Drinking
         bird_outside_head = TrackedDetection(
             track_id=8, class_id=0, class_name="Chicken", confidence=0.80,
             box=[390, 220, 449, 280], centroid=(419, 250), bird_label="ID8_Chicken",
-            head_box=[430, 240, 451, 260], head_conf=0.35,
+            head_box=[428, 240, 449, 260], head_conf=0.35,
         )
         self.engine.process_frame(
             TrackerFrameOutput(frame_idx=5, timestamp_s=0.5, birds=[bird_outside_head], feeders=[feeder], drinkers=[drinker]),
@@ -1280,6 +1280,23 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
         )
         self.assertFalse(self.engine.bird_states[8].is_in_waterer_zone)
         self.assertNotEqual(self.engine.bird_states[8].current_behavior, "Drinking")
+
+        # Case 7: Bird stands completely still while eating at Feeder for 12s -> MUST stay Feeding, NOT Inactive!
+        bird_still_eating = TrackedDetection(
+            track_id=2, class_id=0, class_name="Chicken", confidence=0.86,
+            box=[120, 220, 215, 280], centroid=(168, 250), bird_label="ID2_H2 Blue",
+            head_box=[198, 238, 220, 262], head_conf=0.40,
+        )
+        for step in range(24):  # 12 seconds motionless while eating
+            self.engine.process_frame(
+                TrackerFrameOutput(
+                    frame_idx=10 + step, timestamp_s=1.0 + step * 0.5,
+                    birds=[bird_still_eating], feeders=[feeder], drinkers=[drinker],
+                ),
+                dt=0.5,
+            )
+        self.assertEqual(self.engine.bird_states[2].current_behavior, "Feeding")
+        self.assertEqual(self.engine.bird_states[2].total_inactivity_s, 0.0)
 
 
 if __name__ == "__main__":
