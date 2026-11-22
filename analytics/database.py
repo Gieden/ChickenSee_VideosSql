@@ -418,6 +418,13 @@ class DatabaseManager:
                 job.processing_time_s = duration_s
                 job.completed_at = datetime.datetime.utcnow()
                 session.commit()
+        # Flush WAL frames into the main .db file so external read-only viewers (e.g. sql.js
+        # in Next.js Research Logs) immediately see the newly completed job and its metrics.
+        try:
+            with self.engine.connect() as conn:
+                conn.exec_driver_sql("PRAGMA wal_checkpoint(PASSIVE);")
+        except Exception:
+            pass
 
     def cancel_processing_job(self, job_id: int) -> bool:
         """Mark an active analysis as cancelled so its worker can stop safely."""

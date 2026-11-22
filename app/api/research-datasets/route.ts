@@ -396,9 +396,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Ensure excelVideoName is at the very top of videos
+  // Keep the newest completed videos first (preserving SQLite ORDER BY id DESC),
+  // with the static Raw Research Dataset pinned right after or at the top.
   const allVideos = Array.from(videosList);
-  allVideos.sort((a, b) => (a === excelVideoName ? -1 : b === excelVideoName ? 1 : a.localeCompare(b)));
+  const excelIdx = allVideos.indexOf(excelVideoName);
+  if (excelIdx > 0) {
+    allVideos.splice(excelIdx, 1);
+    allVideos.unshift(excelVideoName);
+  }
 
   return NextResponse.json({
     success: true,
