@@ -104,7 +104,7 @@ function reconcileArchiveManifest(parsed: Partial<ArchiveManifest>): ArchiveMani
         if (clean) entryDates.add(clean);
       }
     }
-    if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate && arch.scope !== 'all') {
+    if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
       for (const d of enumerateDates(arch.startDate, arch.endDate)) {
         entryDates.add(d);
       }
