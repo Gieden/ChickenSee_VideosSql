@@ -137,7 +137,7 @@ class ZampenYOLOTracker:
     MIN_DETECTION_CONFIDENCE = 0.25  # Calibrated for poultry_v8 (Chicken/Rooster mAP50=95.7-97.0%)
     MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
     MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
-    MIN_HEAD_CONFIDENCE = 0.12       # Low gate for new Head class (poultry_v8 R=0.227)
+    MIN_HEAD_CONFIDENCE = 0.22       # Low gate for new Head class (poultry_v8 R=0.227)
     SHOW_HEAD_OVERLAY = True         # Draw cyan Head boxes for visual verification (toggle False to hide)
     # Per-saddle confidence gates calibrated from poultry_v8 validation recall/precision:
     MIN_SADDLE_CONFIDENCE_BY_CLASS = {
@@ -176,13 +176,6 @@ class ZampenYOLOTracker:
         self.conf = CONFIG.conf_threshold
         self.iou = CONFIG.iou_threshold
         self.imgsz = CONFIG.imgsz
-        # min() of the class-specific gates: equipment, saddle, head, and bird boxes survive NMS
-        min_saddle_gate = min(
-            [self.MIN_SADDLE_CONFIDENCE, self.MIN_HEAD_CONFIDENCE]
-            + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
-        )
-        self.track_conf = min(self.conf, self.MIN_EQUIPMENT_CONFIDENCE, min_saddle_gate)
-
         print(f"[TRACKER] Initializing YOLO26 Nano from: {self.weights_path}")
         print(f"[TRACKER] Using ByteTrack config: {self.tracker_yaml}")
 
@@ -193,6 +186,27 @@ class ZampenYOLOTracker:
         # Dedicated equipment model (separate predictor state so .track() calls don't interfere)
         self._equip_model = YOLO(self.weights_path)
         self.class_map = self._normalize_class_names(self.model.names)
+
+        # Optional dedicated 1-class Head detector (head_detector.pt) trained exclusively on
+        # Head-annotated images — avoids false-negative head suppression in partially-labeled datasets.
+        self._head_model = None
+        for head_candidate in (
+            Path(self.weights_path).resolve().parent / "head_detector.pt",
+            Path(__file__).resolve().parent.parent / "head_detector.pt",
+        ):
+            if head_candidate.is_file():
+                try:
+                    self._head_model = YOLO(str(head_candidate))
+                    print(f"[TRACKER] Loaded dedicated Head detector: {head_candidate}")
+                except Exception as exc:
+                    print(f"[TRACKER] WARNING: Could not load Head detector {head_candidate}: {exc}")
+                break
+
+        # min() of the class-specific gates: equipment, saddle, (native head), and bird boxes survive NMS
+        gate_candidates = [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+        if "Head" in self.class_map.values():
+            gate_candidates.append(self.MIN_HEAD_CONFIDENCE)
+        self.track_conf = min(self.conf, self.MIN_EQUIPMENT_CONFIDENCE, min(gate_candidates))
 
         # Persistent ID Re-ID cache: track_id -> confirmed label
         self.track_label_cache: Dict[int, str] = {}
@@ -884,14 +898,15 @@ class ZampenYOLOTracker:
         # patches, Head boxes, stationary equipment, or birds below new_track_thresh. Recover raw
         # detections via the dedicated predict engine so saddle, head, and equipment tracking are reliable:
         has_head_class = "Head" in self.class_map.values()
-        if len(saddle_dets) < 5 or len(feeders) == 0 or len(drinkers) == 0 or len(birds) < 5 or (has_head_class and len(head_dets) < len(birds)):
+        expected_birds = max(5, int(getattr(self, "flock_size", 6) or 6))
+        if len(saddle_dets) < 5 or len(feeders) == 0 or len(drinkers) == 0 or len(birds) < expected_birds or (has_head_class and len(head_dets) < len(birds)):
             try:
                 equip_model = getattr(self, "_equip_model", self.model)
                 if equip_model is not None and hasattr(equip_model, "predict"):
-                    min_saddle_gate = min(
-                        [self.MIN_SADDLE_CONFIDENCE, getattr(self, "MIN_HEAD_CONFIDENCE", 0.12)]
-                        + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
-                    )
+                    gate_list = [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+                    if has_head_class:
+                        gate_list.append(getattr(self, "MIN_HEAD_CONFIDENCE", 0.12))
+                    min_saddle_gate = min(gate_list)
                     raw_res = equip_model.predict(
                         frame,
                         conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20), min_saddle_gate),
@@ -951,6 +966,30 @@ class ZampenYOLOTracker:
                                         track_id=None,
                                         bird_label=r_name,
                                     ))
+            except Exception:
+                pass
+
+        # Run dedicated 1-class Head detector (head_detector.pt) when available
+        head_model = getattr(self, "_head_model", None)
+        if head_model is not None and hasattr(head_model, "predict"):
+            try:
+                head_gate = getattr(self, "MIN_HEAD_CONFIDENCE", 0.25)
+                h_res = head_model.predict(
+                    frame,
+                    conf=head_gate,
+                    iou=0.45,
+                    imgsz=self.imgsz,
+                    device=self.device,
+                    verbose=False,
+                )[0]
+                if h_res.boxes is not None and len(h_res.boxes) > 0:
+                    h_boxes = h_res.boxes.xyxy.cpu().numpy()
+                    h_confs = h_res.boxes.conf.cpu().numpy()
+                    for hb, hc in zip(h_boxes, h_confs):
+                        hx1, hy1, hx2, hy2 = [int(v) for v in hb]
+                        hconf = float(hc)
+                        if not any(equipment_boxes_overlap([hx1, hy1, hx2, hy2], h[0], 0.45) for h in head_dets):
+                            head_dets.append(([hx1, hy1, hx2, hy2], hconf, 3))
             except Exception:
                 pass
 
