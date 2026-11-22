@@ -221,11 +221,14 @@ export async function GET(req: NextRequest) {
             if (fs.existsSync(frameLogPath)) {
               rawFrameLogText = fs.readFileSync(frameLogPath, 'utf-8');
             } else {
-              try {
-                const cloudBlob = await downloadStorageFile(`frame_logs/${job.video}.json`);
-                rawFrameLogText = await cloudBlob.text();
-              } catch {
-                rawFrameLogText = null;
+              for (const cloudKey of [`results/frame_log_${job.video}.json`, `frame_logs/${job.video}.json`]) {
+                try {
+                  const cloudBlob = await downloadStorageFile(cloudKey);
+                  rawFrameLogText = await cloudBlob.text();
+                  if (rawFrameLogText) break;
+                } catch {
+                  rawFrameLogText = null;
+                }
               }
             }
             if (rawFrameLogText) {

@@ -1022,43 +1022,54 @@ class ZampenAnalyticsWorker:
             }
             frame_log_path.write_text(json.dumps(frame_log_payload), encoding="utf-8")
             print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames)")
-            # Also upload frame-by-frame log to Supabase Storage so Vercel Research Logs shows exact frames immediately
+            # Also upload frame-by-frame log via Vercel /api/sync so chickensee.vercel.app shows exact frames immediately
             try:
-                sb_url = (os.getenv("SUPABASE_URL") or "").strip().rstrip("/")
-                sb_key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
-                sb_bucket = (os.getenv("SUPABASE_STORAGE_BUCKET") or "chickensee-sync").strip()
-                if not (sb_url and sb_key):
-                    for env_file in (PROJECT_ROOT / ".env.local", PROJECT_ROOT / ".env", PROJECT_ROOT / "agent" / ".env"):
+                sync_url = (os.getenv("VERCEL_SYNC_URL") or "").strip()
+                sync_secret = (os.getenv("SYNC_SECRET") or "").strip()
+                if not (sync_url and sync_secret):
+                    for env_file in (PROJECT_ROOT / "agent" / ".env", PROJECT_ROOT / ".env.local", PROJECT_ROOT / ".env"):
                         if env_file.is_file():
                             for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
                                 if "=" in line and not line.strip().startswith("#"):
                                     k, v = line.split("=", 1)
                                     k, v = k.strip(), v.strip().strip('"').strip("'")
-                                    if k == "SUPABASE_URL" and not sb_url:
-                                        sb_url = v.rstrip("/")
-                                    elif k == "SUPABASE_SERVICE_ROLE_KEY" and not sb_key:
-                                        sb_key = v
-                                    elif k == "SUPABASE_STORAGE_BUCKET" and v:
-                                        sb_bucket = v
-                if sb_url and sb_key:
+                                    if k == "VERCEL_SYNC_URL" and not sync_url:
+                                        sync_url = v
+                                    elif k == "SYNC_SECRET" and not sync_secret:
+                                        sync_secret = v
+                if sync_url and sync_secret:
                     import urllib.request as _urlreq
                     import urllib.parse as _urlparse
-                    up_url = f"{sb_url}/storage/v1/object/{sb_bucket}/frame_logs/{_urlparse.quote(filename + '.json')}"
-                    req = _urlreq.Request(
-                        up_url,
-                        data=frame_log_path.read_bytes(),
+                    sync_name = f"frame_log_{filename}.json"
+                    sign_req = _urlreq.Request(
+                        sync_url,
+                        data=b"",
                         method="POST",
                         headers={
-                            "Authorization": f"Bearer {sb_key}",
-                            "apikey": sb_key,
-                            "Content-Type": "application/json",
-                            "x-upsert": "true",
+                            "x-sync-secret": sync_secret,
+                            "x-filename": _urlparse.quote(sync_name),
+                            "x-action": "get-upload-url",
                         },
                     )
-                    with _urlreq.urlopen(req, timeout=15) as _resp:
-                        print(f"[CLOUD SYNC] Uploaded frame_logs/{filename}.json to Supabase Storage ({_resp.status})")
+                    with _urlreq.urlopen(sign_req, timeout=15) as _sresp:
+                        up_info = json.loads(_sresp.read().decode("utf-8"))
+                    up_url = up_info.get("uploadUrl")
+                    if up_url:
+                        payload_bytes = frame_log_path.read_bytes()
+                        put_req = _urlreq.Request(
+                            up_url,
+                            data=payload_bytes,
+                            method="PUT",
+                            headers={
+                                "content-type": "application/json",
+                                "content-length": str(len(payload_bytes)),
+                                "x-upsert": "true",
+                            },
+                        )
+                        with _urlreq.urlopen(put_req, timeout=20) as _uresp:
+                            print(f"[CLOUD SYNC] Uploaded {up_info.get('storagePath')} ({_uresp.status})")
             except Exception as up_err:
-                print(f"[CLOUD SYNC WARN] Could not upload frame log to Supabase: {up_err}")
+                print(f"[CLOUD SYNC WARN] Could not upload frame log via /api/sync: {up_err}")
         except Exception as fl_err:
             print(f"[LOCAL STORE WARN] Could not save frame-by-frame log: {fl_err}")
 
