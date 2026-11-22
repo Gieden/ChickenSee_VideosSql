@@ -246,6 +246,87 @@ export function getArchivedDatesSet(): Set<string> {
 }
 
 /**
+ * Maps each currently archived ISO date (YYYY-MM-DD) to the latest archive creation
+ * timestamp (epoch ms). Items processed/uploaded AFTER that cutoff timestamp are
+ * treated as fresh post-wipe data and remain visible even if their recording date
+ * falls inside an earlier archive range.
+ */
+export function getArchivedDateCutoffs(): Map<string, number> {
+  const manifest = readArchiveManifest();
+  const cutoffs = new Map<string, number>();
+  const archives = manifest.archives && typeof manifest.archives === 'object' ? manifest.archives : {};
+
+  for (const arch of Object.values(archives)) {
+    if (!arch || typeof arch !== 'object' || arch.status !== 'archived') continue;
+    const createdMs = arch.createdAt ? Date.parse(arch.createdAt) || 0 : 0;
+    const dates = new Set<string>();
+    if (Array.isArray(arch.dates)) {
+      for (const d of arch.dates) {
+        const clean = String(d).slice(0, 10);
+        if (clean) dates.add(clean);
+      }
+    }
+    if (arch.startDate && arch.endDate && arch.startDate <= arch.endDate) {
+      for (const d of enumerateDates(arch.startDate, arch.endDate)) {
+        dates.add(d);
+      }
+    }
+    for (const d of Array.from(dates)) {
+      const prev = cutoffs.get(d);
+      if (prev === undefined || createdMs > prev) {
+        cutoffs.set(d, createdMs);
+      }
+    }
+  }
+
+  // Also cover any date listed directly in manifest.archivedDates without a matching entry
+  for (const d of manifest.archivedDates || []) {
+    const clean = String(d).slice(0, 10);
+    if (clean && !cutoffs.has(clean)) {
+      cutoffs.set(clean, Number.MAX_SAFE_INTEGER);
+    }
+  }
+  return cutoffs;
+}
+
+/**
+ * Parses a timestamp string (including UTC SQLite strings like "2026-11-22 21:35:18.392") into epoch ms.
+ */
+export function parseTimestampMs(raw: string | number | null | undefined): number {
+  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+  if (!raw) return 0;
+  const s = String(raw).trim();
+  if (!s) return 0;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s) && !s.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(s)) {
+    const ms = Date.parse(s.replace(' ', 'T') + 'Z');
+    if (Number.isFinite(ms)) return ms;
+  }
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Returns true if an item for `dateStr` is hidden by an active archive.
+ * If `itemTimestampMs` is strictly newer than the archive's `createdAt`, returns false (post-wipe fresh data).
+ */
+export function isItemArchivedByDate(
+  dateStr: string | null | undefined,
+  itemTimestampMs?: number | null,
+  cutoffs?: Map<string, number>,
+): boolean {
+  if (!dateStr) return false;
+  const norm = normalizeIsoDate(String(dateStr).slice(0, 10));
+  if (!norm) return false;
+  const map = cutoffs || getArchivedDateCutoffs();
+  const cutoffMs = map.get(norm);
+  if (cutoffMs === undefined) return false;
+  if (typeof itemTimestampMs === 'number' && Number.isFinite(itemTimestampMs) && itemTimestampMs > 0) {
+    return itemTimestampMs <= cutoffMs;
+  }
+  return true;
+}
+
+/**
  * Checks whether a specific YYYY-MM-DD date is currently archived.
  */
 export function isDateArchived(dateStr: string | null | undefined): boolean {

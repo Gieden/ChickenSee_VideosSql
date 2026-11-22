@@ -7,7 +7,13 @@ import { createClient } from '@supabase/supabase-js';
 import { formatShortDay, normalizeIsoDate } from '@/lib/date-range';
 import { averageAvailableSensorValues } from '@/lib/telemetry-averages';
 import { SUPABASE_SENSOR_URL, SUPABASE_SENSOR_ANON_KEY } from '@/lib/supabase-sensor';
-import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
+import {
+  getArchivedDateCutoffs,
+  getArchivedDatesSet,
+  isItemArchivedByDate,
+  parseTimestampMs,
+  syncManifestFromCloud,
+} from '@/lib/data-archive';
 import { downloadStorageFile, listStorageFiles, listSyncedDatabases } from '@/lib/supabase-storage';
 
 export const dynamic = 'force-dynamic';
@@ -160,7 +166,7 @@ async function loadAnalyticsDbData() {
     const metricsRes = db.exec(`
       SELECT hm.id, hm.date_slot, hm.hour_slot, hm.temp_avg_c, hm.humidity_avg_pct,
              hm.ammonia_ppm_avg, hm.thi_avg, hm.sensor_data_available,
-             pj.video_path, pj.video_filename
+             pj.video_path, pj.video_filename, pj.completed_at, hm.created_at
       FROM half_hour_metrics hm
       LEFT JOIN processing_jobs pj ON pj.id = hm.job_id
       ORDER BY hm.date_slot ASC, hm.hour_slot ASC
@@ -259,6 +265,10 @@ export async function GET(req: NextRequest) {
     const reqEndDate = searchParams.get('endDate');
     const forceRefresh = searchParams.get('refresh') === 'true';
 
+    await syncManifestFromCloud();
+    const archivedSet = getArchivedDatesSet();
+    const archivedCutoffs = getArchivedDateCutoffs();
+
     const now = Date.now();
     let intervals: IntervalTelemetry[] = [];
 
@@ -292,11 +302,15 @@ export async function GET(req: NextRequest) {
           sensorDataAvailable,
           ,
           rawVideoFilename,
-        ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown, unknown, unknown];
-        if (rawVideoFilename) dbVideoNames.add(String(rawVideoFilename));
+          rawCompletedAt,
+          rawChunkCreatedAt,
+        ] = metricRow as [number, string, string, unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown, unknown];
         const date = normalizeIsoDate(rawDate);
         const hour = Number.parseInt(hourSlot, 10);
         if (!date || !Number.isInteger(hour) || hour < 0 || hour >= 24) continue;
+        const chunkMs = parseTimestampMs(String(rawCompletedAt || rawChunkCreatedAt || ''));
+        if (isItemArchivedByDate(date, chunkMs, archivedCutoffs)) continue;
+        if (rawVideoFilename) dbVideoNames.add(String(rawVideoFilename));
 
         const startHour = hour < 6 ? 0 : hour < 12 ? 6 : hour < 18 ? 12 : 18;
         const slot = `${String(startHour).padStart(2, '0')}:00`;
@@ -345,14 +359,16 @@ export async function GET(req: NextRequest) {
 
       // Real-time cloud & local frame-log merge: distribute newly uploaded/processed videos
       // across Behavior Results immediately (even before any git deploy updates zampen_analytics.db)
-      const liveLogs = new Map<string, { localPath?: string; cloudKey?: string; uploadedAt?: string }>();
+      const liveLogs = new Map<string, { localPath?: string; cloudKey?: string; uploadedAt?: string; updatedMs: number }>();
       const localFlDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
       if (fs.existsSync(localFlDir)) {
         try {
           for (const fname of fs.readdirSync(localFlDir)) {
             if (!fname.endsWith('.json')) continue;
             const vid = fname.replace(/^frame_log_/, '').replace(/\.json$/i, '');
-            if (vid) liveLogs.set(vid, { localPath: path.join(localFlDir, fname) });
+            const fullPath = path.join(localFlDir, fname);
+            const mtimeMs = fs.statSync(fullPath).mtimeMs || 0;
+            if (vid) liveLogs.set(vid, { localPath: fullPath, updatedMs: mtimeMs });
           }
         } catch {}
       }
@@ -363,11 +379,13 @@ export async function GET(req: NextRequest) {
           if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
           const vid = base.slice('frame_log_'.length, -'.json'.length);
           if (!vid) continue;
+          const upMs = cf.uploadedAt ? Date.parse(cf.uploadedAt) || 0 : 0;
           const prev = liveLogs.get(vid);
           liveLogs.set(vid, {
             localPath: prev?.localPath,
             cloudKey: cf.storagePath || `results/${base}`,
             uploadedAt: cf.uploadedAt,
+            updatedMs: Math.max(prev?.updatedMs || 0, upMs),
           });
         }
       } catch {}
@@ -388,6 +406,7 @@ export async function GET(req: NextRequest) {
           const rawStart = String(fl.start_time || meta.uploadedAt || '');
           const isoDate = parsedRec?.date || normalizeIsoDate(rawStart.slice(0, 10));
           if (!isoDate) continue;
+          if (isItemArchivedByDate(isoDate, meta.updatedMs, archivedCutoffs)) continue;
           let hour = parsedRec?.hour ?? 8;
           if (!parsedRec && rawStart.length >= 13) {
             const hParsed = Number.parseInt(rawStart.slice(11, 13), 10);
@@ -491,10 +510,9 @@ export async function GET(req: NextRequest) {
       intervals = builtIntervals;
     }
 
-    // Exclude dates that have been archived via Admin Settings
-    await syncManifestFromCloud();
-    const archivedSet = getArchivedDatesSet();
-    const activeIntervals = intervals.filter((i) => !archivedSet.has(i.date));
+    // Active intervals are already filtered per-chunk/per-log against archivedCutoffs
+    // (so pre-wipe dates stay hidden while post-wipe freshly processed videos appear immediately)
+    const activeIntervals = intervals;
 
     // Apply query filters if requested
     const normalizedReqDate = reqDate ? normalizeIsoDate(reqDate) : null;
