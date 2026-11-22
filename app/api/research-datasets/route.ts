@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import initSqlJs from 'sql.js';
 import { AUTH_COOKIE_NAME, getSession } from '@/lib/auth';
+import { downloadStorageFile } from '@/lib/supabase-storage';
 import {
   ORDERED_BIRDS,
   mapBirdToDef,
@@ -213,12 +214,23 @@ export async function GET(req: NextRequest) {
             const wStart = formatSqlTimestamp(job.startTime);
             const wEnd = formatSqlTimestamp(job.endTime);
 
-            // Check for exact frame-by-frame verification log saved by analytics/worker.py
+            // Check for exact frame-by-frame verification log (local disk first, then Supabase Storage for Vercel)
             const frameLogPath = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs', `${job.video}.json`);
             let hasExactFrameLog = false;
+            let rawFrameLogText: string | null = null;
             if (fs.existsSync(frameLogPath)) {
+              rawFrameLogText = fs.readFileSync(frameLogPath, 'utf-8');
+            } else {
               try {
-                const fl = JSON.parse(fs.readFileSync(frameLogPath, 'utf-8'));
+                const cloudBlob = await downloadStorageFile(`frame_logs/${job.video}.json`);
+                rawFrameLogText = await cloudBlob.text();
+              } catch {
+                rawFrameLogText = null;
+              }
+            }
+            if (rawFrameLogText) {
+              try {
+                const fl = JSON.parse(rawFrameLogText);
                 const baseStartMs = new Date(formatSqlTimestamp(fl.start_time || job.startTime).replace(' ', 'T')).getTime();
                 const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
                 const flFps = Number(fl.fps) || 20;
