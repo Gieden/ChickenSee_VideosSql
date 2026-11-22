@@ -305,6 +305,34 @@ class ZampenYOLOTracker:
             tracker.reset()
 
     @staticmethod
+    def _is_duplicate_bird_box(
+        box_a: List[int],
+        box_b: List[int],
+        iou_thresh: float = 0.48,
+        iomin_thresh: float = 0.85,
+        nested_iou_thresh: float = 0.38,
+    ) -> bool:
+        """
+        Detects duplicate / double-labeled boxes on the same bird (e.g. a narrow Chicken box
+        nested inside a Hen/Rooster box where IoU is 0.40-0.55 but containment IoMin is >0.85),
+        while preserving distinct neighbouring birds standing close together.
+        """
+        ax1, ay1, ax2, ay2 = box_a
+        bx1, by1, bx2, by2 = box_b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        inter = max(0, ix2 - ix1) * max(0, iy2 - iy1)
+        if inter <= 0:
+            return False
+        area_a = max(1, (ax2 - ax1) * (ay2 - ay1))
+        area_b = max(1, (bx2 - bx1) * (by2 - by1))
+        iou = inter / float(area_a + area_b - inter)
+        if iou >= iou_thresh:
+            return True
+        iomin = inter / float(min(area_a, area_b))
+        return iomin >= iomin_thresh and iou >= nested_iou_thresh
+
+    @staticmethod
     def _box_iou(box_a: List[int], box_b: List[int]) -> float:
         ax1, ay1, ax2, ay2 = box_a
         bx1, by1, bx2, by2 = box_b
@@ -956,7 +984,13 @@ class ZampenYOLOTracker:
                                         bird_label="Drinker",
                                     ))
                             elif r_name in ("Chicken", "Rooster") and r_confidence >= self.MIN_DETECTION_CONFIDENCE:
-                                if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], b.box, 0.50) for b in birds):
+                                if not any(
+                                    self._is_duplicate_bird_box(
+                                        [rx1, ry1, rx2, ry2], b.box,
+                                        iou_thresh=0.42, iomin_thresh=0.80, nested_iou_thresh=0.30,
+                                    )
+                                    for b in birds
+                                ):
                                     birds.append(TrackedDetection(
                                         box=[rx1, ry1, rx2, ry2],
                                         centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
@@ -993,11 +1027,17 @@ class ZampenYOLOTracker:
             except Exception:
                 pass
 
-        # Suppress duplicate overlapping bird boxes (IoU > 0.62 — preserves partially-occluded neighbours)
-        birds = sorted(birds, key=lambda b: b.confidence, reverse=True)
+        # Suppress duplicate / nested overlapping bird boxes (prioritising ByteTrack-tracked
+        # detections over untracked raw recovery boxes, then confidence).
+        birds = sorted(birds, key=lambda b: (1 if b.track_id is not None else 0, b.confidence), reverse=True)
         kept_birds = []
         for b in birds:
-            if any(equipment_boxes_overlap(b.box, k.box, 0.62) for k in kept_birds):
+            if any(
+                self._is_duplicate_bird_box(
+                    b.box, k.box, iou_thresh=0.48, iomin_thresh=0.85, nested_iou_thresh=0.38
+                )
+                for k in kept_birds
+            ):
                 continue
             kept_birds.append(b)
         birds = kept_birds
@@ -1525,6 +1565,37 @@ class ZampenYOLOTracker:
                 self.track_label_last_seen[bird.track_id] = self.processed_frame_count
                 self.hen_owner_last_frame[bird.bird_label] = self.processed_frame_count
                 self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
+
+        # Post-identity duplicate suppression: drop phantom Unidentified "Chicken" boxes that
+        # double-label an already-identified Hen or Rooster (e.g. a narrow inner Chicken box
+        # nested inside ID1_H1 Yellow or ID6_R1 Rooster).
+        identified_birds = [
+            b for b in birds if b.bird_label.startswith("Hen") or b.bird_label == "Rooster"
+        ]
+        deduped_birds: List[TrackedDetection] = list(identified_birds)
+        unidentified_birds = sorted(
+            [b for b in birds if not (b.bird_label.startswith("Hen") or b.bird_label == "Rooster")],
+            key=lambda b: b.confidence,
+            reverse=True,
+        )
+        for ub in unidentified_birds:
+            if any(
+                self._is_duplicate_bird_box(
+                    ub.box, ib.box, iou_thresh=0.38, iomin_thresh=0.82, nested_iou_thresh=0.28
+                )
+                for ib in identified_birds
+            ):
+                continue
+            if any(
+                self._is_duplicate_bird_box(
+                    ub.box, kb.box, iou_thresh=0.45, iomin_thresh=0.82, nested_iou_thresh=0.32
+                )
+                for kb in deduped_birds
+                if kb not in identified_birds
+            ):
+                continue
+            deduped_birds.append(ub)
+        birds = deduped_birds
 
         # Reclaim identities of tracks that are inactive
         stale = [
