@@ -1193,6 +1193,68 @@ class TestZampenAnalyticsPipeline(unittest.TestCase):
 
             test_db.engine.dispose()
 
+    def test_hybrid_head_overlap_and_veto_for_feeding_and_drinking(self):
+        """Head overlapping Feeder/Drinker counts as Feeding/Drinking; head pointing away vetoes body overlap."""
+        feeder = TrackedDetection(
+            track_id=None, class_id=2, class_name="Feeder", confidence=0.90,
+            box=[200, 200, 300, 300], centroid=(250, 250), bird_label="Feeder",
+        )
+        drinker = TrackedDetection(
+            track_id=None, class_id=1, class_name="Drinker", confidence=0.88,
+            box=[450, 200, 550, 300], centroid=(500, 250), bird_label="Drinker",
+        )
+
+        # Case 1: Bird body touches Feeder on the left, AND Head overlaps Feeder rim -> Feeding
+        bird_eating = TrackedDetection(
+            track_id=3, class_id=0, class_name="Chicken", confidence=0.85,
+            box=[120, 220, 215, 280], centroid=(168, 250), bird_label="ID3_H3 Red",
+            head_box=[195, 238, 220, 262], head_conf=0.45,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=1, timestamp_s=0.1, birds=[bird_eating], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertTrue(self.engine.bird_states[3].is_in_feeder_zone)
+        self.assertEqual(self.engine.bird_states[3].current_behavior, "Feeding")
+
+        # Case 2: Next frame, Head dips out of view (head_box=None) -> 0.6s grace keeps Feeding active
+        bird_dipping = TrackedDetection(
+            track_id=3, class_id=0, class_name="Chicken", confidence=0.85,
+            box=[120, 220, 215, 280], centroid=(168, 250), bird_label="ID3_H3 Red",
+            head_box=None, head_conf=0.0,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=2, timestamp_s=0.2, birds=[bird_dipping], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertTrue(self.engine.bird_states[3].is_in_feeder_zone)
+
+        # Case 3: Bird turns around — body still touches Feeder box, but Head points far left away from rim -> VETO!
+        bird_turned_away = TrackedDetection(
+            track_id=3, class_id=0, class_name="Chicken", confidence=0.85,
+            box=[120, 220, 215, 280], centroid=(168, 250), bird_label="ID3_H3 Red",
+            head_box=[115, 240, 140, 265], head_conf=0.52,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=3, timestamp_s=0.3, birds=[bird_turned_away], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertFalse(self.engine.bird_states[3].is_in_feeder_zone)
+        self.assertNotEqual(self.engine.bird_states[3].current_behavior, "Feeding")
+
+        # Case 4: Another bird's Head overlaps Drinker rim -> Drinking
+        bird_drinking = TrackedDetection(
+            track_id=4, class_id=0, class_name="Chicken", confidence=0.84,
+            box=[535, 220, 625, 280], centroid=(580, 250), bird_label="ID4_H4 White",
+            head_box=[530, 238, 556, 262], head_conf=0.41,
+        )
+        self.engine.process_frame(
+            TrackerFrameOutput(frame_idx=4, timestamp_s=0.4, birds=[bird_drinking], feeders=[feeder], drinkers=[drinker]),
+            dt=0.1,
+        )
+        self.assertTrue(self.engine.bird_states[4].is_in_waterer_zone)
+        self.assertEqual(self.engine.bird_states[4].current_behavior, "Drinking")
+
 
 if __name__ == "__main__":
     unittest.main()

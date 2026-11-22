@@ -11,7 +11,7 @@ import numpy as np
 from collections import Counter, deque
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ultralytics import YOLO
 
 from .config import BASE_DIR, CONFIG, PROJECT_ROOT
@@ -109,6 +109,8 @@ class TrackedDetection:
     class_name: str
     track_id: Optional[int]            # ByteTrack persistent ID
     bird_label: str                    # Hen1-5, Rooster, or Chicken
+    head_box: Optional[List[int]] = None   # Matched Head [x1, y1, x2, y2] if detected
+    head_conf: float = 0.0
 
 
 @dataclass
@@ -118,6 +120,7 @@ class TrackerFrameOutput:
     birds: List[TrackedDetection]
     feeders: List[TrackedDetection]
     drinkers: List[TrackedDetection]
+    heads: List[TrackedDetection] = field(default_factory=list)
 
 
 class ZampenYOLOTracker:
@@ -131,14 +134,14 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
-    MIN_DETECTION_CONFIDENCE = 0.25  # Calibrated for poultry_v7 (Chicken/Rooster mAP50=96.5%+)
-    MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v7 (Feeder/Drinker mAP50=96.7-97.0%)
+    MIN_DETECTION_CONFIDENCE = 0.25  # Calibrated for poultry_v8 (Chicken/Rooster mAP50=95.7-97.0%)
+    MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
     MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
-    # Per-saddle confidence gates calibrated from poultry_v7 validation recall/precision:
-    # Blue has the lowest recall (0.467) on dark feathers -> lower gate (0.12) recovers missed detections;
-    # Red & YellowGreen have high recall (0.81-0.86) -> tighter gate (0.18) reduces false swaps.
+    MIN_HEAD_CONFIDENCE = 0.12       # Low gate for new Head class (poultry_v8 R=0.227)
+    SHOW_HEAD_OVERLAY = True         # Draw cyan Head boxes for visual verification (toggle False to hide)
+    # Per-saddle confidence gates calibrated from poultry_v8 validation recall/precision:
     MIN_SADDLE_CONFIDENCE_BY_CLASS = {
-        "Saddle_Color_Blue": 0.12,
+        "Saddle_Color_Blue": 0.15,
         "Saddle_Color_White": 0.15,
         "Saddle_Color_Yellow": 0.15,
         "Saddle_Color_Red": 0.18,
@@ -173,9 +176,10 @@ class ZampenYOLOTracker:
         self.conf = CONFIG.conf_threshold
         self.iou = CONFIG.iou_threshold
         self.imgsz = CONFIG.imgsz
-        # min() of the class-specific gates: equipment, saddle, and bird boxes survive NMS
+        # min() of the class-specific gates: equipment, saddle, head, and bird boxes survive NMS
         min_saddle_gate = min(
-            [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+            [self.MIN_SADDLE_CONFIDENCE, self.MIN_HEAD_CONFIDENCE]
+            + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
         )
         self.track_conf = min(self.conf, self.MIN_EQUIPMENT_CONFIDENCE, min_saddle_gate)
 
@@ -796,6 +800,7 @@ class ZampenYOLOTracker:
         feeders: List[TrackedDetection] = []
         drinkers: List[TrackedDetection] = []
         saddle_dets: List[Tuple[List[int], str, float]] = []
+        head_dets: List[Tuple[List[int], float, int]] = []
 
         if results.boxes is None or len(results.boxes) == 0:
             return TrackerFrameOutput(
@@ -823,7 +828,10 @@ class ZampenYOLOTracker:
             confidence = float(conf)
             is_saddle = class_name.startswith("Saddle_Color_")
             is_equip = class_name in ("Feeder", "Drinker")
+            is_head = class_name == "Head"
             if is_equip and confidence < getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20):
+                continue
+            if is_head and confidence < getattr(self, "MIN_HEAD_CONFIDENCE", 0.12):
                 continue
             if is_saddle:
                 saddle_gate = self.MIN_SADDLE_CONFIDENCE_BY_CLASS.get(
@@ -831,7 +839,7 @@ class ZampenYOLOTracker:
                 )
                 if confidence < saddle_gate:
                     continue
-            if not is_saddle and not is_equip and confidence < self.MIN_DETECTION_CONFIDENCE:
+            if not is_saddle and not is_equip and not is_head and confidence < self.MIN_DETECTION_CONFIDENCE:
                 continue
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
@@ -857,6 +865,8 @@ class ZampenYOLOTracker:
                 det.bird_label = "Drinker"
                 det.track_id = None
                 drinkers.append(det)
+            elif class_name == "Head":
+                head_dets.append(([x1, y1, x2, y2], confidence, cls_id))
             elif class_name.startswith("Saddle_Color_"):
                 saddle_dets.append(([x1, y1, x2, y2], class_name, confidence))
 
@@ -871,14 +881,16 @@ class ZampenYOLOTracker:
             saddle_dets = kept_saddles
 
         # ByteTrack Kalman filters are tuned for moving birds and may drop small 10x10 saddle
-        # patches, stationary equipment, or birds below new_track_thresh. Recover raw detections
-        # via the dedicated predict engine so saddle identification and equipment tracking are reliable:
-        if len(saddle_dets) < 5 or len(feeders) == 0 or len(drinkers) == 0 or len(birds) < 5:
+        # patches, Head boxes, stationary equipment, or birds below new_track_thresh. Recover raw
+        # detections via the dedicated predict engine so saddle, head, and equipment tracking are reliable:
+        has_head_class = "Head" in self.class_map.values()
+        if len(saddle_dets) < 5 or len(feeders) == 0 or len(drinkers) == 0 or len(birds) < 5 or (has_head_class and len(head_dets) < len(birds)):
             try:
                 equip_model = getattr(self, "_equip_model", self.model)
                 if equip_model is not None and hasattr(equip_model, "predict"):
                     min_saddle_gate = min(
-                        [self.MIN_SADDLE_CONFIDENCE] + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
+                        [self.MIN_SADDLE_CONFIDENCE, getattr(self, "MIN_HEAD_CONFIDENCE", 0.12)]
+                        + list(self.MIN_SADDLE_CONFIDENCE_BY_CLASS.values())
                     )
                     raw_res = equip_model.predict(
                         frame,
@@ -896,7 +908,10 @@ class ZampenYOLOTracker:
                             r_name = self.class_map.get(r_cls, f"class_{r_cls}")
                             r_confidence = float(r_conf)
                             rx1, ry1, rx2, ry2 = [int(v) for v in r_box]
-                            if r_name.startswith("Saddle_Color_"):
+                            if r_name == "Head" and r_confidence >= getattr(self, "MIN_HEAD_CONFIDENCE", 0.12):
+                                if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], h[0], 0.45) for h in head_dets):
+                                    head_dets.append(([rx1, ry1, rx2, ry2], r_confidence, r_cls))
+                            elif r_name.startswith("Saddle_Color_"):
                                 r_saddle_gate = self.MIN_SADDLE_CONFIDENCE_BY_CLASS.get(
                                     r_name, self.MIN_SADDLE_CONFIDENCE
                                 )
@@ -1583,12 +1598,55 @@ class ZampenYOLOTracker:
             detection for _, _, label, detection in equipment if label == "Drinker"
         ]
 
+        # Associate detected Head boxes 1-to-1 with their parent Bird box
+        heads_out: List[TrackedDetection] = []
+        if head_dets:
+            head_dets.sort(key=lambda h: h[1], reverse=True)
+            kept_heads = []
+            for h in head_dets:
+                if any(equipment_boxes_overlap(h[0], kh[0], 0.45) for kh in kept_heads):
+                    continue
+                kept_heads.append(h)
+
+            assigned_head_birds = set()
+            for hbox, hconf, hcls in kept_heads:
+                hx1, hy1, hx2, hy2 = hbox
+                hcx, hcy = (hx1 + hx2) / 2.0, (hy1 + hy2) / 2.0
+                best_bird = None
+                best_dist = float("inf")
+                for b in birds:
+                    if id(b) in assigned_head_birds:
+                        continue
+                    bx1, by1, bx2, by2 = b.box
+                    # Allow head center inside bird box or extending up to 14px beyond neck/beak edge
+                    if (bx1 - 14 <= hcx <= bx2 + 14) and (by1 - 14 <= hcy <= by2 + 14):
+                        d = math.hypot(hcx - b.centroid[0], hcy - b.centroid[1])
+                        if d < best_dist:
+                            best_dist = d
+                            best_bird = b
+                matched_tid = None
+                if best_bird is not None:
+                    best_bird.head_box = hbox
+                    best_bird.head_conf = hconf
+                    assigned_head_birds.add(id(best_bird))
+                    matched_tid = best_bird.track_id
+                heads_out.append(TrackedDetection(
+                    box=hbox,
+                    centroid=(int(hcx), int(hcy)),
+                    confidence=hconf,
+                    class_id=hcls,
+                    class_name="Head",
+                    track_id=matched_tid,
+                    bird_label="Head",
+                ))
+
         return TrackerFrameOutput(
             frame_idx=frame_idx,
             timestamp_s=timestamp_s,
             birds=birds,
             feeders=feeders,
-            drinkers=drinkers
+            drinkers=drinkers,
+            heads=heads_out,
         )
 
     def annotate_frame(
@@ -1694,6 +1752,21 @@ class ZampenYOLOTracker:
 
         for bird in sorted(frame_out.birds, key=_bird_label_priority, reverse=True):
             _draw(bird, "Chicken")
+        if getattr(self, "SHOW_HEAD_OVERLAY", True):
+            head_color = (212, 188, 0)  # Bright cyan (#00BCD4 in BGR)
+            for head in getattr(frame_out, "heads", []):
+                hx1, hy1, hx2, hy2 = head.box
+                cv2.rectangle(vis, (hx1, hy1), (hx2, hy2), head_color, 1, cv2.LINE_AA)
+                cv2.putText(
+                    vis,
+                    f"H {head.confidence:.2f}",
+                    (hx1, max(28, hy1 - 2)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.24,
+                    head_color,
+                    1,
+                    cv2.LINE_AA,
+                )
         for feeder in frame_out.feeders:
             _draw(feeder, "Feeder")
         for drinker in frame_out.drinkers:

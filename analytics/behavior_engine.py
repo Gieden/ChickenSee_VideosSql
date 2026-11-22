@@ -72,6 +72,8 @@ class BirdTrackState:
     last_feeder_center_dist: Optional[float] = None
     last_drinker_center_dist: Optional[float] = None
     feeder_immobile_s: float = 0.0
+    head_feeder_grace_s: float = 0.0
+    head_drinker_grace_s: float = 0.0
     current_behavior: str = "Active"
 
 
@@ -235,6 +237,26 @@ class BehaviorAnalysisEngine:
         return math.hypot(dx, dy)
 
     @classmethod
+    def _head_overlaps_circular_station(
+        cls,
+        head_box: List[int],
+        station_box: List[int],
+        station_centroid: Tuple[int, int],
+        margin_px: float = 6.0,
+    ) -> Tuple[bool, float]:
+        """
+        Direct head/beak-to-station overlap check against the circular rim of a
+        Feeder or Drinker. Returns (is_overlapping, rim_gap_px).
+        """
+        sx1, sy1, sx2, sy2 = station_box
+        sw = max(1.0, float(sx2 - sx1))
+        sh = max(1.0, float(sy2 - sy1))
+        station_radius = 0.48 * min(sw, sh)
+        dist_to_center = cls._point_to_box_distance(station_centroid, head_box)
+        rim_gap = max(0.0, dist_to_center - station_radius)
+        return (rim_gap <= margin_px), rim_gap
+
+    @classmethod
     def _is_reaching_circular_station(
         cls,
         bird_box: List[int],
@@ -340,37 +362,86 @@ class BehaviorAnalysisEngine:
             state.instant_velocity_px_s = velocity
 
             # ---------------------------------------------------------
-            # 1 & 2. Feeding & Drinking Zone Check (Circular Rim + Orientation + Motion Gated)
-            # - Checks actual circular feeder/drinker rim (ignores empty square corners)
-            # - Rejects birds walking parallel past the feeder or moving away
-            # - Mutually exclusive: assigns only to whichever station is closer
+            # 1 & 2. Feeding & Drinking Zone Check (Hybrid Head Overlap + Circular Rim Fallback)
+            # - Primary: when Head is detected, require head_box to touch/overlap the circular
+            #   Feeder/Drinker rim (vetoes false positives when the head points away while body/tail
+            #   touches the station) and arm a 0.6s grace timer for brief head-dip occlusions.
+            # - Fallback: when Head is absent on a frame, honor the 0.6s grace timer if still near
+            #   the station, otherwise fall back to circular rim + perpendicular-passing geometry.
+            # - Mutually exclusive: assigns only to whichever station is closer.
             # ---------------------------------------------------------
-            best_feeder = min(
-                frame_out.feeders,
-                key=lambda f: self._point_to_box_distance(f.centroid, bird.box),
-                default=None,
-            )
-            best_drinker = min(
-                frame_out.drinkers,
-                key=lambda d: self._point_to_box_distance(d.centroid, bird.box),
-                default=None,
-            )
-            feeder_ok, feeder_dist = (
-                self._is_reaching_circular_station(
-                    bird.box, bird.centroid, best_feeder.box, best_feeder.centroid,
-                    self.cfg.feeder_zone_proximity_px,
+            state.head_feeder_grace_s = max(0.0, state.head_feeder_grace_s - dt)
+            state.head_drinker_grace_s = max(0.0, state.head_drinker_grace_s - dt)
+
+            head_box = getattr(bird, "head_box", None)
+            if head_box is not None and len(head_box) == 4:
+                best_feeder = min(
+                    frame_out.feeders,
+                    key=lambda f: self._point_to_box_distance(f.centroid, head_box),
+                    default=None,
                 )
-                if best_feeder
-                else (False, float("inf"))
-            )
-            drinker_ok, drinker_dist = (
-                self._is_reaching_circular_station(
-                    bird.box, bird.centroid, best_drinker.box, best_drinker.centroid,
-                    self.cfg.waterer_zone_proximity_px,
+                best_drinker = min(
+                    frame_out.drinkers,
+                    key=lambda d: self._point_to_box_distance(d.centroid, head_box),
+                    default=None,
                 )
-                if best_drinker
-                else (False, float("inf"))
-            )
+                feeder_ok, feeder_dist = (
+                    self._head_overlaps_circular_station(
+                        head_box, best_feeder.box, best_feeder.centroid, margin_px=6.0
+                    )
+                    if best_feeder
+                    else (False, float("inf"))
+                )
+                drinker_ok, drinker_dist = (
+                    self._head_overlaps_circular_station(
+                        head_box, best_drinker.box, best_drinker.centroid, margin_px=6.0
+                    )
+                    if best_drinker
+                    else (False, float("inf"))
+                )
+                if feeder_ok:
+                    state.head_feeder_grace_s = 0.6
+                if drinker_ok:
+                    state.head_drinker_grace_s = 0.6
+            else:
+                best_feeder = min(
+                    frame_out.feeders,
+                    key=lambda f: self._point_to_box_distance(f.centroid, bird.box),
+                    default=None,
+                )
+                best_drinker = min(
+                    frame_out.drinkers,
+                    key=lambda d: self._point_to_box_distance(d.centroid, bird.box),
+                    default=None,
+                )
+                feeder_ok, feeder_dist = (
+                    self._is_reaching_circular_station(
+                        bird.box, bird.centroid, best_feeder.box, best_feeder.centroid,
+                        self.cfg.feeder_zone_proximity_px,
+                    )
+                    if best_feeder
+                    else (False, float("inf"))
+                )
+                drinker_ok, drinker_dist = (
+                    self._is_reaching_circular_station(
+                        bird.box, bird.centroid, best_drinker.box, best_drinker.centroid,
+                        self.cfg.waterer_zone_proximity_px,
+                    )
+                    if best_drinker
+                    else (False, float("inf"))
+                )
+                bx1, by1, bx2, by2 = bird.box
+                bird_len = max(1.0, float(max(bx2 - bx1, by2 - by1)))
+                if not feeder_ok and state.head_feeder_grace_s > 0.0 and best_feeder is not None:
+                    fsx1, fsy1, fsx2, fsy2 = best_feeder.box
+                    f_rad = 0.48 * min(max(1.0, float(fsx2 - fsx1)), max(1.0, float(fsy2 - fsy1)))
+                    if self._calc_euclidean(bird.centroid, best_feeder.centroid) <= f_rad + 0.65 * bird_len:
+                        feeder_ok, feeder_dist = True, 0.0
+                if not drinker_ok and state.head_drinker_grace_s > 0.0 and best_drinker is not None:
+                    dsx1, dsy1, dsx2, dsy2 = best_drinker.box
+                    d_rad = 0.48 * min(max(1.0, float(dsx2 - dsx1)), max(1.0, float(dsy2 - dsy1)))
+                    if self._calc_euclidean(bird.centroid, best_drinker.centroid) <= d_rad + 0.65 * bird_len:
+                        drinker_ok, drinker_dist = True, 0.0
 
             feeder_center_dist = (
                 self._calc_euclidean(bird.centroid, best_feeder.centroid) if best_feeder else None
