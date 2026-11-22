@@ -96,7 +96,6 @@ export interface BehaviorEventRow {
   nearest_distance_mean_body_lengths: number;
   nearest_distance_min_body_lengths: number;
   nearest_distance_max_body_lengths: number;
-  weather_alert: boolean;
 }
 
 // ── 3. Detection Tracking ───────────────────────────────────────────────────

@@ -248,7 +248,6 @@ export default function ResearchDatasetsTab() {
         'nearest_distance_mean_body_lengths',
         'nearest_distance_min_body_lengths',
         'nearest_distance_max_body_lengths',
-        'weather_alert',
       ];
       rows = filteredBehaviorEvents.map((r) => [
         r.video,
@@ -270,7 +269,6 @@ export default function ResearchDatasetsTab() {
         r.nearest_distance_mean_body_lengths,
         r.nearest_distance_min_body_lengths,
         r.nearest_distance_max_body_lengths,
-        r.weather_alert ? 'TRUE' : 'FALSE',
       ]);
     } else if (activeSheet === 'detection_tracking') {
       headers = [
@@ -749,8 +747,7 @@ export default function ResearchDatasetsTab() {
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">end_s</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">duration_s</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">tracking_visible_pct</th>
-                  <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">mean_detection_conf</th>
-                  <th className="py-2.5 px-3 text-center">weather_alert</th>
+                  <th className="py-2.5 px-3 text-right">mean_detection_conf</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 font-mono text-xs">
@@ -803,17 +800,8 @@ export default function ResearchDatasetsTab() {
                       <td className="py-2 px-3 border-r border-slate-200 text-right font-semibold text-emerald-700">
                         {row.tracking_visible_pct.toFixed(1)}%
                       </td>
-                      <td className="py-2 px-3 border-r border-slate-200 text-right text-slate-700">
+                      <td className="py-2 px-3 text-right text-slate-700">
                         {row.mean_detection_conf.toFixed(2)}
-                      </td>
-                      <td className="py-2 px-3 text-center text-[11px] font-sans">
-                        {row.weather_alert ? (
-                          <span className="inline-flex items-center gap-1 font-bold text-amber-700">
-                            <AlertTriangle className="h-3 w-3" /> TRUE
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">FALSE</span>
-                        )}
                       </td>
                     </tr>
                   ))}

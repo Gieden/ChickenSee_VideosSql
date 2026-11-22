@@ -109,7 +109,6 @@ export async function GET(req: NextRequest) {
               nearest_distance_mean_body_lengths: Number(item.nearest_distance_mean_body_lengths) || 0,
               nearest_distance_min_body_lengths: Number(item.nearest_distance_min_body_lengths) || 0,
               nearest_distance_max_body_lengths: Number(item.nearest_distance_max_body_lengths) || 0,
-              weather_alert: String(item.touches_clip_edge || item.weather_alert) === '1',
             });
           }
         }
@@ -343,7 +342,6 @@ export async function GET(req: NextRequest) {
                     nearest_distance_mean_body_lengths: 0,
                     nearest_distance_min_body_lengths: 0,
                     nearest_distance_max_body_lengths: 0,
-                    weather_alert: heatStressLevel === 'Severe' || heatStressLevel === 'Emergency',
                   });
                 }
               }
