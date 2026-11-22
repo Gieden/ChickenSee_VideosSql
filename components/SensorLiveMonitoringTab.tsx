@@ -20,7 +20,9 @@ import {
   Copy,
   Check,
   ArrowUpRight,
+  Database,
 } from 'lucide-react';
+import SqliteViewerTab from '@/components/SqliteViewerTab';
 import {
   getSupabaseSensorClient,
   SensorLogRow,
@@ -30,7 +32,12 @@ import {
   formatRelativeTime,
 } from '@/lib/supabase-sensor';
 
-export default function SensorLiveMonitoringTab() {
+export default function SensorLiveMonitoringTab({
+  initialMode = 'live',
+}: {
+  initialMode?: 'live' | 'recorded';
+}) {
+  const [sensorViewMode, setSensorViewMode] = useState<'live' | 'recorded'>(initialMode);
   const [readings, setReadings] = useState<EnrichedSensorReading[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -43,8 +50,12 @@ export default function SensorLiveMonitoringTab() {
   const [fetchLimit, setFetchLimit] = useState<number>(50);
   const [statusFilter, setStatusFilter] = useState<'all' | 'normal' | 'alert'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [chartMetric, setChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound' | 'thi'>('temp_hum');
+  const [chartMetric, setChartMetric] = useState<'temp_hum' | 'ammonia' | 'sound'>('temp_hum');
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
+
+  useEffect(() => {
+    setSensorViewMode(initialMode);
+  }, [initialMode]);
 
   // Realtime subscription status
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
@@ -205,14 +216,13 @@ export default function SensorLiveMonitoringTab() {
 
   const filteredReadings = useMemo(() => {
     return readings.filter((r) => {
+      const isTempAlert = r.temperature !== null && (r.temperature > 28 || r.temperature < 18);
+      const isNh3Alert = r.ammonia_ppm !== null && r.ammonia_ppm > 10;
+      const isSoundAlert = r.sound_db !== null && r.sound_db > 75;
       if (statusFilter === 'normal') {
-        if (r.heatStressLevel !== 'Normal') return false;
-        if (r.ammonia_ppm !== null && r.ammonia_ppm > 10) return false;
+        if (isTempAlert || isNh3Alert || isSoundAlert) return false;
       } else if (statusFilter === 'alert') {
-        const isHeatAlert = r.heatStressLevel === 'Severe' || r.heatStressLevel === 'Emergency';
-        const isNh3Alert = r.ammonia_ppm !== null && r.ammonia_ppm > 15;
-        const isSoundAlert = r.sound_db !== null && r.sound_db > 70;
-        if (!isHeatAlert && !isNh3Alert && !isSoundAlert) return false;
+        if (!isTempAlert && !isNh3Alert && !isSoundAlert) return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -220,8 +230,8 @@ export default function SensorLiveMonitoringTab() {
         const matchTemp = r.temperature !== null && String(r.temperature).includes(q);
         const matchHum = r.humidity !== null && String(r.humidity).includes(q);
         const matchNh3 = r.ammonia_ppm !== null && String(r.ammonia_ppm).includes(q);
-        const matchStress = r.heatStressLevel.toLowerCase().includes(q);
-        if (!matchTime && !matchTemp && !matchHum && !matchNh3 && !matchStress) return false;
+        const matchSound = r.sound_db !== null && String(r.sound_db).includes(q);
+        if (!matchTime && !matchTemp && !matchHum && !matchNh3 && !matchSound) return false;
       }
       return true;
     });
@@ -231,13 +241,13 @@ export default function SensorLiveMonitoringTab() {
     if (readings.length === 0) return;
     const headers = [
       'ID','Recorded_At','Temperature_C','Humidity_Pct','Ammonia_PPM',
-      'Sound_DB','THI','Heat_Stress_Level','Temp_Status','Hum_Status',
+      'Sound_DB','Temp_Status','Hum_Status',
       'Ammonia_Status','Sound_Status',
     ];
     const rows = readings.map((r) => [
       r.id, r.recorded_at, r.temperature ?? '', r.humidity ?? '',
-      r.ammonia_ppm ?? '', r.sound_db ?? '', r.thi ?? '',
-      r.heatStressLevel, r.temp_status ?? '', r.hum_status ?? '',
+      r.ammonia_ppm ?? '', r.sound_db ?? '',
+      r.temp_status ?? '', r.hum_status ?? '',
       r.ammonia_status ?? '', r.sound_status ?? '',
     ]);
     const csv = 'data:text/csv;charset=utf-8,' +
@@ -284,13 +294,11 @@ export default function SensorLiveMonitoringTab() {
     const Hu = reversed.map((r) => r.humidity);
     const N3 = reversed.map((r) => r.ammonia_ppm);
     const S = reversed.map((r) => r.sound_db);
-    const THI = reversed.map((r) => r.thi);
 
     const ts = yscale(T, 15, 42);
     const hs = yscale(Hu, 30, 95);
     const ns = yscale(N3, 0, Math.max(25, ...(N3.filter((v): v is number => v !== null))));
     const ss = yscale(S, 35, 95);
-    const tis = yscale(THI, 65, 90);
 
     const poly = (vals: (number | null)[], fn: (v: number | null) => number) =>
       vals.map((v, i) => `${gx(i).toFixed(1)},${fn(v).toFixed(1)}`).join(' ');
@@ -307,13 +315,65 @@ export default function SensorLiveMonitoringTab() {
       hPoly: poly(Hu, hs),
       nPoly: poly(N3, ns), nArea: area(N3, ns),
       sPoly: poly(S, ss),
-      tiPoly: poly(THI, tis), tiArea: area(THI, tis),
     };
   }, [readings]);
 
   // ─────────────────────────── RENDER ───────────────────────────
   return (
     <div className="space-y-6">
+
+      {/* ── UNIFIED SENSOR MONITORING MODE SWITCH (Live vs Recorded SQLite) ── */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold tracking-tight text-slate-900">Sensor Monitoring</h2>
+          <p className="text-xs text-slate-500">
+            Switch between live streaming environmental sensors and recorded SQLite sensor databases.
+          </p>
+        </div>
+        <div
+          role="tablist"
+          aria-label="Sensor monitoring data mode"
+          className="inline-flex rounded-xl border border-slate-200 bg-slate-100/90 p-1 text-xs font-semibold"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sensorViewMode === 'live'}
+            onClick={() => setSensorViewMode('live')}
+            className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 transition ${
+              sensorViewMode === 'live'
+                ? 'bg-white text-orange-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Radio className="h-3.5 w-3.5" />
+            <span>Live Data Sensors</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sensorViewMode === 'recorded'}
+            onClick={() => setSensorViewMode('recorded')}
+            className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 transition ${
+              sensorViewMode === 'recorded'
+                ? 'bg-white text-orange-700 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Database className="h-3.5 w-3.5" />
+            <span>Recorded Data Sensors</span>
+            <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">
+              sensors.sqlite
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {sensorViewMode === 'recorded' ? (
+        <SqliteViewerTab />
+      ) : (
+        <>
 
       {/* ── HEADER STRIP ── */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
@@ -526,7 +586,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
       )}
 
       {/* ── METRIC CARDS ── */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
 
         {/* TEMPERATURE */}
         <MetricCard
@@ -622,46 +682,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
           Icon={Gauge}
           iconBg="bg-indigo-100 text-indigo-600"
         />
-
-        {/* THI */}
-        <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Poultry Heat Stress</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 text-rose-600">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold tracking-tight text-slate-900">
-              {summary.thi.current !== null ? summary.thi.current.toFixed(1) : '—'}
-            </span>
-            <span className="text-xs font-semibold text-slate-500">THI</span>
-          </div>
-          <div className="mt-3 border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
-            Avg THI: {summary.thi.avg !== null ? summary.thi.avg.toFixed(1) : '—'}
-          </div>
-          <div className="mt-2">
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold border ${
-                summary.thi.heatStressLevel === 'Normal'
-                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                  : summary.thi.heatStressLevel === 'Moderate'
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : summary.thi.heatStressLevel === 'Severe'
-                  ? 'bg-orange-50 text-orange-700 border-orange-200'
-                  : summary.thi.heatStressLevel === 'Emergency'
-                  ? 'bg-rose-50 text-rose-700 border-rose-200 animate-pulse'
-                  : 'bg-slate-100 text-slate-500 border-slate-200'
-              }`}
-            >
-              {summary.thi.heatStressLevel === 'Normal'
-                ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-                : <AlertTriangle className="h-3.5 w-3.5 text-rose-600" />
-              }
-              {summary.thi.heatStressLevel}
-            </span>
-          </div>
-        </div>
       </div>
 
       {/* ── TREND CHART ── */}
@@ -672,7 +692,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
             <p className="text-xs text-slate-500">Time-series of real incoming sensor packets.</p>
           </div>
           <div className="flex flex-wrap gap-1.5 rounded-xl bg-slate-100 p-1 text-xs font-semibold">
-            {(['temp_hum', 'ammonia', 'sound', 'thi'] as const).map((m) => (
+            {(['temp_hum', 'ammonia', 'sound'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setChartMetric(m)}
@@ -680,7 +700,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                   chartMetric === m ? 'bg-white shadow-sm text-orange-600' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {m === 'temp_hum' ? 'Temp & Humidity' : m === 'ammonia' ? 'Ammonia (NH₃)' : m === 'sound' ? 'Sound (dB)' : 'THI Index'}
+                {m === 'temp_hum' ? 'Temp & Humidity' : m === 'ammonia' ? 'Ammonia (NH₃)' : 'Sound (dB)'}
               </button>
             ))}
           </div>
@@ -735,12 +755,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                 {chartMetric === 'sound' && (
                   <polyline fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={chartData.sPoly} />
                 )}
-                {chartMetric === 'thi' && (
-                  <>
-                    <path d={chartData.tiArea} fill="url(#tiGrad)" />
-                    <polyline fill="none" stroke="#f43f5e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={chartData.tiPoly} />
-                  </>
-                )}
 
                 {/* Hover hit-targets */}
                 {chartData.reversed.map((pt, idx) => (
@@ -773,7 +787,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                   )}
                   {chartMetric === 'ammonia' && <span className="flex items-center gap-1.5 font-medium text-slate-700"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Ammonia NH₃ (ppm)</span>}
                   {chartMetric === 'sound' && <span className="flex items-center gap-1.5 font-medium text-slate-700"><span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />Sound (dB)</span>}
-                  {chartMetric === 'thi' && <span className="flex items-center gap-1.5 font-medium text-slate-700"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" />Temperature-Humidity Index</span>}
                 </div>
 
                 {hoverIndex !== null && chartData.reversed[hoverIndex] && (
@@ -783,7 +796,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                     <span>H: {chartData.reversed[hoverIndex].humidity ?? '—'}%</span>
                     <span>NH₃: {chartData.reversed[hoverIndex].ammonia_ppm ?? '—'} ppm</span>
                     <span>dB: {chartData.reversed[hoverIndex].sound_db ?? '—'}</span>
-                    <span className="font-bold text-orange-600">THI: {chartData.reversed[hoverIndex].thi ?? '—'}</span>
                   </div>
                 )}
               </div>
@@ -877,7 +889,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                   <th className="bg-slate-50 px-4 py-3">Humidity</th>
                   <th className="bg-slate-50 px-4 py-3">Ammonia (NH₃)</th>
                   <th className="bg-slate-50 px-4 py-3">Sound</th>
-                  <th className="bg-slate-50 px-4 py-3">THI / Heat Stress</th>
                   <th className="bg-slate-50 px-4 py-3">Status</th>
                 </tr>
               </thead>
@@ -907,18 +918,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                       {r.sound_db !== null
                         ? <span className="font-mono text-slate-700">{r.sound_db.toFixed(1)} dB</span>
                         : <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-slate-800">{r.thi !== null ? r.thi.toFixed(1) : '—'}</span>
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                          r.heatStressLevel === 'Normal' ? 'bg-emerald-50 text-emerald-700' :
-                          r.heatStressLevel === 'Moderate' ? 'bg-amber-50 text-amber-700' :
-                          r.heatStressLevel === 'Severe' ? 'bg-orange-50 text-orange-700' :
-                          r.heatStressLevel === 'Emergency' ? 'bg-rose-50 text-rose-700' :
-                          'bg-slate-100 text-slate-500'
-                        }`}>{r.heatStressLevel}</span>
-                      </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <div className="flex items-center gap-1">
@@ -957,6 +956,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

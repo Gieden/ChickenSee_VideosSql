@@ -47,13 +47,12 @@ import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
 import AdminSettingsTab from '@/components/AdminSettingsTab';
-import SqliteViewerTab from '@/components/SqliteViewerTab';
 import ResearchDatasetsTab from '@/components/ResearchDatasetsTab';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
-type DashboardTab = 'database' | 'results' | 'datasets' | 'queue' | 'sensors' | 'staff' | 'settings';
+type DashboardTab = 'sensors' | 'results' | 'datasets' | 'queue' | 'staff' | 'settings';
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ['database', 'results', 'datasets', 'queue', 'sensors', 'staff', 'settings'];
+const DASHBOARD_TABS: readonly DashboardTab[] = ['sensors', 'results', 'datasets', 'queue', 'staff', 'settings'];
 
 interface QueueItem {
   item_id: string;
@@ -1176,7 +1175,8 @@ function DetectionQueueList({
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<DashboardTab>('database');
+  const [activeTab, setActiveTab] = useState<DashboardTab>('sensors');
+  const [sensorInitialMode, setSensorInitialMode] = useState<'live' | 'recorded'>('live');
 
   // ── Signed-in user (role drives which tabs are available) ──
   const [sessionUser, setSessionUser] = useState<{ username: string; name: string; role: 'admin' | 'staff' } | null>(null);
@@ -1199,9 +1199,12 @@ export default function DashboardPage() {
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
       const savedTab = localStorage.getItem('chickensee_active_tab');
-      const targetTab = (tabParam || savedTab) as DashboardTab;
-      if (targetTab && DASHBOARD_TABS.includes(targetTab)) {
-        setActiveTab(targetTab);
+      const rawTab = tabParam || savedTab;
+      if (rawTab === 'database') {
+        setActiveTab('sensors');
+        setSensorInitialMode('recorded');
+      } else if (rawTab && DASHBOARD_TABS.includes(rawTab as DashboardTab)) {
+        setActiveTab(rawTab as DashboardTab);
       }
     } catch {
       // ignore
@@ -1470,7 +1473,7 @@ export default function DashboardPage() {
     setDataVersion((v) => v + 1);
     await Promise.all([
       fetchResults(),
-      activeTab === 'database'
+      activeTab === 'sensors'
         ? fetchDatabaseData(currentDbFile || undefined, selectedTable || undefined, pageOffset)
         : activeTab === 'queue'
           ? fetchQueueStatus()
@@ -2568,10 +2571,13 @@ export default function DashboardPage() {
 
         <div className="mobile-nav-scroll mx-auto max-w-7xl border-t border-slate-200 px-2 sm:px-6">
           <nav aria-label="Main navigation" className="flex min-w-max gap-1 sm:gap-6">
-            <button onClick={() => handleTabChange('database')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'database' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-              <Database className="h-4 w-4" />
-              <span>SQLite Data Viewer</span>
-              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">sensors.sqlite</span>
+            <button onClick={() => handleTabChange('sensors')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sensors' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+              <Radio className="h-4 w-4" />
+              <span>Sensor Monitoring</span>
+              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live
+              </span>
             </button>
             <button onClick={() => handleTabChange('results')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'results' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
               <BarChart2 className="h-4 w-4" />
@@ -2591,15 +2597,6 @@ export default function DashboardPage() {
               ) : (
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">Idle</span>
               )}
-            </button>
-
-            <button onClick={() => handleTabChange('sensors')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'sensors' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
-              <Radio className="h-4 w-4" />
-              <span>Sensor Live Monitoring</span>
-              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Live
-              </span>
             </button>
 
             <button onClick={() => handleTabChange('datasets')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'datasets' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
@@ -2626,11 +2623,6 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-7xl p-3 sm:p-6 lg:p-8">
-
-        {/* DATABASE / SQLITE DATA VIEWER TAB */}
-        {activeTab === 'database' && (
-          <SqliteViewerTab />
-        )}
 
         {/* RESULTS TAB */}
         {activeTab === 'results' && (
@@ -2874,9 +2866,9 @@ export default function DashboardPage() {
         {/* SAMPLE INSPECTOR TAB (kept mounted in DOM to preserve state across tab switches) */}
         
 
-        {/* SENSOR LIVE MONITORING TAB (kept mounted to maintain Realtime socket & polling) */}
+        {/* UNIFIED SENSOR MONITORING TAB (Live Data Sensors + Recorded SQLite Data Sensors toggle) */}
         <div className={activeTab === 'sensors' ? 'block' : 'hidden'}>
-          <SensorLiveMonitoringTab />
+          <SensorLiveMonitoringTab initialMode={sensorInitialMode} />
         </div>
 
         {/* RESEARCH LOGS & DATASETS TAB (Excel: behavior_events, detection_tracking, observation_windows, environment_readings) */}
