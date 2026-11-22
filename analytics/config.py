@@ -19,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 DATA_DIR = PROJECT_ROOT / "agent" / "data"
 VIDEO_INPUT_DIR = Path(os.getenv("VIDEO_INPUT_DIR", str(DATA_DIR)))
-SENSOR_DB_PATH = Path(os.getenv("SENSOR_DB_PATH", str(DATA_DIR / "chicken_telemetry.db")))
+SENSOR_DB_PATH = Path(os.getenv("SENSOR_DB_PATH", str(DATA_DIR / "sensors.sqlite")))
 ANALYTICS_DB_PATH = Path(os.getenv("ANALYTICS_DB_PATH", str(BASE_DIR / "zampen_analytics.db")))
 
 
