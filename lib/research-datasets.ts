@@ -93,6 +93,8 @@ export interface BehaviorEventRow {
   behavior: string;
   start_time: string;
   end_time: string;
+  start_frame?: number;
+  end_frame?: number;
   start_s: number;
   end_s: number;
   duration_s: number;

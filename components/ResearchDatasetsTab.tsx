@@ -237,6 +237,8 @@ export default function ResearchDatasetsTab() {
         'behavior',
         'start_time',
         'end_time',
+        'start_frame',
+        'end_frame',
         'start_s',
         'end_s',
         'duration_s',
@@ -258,6 +260,8 @@ export default function ResearchDatasetsTab() {
         r.behavior,
         r.start_time,
         r.end_time,
+        r.start_frame ?? '',
+        r.end_frame ?? '',
         r.start_s,
         r.end_s,
         r.duration_s,
@@ -743,6 +747,7 @@ export default function ResearchDatasetsTab() {
                   <th className="py-2.5 px-3 border-r border-orange-600/60">behavior</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60">start_time</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60">end_time</th>
+                  <th className="py-2.5 px-3 border-r border-orange-600/60 text-center">frames</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">start_s</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">end_s</th>
                   <th className="py-2.5 px-3 border-r border-orange-600/60 text-right">duration_s</th>
@@ -788,6 +793,11 @@ export default function ResearchDatasetsTab() {
                       </td>
                       <td className="py-2 px-3 border-r border-slate-200 text-slate-600">{row.start_time}</td>
                       <td className="py-2 px-3 border-r border-slate-200 text-slate-600">{row.end_time}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-[11px] font-semibold text-indigo-700">
+                        {row.start_frame != null && row.end_frame != null
+                          ? `#${row.start_frame}–${row.end_frame}`
+                          : '—'}
+                      </td>
                       <td className="py-2 px-3 border-r border-slate-200 text-right text-slate-700">
                         {row.start_s.toFixed(1)}
                       </td>

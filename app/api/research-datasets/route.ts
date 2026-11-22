@@ -98,6 +98,8 @@ export async function GET(req: NextRequest) {
               behavior: String(item.behavior || 'locomotion'),
               start_time: item.start_time || '2026-11-13 07:00:01',
               end_time: item.end_time || '2026-11-13 07:00:17',
+              start_frame: item.start_frame != null ? Number(item.start_frame) : Math.round(startS * 20),
+              end_frame: item.end_frame != null ? Number(item.end_frame) : Math.round(endS * 20),
               start_s: Math.round(startS * 10) / 10,
               end_s: Math.round(endS * 10) / 10,
               duration_s: Math.round(durS * 10) / 10,
@@ -211,6 +213,90 @@ export async function GET(req: NextRequest) {
             const wStart = formatSqlTimestamp(job.startTime);
             const wEnd = formatSqlTimestamp(job.endTime);
 
+            // Check for exact frame-by-frame verification log saved by analytics/worker.py
+            const frameLogPath = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs', `${job.video}.json`);
+            let hasExactFrameLog = false;
+            if (fs.existsSync(frameLogPath)) {
+              try {
+                const fl = JSON.parse(fs.readFileSync(frameLogPath, 'utf-8'));
+                const baseStartMs = new Date(formatSqlTimestamp(fl.start_time || job.startTime).replace(' ', 'T')).getTime();
+                const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
+                const flFps = Number(fl.fps) || 20;
+                const flTotalFrames = Number(fl.total_frames) || job.totalFrames || 1;
+                const flDurS = Math.max(1, flTotalFrames / flFps);
+
+                if (Array.isArray(fl.behavior_events) && fl.behavior_events.length > 0) {
+                  hasExactFrameLog = true;
+                  for (const ev of fl.behavior_events) {
+                    if (behaviorEvents.length >= 1500) break;
+                    const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
+                    const sS = Number(ev.start_s) || 0;
+                    const eS = Number(ev.end_s) || sS;
+                    const dS = Number(ev.duration_s) || Math.max(0, eS - sS);
+                    behaviorEvents.push({
+                      video: job.video,
+                      track_id: Number(ev.track_id) || def.trackId,
+                      chicken_id: def.shortId,
+                      shortId: def.shortId,
+                      chId: def.chId,
+                      profileLabel: def.profileLabel,
+                      saddle_color: def.saddleColor,
+                      dotColor: def.dotColor,
+                      identity_status: ev.bird_label && ev.bird_label !== 'Chicken' ? 'confirmed' : 'assigned_during_tracking',
+                      behavior: String(ev.behavior || 'feeding'),
+                      start_time: formatSqlTimestamp(new Date(safeBaseMs + sS * 1000).toISOString()),
+                      end_time: formatSqlTimestamp(new Date(safeBaseMs + eS * 1000).toISOString()),
+                      start_frame: Number(ev.start_frame) || Math.round(sS * flFps),
+                      end_frame: Number(ev.end_frame) || Math.round(eS * flFps),
+                      start_s: Math.round(sS * 10) / 10,
+                      end_s: Math.round(eS * 10) / 10,
+                      duration_s: Math.round(dS * 10) / 10,
+                      tracking_visible_pct: Math.min(100, Math.round((dS / flDurS) * 1000) / 10),
+                      mean_detection_conf: Number(ev.mean_detection_conf) || 0,
+                      nearest_distance_mean_px: Number(ev.nearest_distance_mean_px) || 0,
+                      nearest_distance_min_px: Number(ev.nearest_distance_min_px) || 0,
+                      nearest_distance_max_px: Number(ev.nearest_distance_max_px) || 0,
+                      nearest_distance_mean_body_lengths: Number(ev.nearest_distance_mean_body_lengths) || 0,
+                      nearest_distance_min_body_lengths: Number(ev.nearest_distance_min_body_lengths) || 0,
+                      nearest_distance_max_body_lengths: Number(ev.nearest_distance_max_body_lengths) || 0,
+                    });
+                  }
+                }
+                if (Array.isArray(fl.detection_tracking) && fl.detection_tracking.length > 0) {
+                  hasExactFrameLog = true;
+                  for (const dtRow of fl.detection_tracking) {
+                    if (detectionTracking.length >= 3500) break;
+                    const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
+                    const elS = Number(dtRow.elapsed_s) || 0;
+                    detectionTracking.push({
+                      timestamp: formatSqlTimestamp(new Date(safeBaseMs + elS * 1000).toISOString()),
+                      frame_number: Number(dtRow.frame_number) || 0,
+                      chicken_id: def.shortId,
+                      shortId: def.shortId,
+                      chId: def.chId,
+                      profileLabel: def.profileLabel,
+                      saddle_color: def.saddleColor,
+                      dotColor: def.dotColor,
+                      track_id: Number(dtRow.track_id) || def.trackId,
+                      x_center_px: Number(dtRow.x_center_px) || 0,
+                      y_center_px: Number(dtRow.y_center_px) || 0,
+                      bbox_width_px: Number(dtRow.bbox_width_px) || 56,
+                      bbox_height_px: Number(dtRow.bbox_height_px) || 44,
+                      detection_confidence: Number(dtRow.detection_confidence) || 0,
+                      visibility_status: (dtRow.visibility_status || 'visible') as 'visible' | 'occluded' | 'lost',
+                      in_feeder_zone: Boolean(dtRow.in_feeder_zone),
+                      in_waterer_zone: Boolean(dtRow.in_waterer_zone),
+                      nearest_neighbor_distance_px: Number(dtRow.nearest_neighbor_distance_px) || 0,
+                      nearest_neighbor_distance_body_lengths: Number(dtRow.nearest_neighbor_distance_body_lengths) || 0,
+                      visible_chicken_count: Number(dtRow.visible_chicken_count) || 1,
+                    });
+                  }
+                }
+              } catch (flErr) {
+                console.warn(`Could not parse frame log for ${job.video}:`, flErr);
+              }
+            }
+
             // Fetch actual chunks and per-bird tracked metrics from SQLite
             const chunkRes = db.exec(`
               SELECT id, chunk_start, chunk_end, unique_birds_tracked, avg_birds_in_frame,
@@ -312,8 +398,8 @@ export async function GET(req: NextRequest) {
                 }
                 perBird.set(def.shortId, existing);
 
-                // Emit per-track detection summary row into detection_tracking
-                if (detectionTracking.length < 500) {
+                // Fallback summary row into detection_tracking only when exact frame log is unavailable
+                if (!hasExactFrameLog && detectionTracking.length < 500) {
                   const frameEst = Math.max(
                     1,
                     Math.round((eventOffsetS / Math.max(1, durS)) * Math.max(1, job.totalFrames)),
@@ -351,7 +437,7 @@ export async function GET(req: NextRequest) {
                 if (drinkS >= 1.0) recordedBehaviors.push({ name: 'drinking', duration: drinkS });
                 if (inactS >= 1.0) recordedBehaviors.push({ name: 'inactive', duration: inactS });
 
-                for (const beh of recordedBehaviors) {
+                for (const beh of (hasExactFrameLog ? [] : recordedBehaviors)) {
                   if (behaviorEvents.length >= 500) break;
                   const evStartS = Math.round(Math.min(durS, eventOffsetS) * 10) / 10;
                   const evDurS = Math.round(Math.min(durS - evStartS, beh.duration) * 10) / 10;
@@ -363,6 +449,7 @@ export async function GET(req: NextRequest) {
                   const evStartTime = formatSqlTimestamp(new Date(baseStartMs + evStartS * 1000).toISOString());
                   const evEndTime = formatSqlTimestamp(new Date(baseStartMs + evEndS * 1000).toISOString());
                   const visPct = Math.min(100, Math.round((evDurS / Math.max(1, durS)) * 1000) / 10);
+                  const estFps = Math.max(1, job.totalFrames / Math.max(1, durS));
 
                   behaviorEvents.push({
                     video: job.video,
@@ -377,6 +464,8 @@ export async function GET(req: NextRequest) {
                     behavior: beh.name,
                     start_time: evStartTime,
                     end_time: evEndTime,
+                    start_frame: Math.round(evStartS * estFps),
+                    end_frame: Math.round(evEndS * estFps),
                     start_s: evStartS,
                     end_s: evEndS,
                     duration_s: evDurS,

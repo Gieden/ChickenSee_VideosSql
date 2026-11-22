@@ -103,6 +103,9 @@ class BehaviorChunkSummary:
 
     # Per-bird breakdown records
     bird_records: List[Dict[str, Any]]
+    # Exact frame-by-frame verification logs (for Research Logs manual checking)
+    behavior_events: List[Dict[str, Any]] = field(default_factory=list)
+    detection_tracking: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class BehaviorAnalysisEngine:
@@ -124,6 +127,9 @@ class BehaviorAnalysisEngine:
         self.bird_frame_counts: List[int] = []
         self.pecking_cooldowns: Dict[Tuple[int, int], float] = {}
         self.current_chunk_elapsed_s: float = 0.0
+        self._active_bouts: Dict[Tuple[int, str], Dict[str, Any]] = {}
+        self._completed_bouts: List[Dict[str, Any]] = []
+        self._detection_tracking_rows: List[Dict[str, Any]] = []
 
     def reset_chunk(self):
         """Resets tracking accumulators for a new 30-minute interval."""
@@ -133,6 +139,79 @@ class BehaviorAnalysisEngine:
         self.bird_frame_counts.clear()
         self.pecking_cooldowns.clear()
         self.current_chunk_elapsed_s = 0.0
+        self._active_bouts.clear()
+        self._completed_bouts.clear()
+        self._detection_tracking_rows.clear()
+
+    def _update_bout(
+        self,
+        tid: int,
+        label: str,
+        behavior: str,
+        active: bool,
+        frame_idx: int,
+        elapsed_s: float,
+        dt: float,
+        conf: float,
+        nn_px: float,
+        nn_bl: float,
+    ) -> None:
+        key = (tid, behavior)
+        if active:
+            bout = self._active_bouts.get(key)
+            if bout is None:
+                self._active_bouts[key] = {
+                    "track_id": tid,
+                    "bird_label": label,
+                    "behavior": behavior,
+                    "start_frame": frame_idx,
+                    "end_frame": frame_idx,
+                    "start_s": max(0.0, elapsed_s - dt),
+                    "end_s": elapsed_s,
+                    "frames": 1,
+                    "conf_sum": conf,
+                    "nn_px": [nn_px] if nn_px > 0 else [],
+                    "nn_bl": [nn_bl] if nn_bl > 0 else [],
+                }
+            else:
+                bout["bird_label"] = label
+                bout["end_frame"] = frame_idx
+                bout["end_s"] = elapsed_s
+                bout["frames"] += 1
+                bout["conf_sum"] += conf
+                if nn_px > 0:
+                    bout["nn_px"].append(nn_px)
+                if nn_bl > 0:
+                    bout["nn_bl"].append(nn_bl)
+        else:
+            bout = self._active_bouts.pop(key, None)
+            if bout is not None:
+                self._finalize_bout(bout)
+
+    def _finalize_bout(self, bout: Dict[str, Any]) -> None:
+        dur_s = round(max(0.0, bout["end_s"] - bout["start_s"]), 1)
+        if dur_s < 1.0 or len(self._completed_bouts) >= 1500:
+            return
+        nn_px = bout["nn_px"]
+        nn_bl = bout["nn_bl"]
+        frames = max(1, bout["frames"])
+        self._completed_bouts.append({
+            "track_id": bout["track_id"],
+            "bird_label": bout["bird_label"],
+            "behavior": bout["behavior"],
+            "start_frame": int(bout["start_frame"]),
+            "end_frame": int(bout["end_frame"]),
+            "start_s": round(bout["start_s"], 1),
+            "end_s": round(bout["end_s"], 1),
+            "duration_s": dur_s,
+            "mean_detection_conf": round(bout["conf_sum"] / frames, 2),
+            "nearest_distance_mean_px": round(sum(nn_px) / len(nn_px), 1) if nn_px else 0.0,
+            "nearest_distance_min_px": round(min(nn_px), 1) if nn_px else 0.0,
+            "nearest_distance_max_px": round(max(nn_px), 1) if nn_px else 0.0,
+            "nearest_distance_mean_body_lengths": round(sum(nn_bl) / len(nn_bl), 2) if nn_bl else 0.0,
+            "nearest_distance_min_body_lengths": round(min(nn_bl), 2) if nn_bl else 0.0,
+            "nearest_distance_max_body_lengths": round(max(nn_bl), 2) if nn_bl else 0.0,
+        })
 
     @staticmethod
     def _calc_euclidean(p1: Tuple[int, int], p2: Tuple[int, int]) -> float:
@@ -294,11 +373,20 @@ class BehaviorAnalysisEngine:
         for tid_prev, st_prev in self.bird_states.items():
             if tid_prev not in seen_track_ids:
                 st_prev.unobserved_streak_s += dt
+                # Close any open behavior bouts if the bird disappears for >1.5s
+                if st_prev.unobserved_streak_s > 1.5:
+                    for beh_name in ("feeding", "drinking", "inactive", "social_isolation"):
+                        b = self._active_bouts.pop((tid_prev, beh_name), None)
+                        if b is not None:
+                            self._finalize_bout(b)
 
         # -------------------------------------------------------------
         # Step 2: 4. Social Isolation Tracking (Inter-Bird Spatial Dispersion)
         # -------------------------------------------------------------
         n_birds = len(current_birds)
+        nn_dist_by_tid: Dict[int, float] = {}
+        median_body_px = 55.0
+        isolated_tids: set = set()
         if n_birds >= 2:
             isolation_dist_thresh = getattr(self.cfg, "social_isolation_distance_px", 220.0)
             isolation_body_lengths = getattr(self.cfg, "social_isolation_body_lengths", 3.5)
@@ -311,7 +399,7 @@ class BehaviorAnalysisEngine:
                 for b in current_birds
                 if b.track_id is not None and len(b.box) == 4
             )
-            median_body_px = body_sizes[len(body_sizes) // 2] if body_sizes else 0.0
+            median_body_px = body_sizes[len(body_sizes) // 2] if body_sizes else 55.0
             effective_dist_thresh = max(isolation_dist_thresh, median_body_px * isolation_body_lengths)
 
             # Precompute nearest-neighbor distance for every visible bird
@@ -323,6 +411,8 @@ class BehaviorAnalysisEngine:
                     default=0.0,
                 )
                 nn_dists.append(nn_d)
+                if bird_a.track_id is not None:
+                    nn_dist_by_tid[bird_a.track_id] = nn_d
             sorted_nn = sorted(nn_dists)
             median_nn_dist = sorted_nn[len(sorted_nn) // 2] if sorted_nn else 0.0
 
@@ -349,6 +439,7 @@ class BehaviorAnalysisEngine:
                 )
 
                 if far_from_nearest and separated_from_cluster:
+                    isolated_tids.add(tid_a)
                     state_a.continuous_isolation_s += dt
                     state_a.total_isolation_s += dt
                     if state_a.continuous_isolation_s >= iso_duration and not state_a.in_isolation_bout:
@@ -358,6 +449,58 @@ class BehaviorAnalysisEngine:
                 else:
                     state_a.continuous_isolation_s = 0.0
                     state_a.in_isolation_bout = False
+
+        # -------------------------------------------------------------
+        # Step 2b: Record Exact Frame-by-Frame Bouts & Detection Tracking
+        # -------------------------------------------------------------
+        low_act_thresh = getattr(self.cfg, "low_activity_velocity_threshold_px_s", 3.0)
+        body_scale = max(20.0, float(median_body_px))
+        # Record detection_tracking every processed frame up to 3,500 rows (sub-sampled to every 5th frame after 1,500 rows)
+        record_det_frame = (
+            len(self._detection_tracking_rows) < 1500
+            or (len(self._detection_tracking_rows) < 3500 and self.total_frames_in_chunk % 5 == 0)
+        )
+        for bird in current_birds:
+            tid = bird.track_id
+            if tid is None or tid not in self.bird_states:
+                continue
+            st = self.bird_states[tid]
+            nn_px = nn_dist_by_tid.get(tid, 0.0)
+            nn_bl = nn_px / body_scale if nn_px > 0 else 0.0
+            conf = float(getattr(bird, "confidence", 0.0) or 0.0)
+            is_inactive_now = (
+                not st.is_in_feeder_zone
+                and not st.is_in_waterer_zone
+                and len(st.recent_velocities) >= 2
+                and st.velocity_px_s < low_act_thresh
+            )
+
+            self._update_bout(tid, st.label, "feeding", st.is_in_feeder_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
+            self._update_bout(tid, st.label, "drinking", st.is_in_waterer_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
+            self._update_bout(tid, st.label, "inactive", is_inactive_now, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
+            self._update_bout(tid, st.label, "social_isolation", tid in isolated_tids, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
+
+            if record_det_frame and len(self._detection_tracking_rows) < 3500:
+                x1, y1, x2, y2 = bird.box
+                self._detection_tracking_rows.append({
+                    "frame_number": int(frame_out.frame_idx),
+                    "elapsed_s": round(self.current_chunk_elapsed_s, 2),
+                    "track_id": int(tid),
+                    "bird_label": st.label,
+                    "x_center_px": round((x1 + x2) / 2.0, 1),
+                    "y_center_px": round((y1 + y2) / 2.0, 1),
+                    "bbox_width_px": int(max(1, x2 - x1)),
+                    "bbox_height_px": int(max(1, y2 - y1)),
+                    "detection_confidence": round(conf, 2),
+                    "visibility_status": "visible",
+                    "in_feeder_zone": bool(st.is_in_feeder_zone),
+                    "in_waterer_zone": bool(st.is_in_waterer_zone),
+                    "nearest_neighbor_distance_px": round(nn_px, 1),
+                    "nearest_neighbor_distance_body_lengths": round(nn_bl, 2),
+                    "visible_chicken_count": int(n_birds),
+                })
+
+        if n_birds >= 2:
 
             # ---------------------------------------------------------
             # Step 3: Feather Pecking Interaction Check (Legacy Compatibility)
@@ -498,6 +641,11 @@ class BehaviorAnalysisEngine:
                 "avg_velocity_px_s": round(s.velocity_px_s, 2),
             })
 
+        # Flush any still-open behavior bouts at chunk end
+        for bout in list(self._active_bouts.values()):
+            self._finalize_bout(bout)
+        self._active_bouts.clear()
+
         return BehaviorChunkSummary(
             unique_birds=unique_birds,
             avg_birds_present=round(avg_present, 1),
@@ -522,5 +670,7 @@ class BehaviorAnalysisEngine:
             social_isolation_events=total_social_isolation,
             feather_pecking_events=self.feather_pecking_events,
             agitation_score=agitation_score,
-            bird_records=bird_records
+            bird_records=bird_records,
+            behavior_events=sorted(self._completed_bouts, key=lambda e: (e["start_frame"], e["track_id"])),
+            detection_tracking=list(self._detection_tracking_rows),
         )

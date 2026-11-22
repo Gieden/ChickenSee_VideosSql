@@ -1000,6 +1000,31 @@ class ZampenAnalyticsWorker:
         })
         print(f"[LOCAL STORE] Saved detection results JSON: {results_path}")
 
+        # Persist exact frame-by-frame behavior bouts & detection tracking for manual verification
+        try:
+            from local_store import RESULTS_DIR
+            frame_logs_dir = RESULTS_DIR / "frame_logs"
+            frame_logs_dir.mkdir(parents=True, exist_ok=True)
+            all_behavior_events = []
+            all_detection_tracking = []
+            for s in chunk_summaries:
+                all_behavior_events.extend(getattr(s, "behavior_events", []) or [])
+                all_detection_tracking.extend(getattr(s, "detection_tracking", []) or [])
+            frame_log_path = frame_logs_dir / f"{filename}.json"
+            frame_log_payload = {
+                "video": filename,
+                "fps": round(float(fps), 2),
+                "total_frames": int(total_frames),
+                "start_time": start_dt.isoformat(),
+                "end_time": end_dt.isoformat(),
+                "behavior_events": all_behavior_events,
+                "detection_tracking": all_detection_tracking,
+            }
+            frame_log_path.write_text(json.dumps(frame_log_payload), encoding="utf-8")
+            print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames)")
+        except Exception as fl_err:
+            print(f"[LOCAL STORE WARN] Could not save frame-by-frame log: {fl_err}")
+
         # Persist results to SQLite/SQLAlchemy database
         DB.save_30m_metrics(job.id, chunk_metrics_results, chunk_bird_records)
         elapsed_s = time.time() - t_start_processing
