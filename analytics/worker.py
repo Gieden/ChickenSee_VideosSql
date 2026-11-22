@@ -356,10 +356,10 @@ class ZampenAnalyticsWorker:
             end_dt = start_dt + datetime.timedelta(hours=1)
             return start_dt, end_dt
 
-        # Pattern 2: rec_YYYY - MM-DD_HH-MM-SS_ffffff  (in a parent folder name)
-        # Structure: watched_dir / cam_folder / rec_<timestamp>/ / video.mp4
-        # Walk parents from immediate parent upward, stop at filesystem root.
-        for part in path.parts[-2::-1]:  # skip the filename itself, walk parents inward→outward
+        # Pattern 2: rec_YYYY - MM-DD_HH-MM-SS_ffffff  (in filename OR any parent folder name)
+        # Structure: watched_dir / cam_folder / rec_<timestamp> / video.mp4
+        #        or: watched_dir / cam_folder / rec_<timestamp>.mp4
+        for part in path.parts[::-1]:  # check filename first, then walk parents inward→outward
             m2 = self._REC_FOLDER_RE.search(part)
             if m2:
                 y, mo, d, hh, mm, ss, _us = m2.groups()
