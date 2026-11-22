@@ -138,7 +138,7 @@ class ZampenYOLOTracker:
     MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
     MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
     MIN_HEAD_CONFIDENCE = 0.22       # Low gate for new Head class (poultry_v8 R=0.227)
-    SHOW_HEAD_OVERLAY = True         # Draw cyan Head boxes for visual verification (toggle False to hide)
+    SHOW_HEAD_OVERLAY = False        # Hidden from annotated video; Head detection stays active internally for Feeding/Drinking
     # Per-saddle confidence gates calibrated from poultry_v8 validation recall/precision:
     MIN_SADDLE_CONFIDENCE_BY_CLASS = {
         "Saddle_Color_Blue": 0.15,
