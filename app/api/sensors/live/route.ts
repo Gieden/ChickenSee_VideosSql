@@ -37,10 +37,11 @@ export async function GET(req: NextRequest) {
         .then(() => {}, () => {});
     }
 
-    // Query current day / last 24h live readings first
+    // Query current day / last 24h live readings first (matching Supabase sensor_logs schema)
+    const SENSOR_COLS = 'id, recorded_at, temperature, humidity, ammonia_ppm, sound_db';
     let { data, error } = await client
       .from('sensor_logs')
-      .select('id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status')
+      .select(SENSOR_COLS)
       .gte('recorded_at', cutoff24hIso)
       .order('id', { ascending: false })
       .limit(limit);
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     if (!error && (!data || data.length === 0)) {
       const fallback = await client
         .from('sensor_logs')
-        .select('id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status')
+        .select(SENSOR_COLS)
         .order('id', { ascending: false })
         .limit(limit);
       data = fallback.data;

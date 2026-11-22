@@ -86,11 +86,10 @@ export default function SensorLiveMonitoringTab() {
         if (!fetchedOk) {
           const supabase = getSupabaseSensorClient();
           const cutoff24hIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+          const SENSOR_COLS = 'id, recorded_at, temperature, humidity, ammonia_ppm, sound_db';
           let { data, error: sbError } = await supabase
             .from('sensor_logs')
-            .select(
-              'id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status'
-            )
+            .select(SENSOR_COLS)
             .gte('recorded_at', cutoff24hIso)
             .order('id', { ascending: false })
             .limit(fetchLimit);
@@ -98,9 +97,7 @@ export default function SensorLiveMonitoringTab() {
           if (!sbError && (!data || data.length === 0)) {
             const fallback = await supabase
               .from('sensor_logs')
-              .select(
-                'id, recorded_at, temperature, humidity, ammonia_ppm, ammonia_raw, sound_db, sound_raw, temp_status, hum_status, ammonia_status, sound_status'
-              )
+              .select(SENSOR_COLS)
               .order('id', { ascending: false })
               .limit(fetchLimit);
             data = fallback.data;

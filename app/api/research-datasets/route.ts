@@ -227,7 +227,21 @@ export async function GET(req: NextRequest) {
               const cEndStr = formatSqlTimestamp(String(cRow[2] || job.endTime));
               const uniqueBirds = Number(cRow[3]) || 0;
               const avgBirdsInFrame = Number(cRow[4]) || 0;
+              const tempAvg = Number(cRow[5]) || 0;
+              const humAvg = Number(cRow[6]) || 0;
+              const nh3Avg = Number(cRow[7]) || 0;
+              const sensorAvail = Boolean(cRow[8]) || tempAvg > 0 || humAvg > 0;
               const heatStressLevel = String(cRow[9] || 'Normal');
+
+              if (sensorAvail) {
+                environmentReadings.push({
+                  timestamp: cStartStr || wStart,
+                  temperature_c: Math.round(tempAvg * 10) / 10,
+                  humidity_pct: Math.round(humAvg * 10) / 10,
+                  ammonia_ppm: Math.round(nh3Avg * 100000) / 100000,
+                  sound_db: 0,
+                });
+              }
 
               const startMs = new Date(cStartStr.replace(' ', 'T')).getTime();
               const endMs = new Date(cEndStr.replace(' ', 'T')).getTime();
@@ -297,6 +311,38 @@ export async function GET(req: NextRequest) {
                   existing.velCount += 1;
                 }
                 perBird.set(def.shortId, existing);
+
+                // Emit per-track detection summary row into detection_tracking
+                if (detectionTracking.length < 500) {
+                  const frameEst = Math.max(
+                    1,
+                    Math.round((eventOffsetS / Math.max(1, durS)) * Math.max(1, job.totalFrames)),
+                  );
+                  const baseStartMs = Number.isFinite(startMs) ? startMs : Date.now();
+                  const detTs = formatSqlTimestamp(new Date(baseStartMs + eventOffsetS * 1000).toISOString());
+                  detectionTracking.push({
+                    timestamp: detTs,
+                    frame_number: frameEst,
+                    chicken_id: def.shortId,
+                    shortId: def.shortId,
+                    chId: def.chId,
+                    profileLabel: def.profileLabel,
+                    saddle_color: def.saddleColor,
+                    dotColor: def.dotColor,
+                    track_id: trackId,
+                    x_center_px: 0,
+                    y_center_px: 0,
+                    bbox_width_px: 56,
+                    bbox_height_px: 44,
+                    detection_confidence: 0.85,
+                    visibility_status: 'visible',
+                    in_feeder_zone: feedS > 0,
+                    in_waterer_zone: drinkS > 0,
+                    nearest_neighbor_distance_px: 0,
+                    nearest_neighbor_distance_body_lengths: 0,
+                    visible_chicken_count: Math.max(1, Math.round(avgBirdsInFrame) || uniqueBirds || 1),
+                  });
+                }
 
                 // Emit genuine recorded behavior events from bird_track_metrics (no synthetic random rows)
                 const recordedBehaviors: Array<{ name: string; duration: number }> = [];
