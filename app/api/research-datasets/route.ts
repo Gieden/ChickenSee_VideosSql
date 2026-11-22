@@ -344,12 +344,12 @@ export async function GET(req: NextRequest) {
                   });
                 }
 
-                // Emit genuine recorded behavior events from bird_track_metrics (no synthetic random rows)
+                // Emit genuine recorded behavior summaries (>= 1.0s) from bird_track_metrics
+                // (avoids 0.1s first-frame noise and avoids fabricating fake feather_pecking durations).
                 const recordedBehaviors: Array<{ name: string; duration: number }> = [];
-                if (feedS > 0) recordedBehaviors.push({ name: 'feeding', duration: feedS });
-                if (drinkS > 0) recordedBehaviors.push({ name: 'drinking', duration: drinkS });
-                if (inactS > 0) recordedBehaviors.push({ name: 'inactive', duration: inactS });
-                if (peckAgg + peckVic > 0) recordedBehaviors.push({ name: 'feather_pecking', duration: Math.max(1.0, (peckAgg + peckVic) * 1.5) });
+                if (feedS >= 1.0) recordedBehaviors.push({ name: 'feeding', duration: feedS });
+                if (drinkS >= 1.0) recordedBehaviors.push({ name: 'drinking', duration: drinkS });
+                if (inactS >= 1.0) recordedBehaviors.push({ name: 'inactive', duration: inactS });
 
                 for (const beh of recordedBehaviors) {
                   if (behaviorEvents.length >= 500) break;

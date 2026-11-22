@@ -204,14 +204,25 @@ class BehaviorAnalysisEngine:
             state.instant_velocity_px_s = velocity
 
             # ---------------------------------------------------------
-            # 1. Reduced Feeding Behavior Tracking
+            # 1 & 2. Feeding & Drinking Zone Check (Mutually Exclusive)
+            # A bird cannot feed and drink simultaneously; if near both,
+            # assign only to whichever equipment box is closer.
             # ---------------------------------------------------------
-            near_feeder = False
-            for feeder in frame_out.feeders:
-                d = self._box_distance(bird.box, feeder.box)
-                if d <= self.cfg.feeder_zone_proximity_px:
-                    near_feeder = True
-                    break
+            feeder_dist = min(
+                (self._box_distance(bird.box, f.box) for f in frame_out.feeders),
+                default=float("inf"),
+            )
+            drinker_dist = min(
+                (self._box_distance(bird.box, d.box) for d in frame_out.drinkers),
+                default=float("inf"),
+            )
+            near_feeder = feeder_dist <= self.cfg.feeder_zone_proximity_px
+            near_drinker = drinker_dist <= self.cfg.waterer_zone_proximity_px
+            if near_feeder and near_drinker:
+                if feeder_dist <= drinker_dist:
+                    near_drinker = False
+                else:
+                    near_feeder = False
 
             if near_feeder:
                 state.feeding_time_s += dt
@@ -233,16 +244,6 @@ class BehaviorAnalysisEngine:
             else:
                 state.is_in_feeder_zone = False
                 state.feeder_stationary_time_s = 0.0
-
-            # ---------------------------------------------------------
-            # 2. Reduced Drinking Behavior Tracking
-            # ---------------------------------------------------------
-            near_drinker = False
-            for drinker in frame_out.drinkers:
-                d = self._box_distance(bird.box, drinker.box)
-                if d <= self.cfg.waterer_zone_proximity_px:
-                    near_drinker = True
-                    break
 
             if near_drinker:
                 state.drinking_time_s += dt
@@ -274,9 +275,11 @@ class BehaviorAnalysisEngine:
 
             # ---------------------------------------------------------
             # 3. Prolonged Low Activity Tracking
+            # Require >=2 velocity samples so a bird's very first frame
+            # (before any displacement is measured) doesn't log fake 0.1s inactivity.
             # ---------------------------------------------------------
             low_act_thresh = getattr(self.cfg, "low_activity_velocity_threshold_px_s", 3.0)
-            if avg_vel < low_act_thresh:
+            if len(state.recent_velocities) >= 2 and avg_vel < low_act_thresh:
                 state.continuous_stationary_s += dt
                 state.total_inactivity_s += dt
                 sustained_limit = getattr(self.cfg, "prolonged_low_activity_duration_s", 60.0)

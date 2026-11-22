@@ -64,13 +64,13 @@ class AnalyticsConfig(BaseModel):
     reduced_locomotor_threshold_pct: float = Field(default=78.0, description="Reduced locomotor activity threshold (%) - above is flagged")
 
     # 1. Reduced Feeding Behavior Thresholds
-    feeder_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to feeder bounding box")
+    feeder_zone_proximity_px: float = Field(default=28.0, description="Edge-to-edge proximity threshold (px) to feeder bounding box")
     reduced_feeding_idle_seconds: float = Field(default=10.0, description="Sustained idle time near feeder indicating reduced feeding")
     reduced_feeding_motion_threshold_px_s: float = Field(default=3.5, description="Maximum motion displacement for idle lingering at feeder")
     reduced_eating_motion_threshold_px_s: float = Field(default=3.5, description="Legacy alias for reduced_feeding_motion_threshold_px_s")
 
     # 2. Reduced Drinking Behavior Thresholds
-    waterer_zone_proximity_px: float = Field(default=95.0, description="Proximity threshold to waterer/drinker bounding box")
+    waterer_zone_proximity_px: float = Field(default=28.0, description="Edge-to-edge proximity threshold (px) to waterer/drinker bounding box")
     reduced_drinking_idle_seconds: float = Field(default=8.0, description="Sustained idle time near drinker indicating reduced drinking")
     reduced_drinking_motion_threshold_px_s: float = Field(default=3.0, description="Maximum motion displacement for idle lingering at drinker")
     drinker_visit_deficit_seconds: float = Field(default=600.0, description="Sustained interval without drinking indicating drinking deficit")

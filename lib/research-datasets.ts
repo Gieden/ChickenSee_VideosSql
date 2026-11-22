@@ -7,8 +7,8 @@ export type ExcelSheetName =
   | 'environment_readings';
 
 export interface BirdDef {
-  shortId: 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'R1';
-  chId: 'CH01' | 'CH02' | 'CH03' | 'CH04' | 'CH05' | 'CH06';
+  shortId: string;
+  chId: string;
   profileLabel: string;
   saddleColor: string;
   dotColor: string;
@@ -50,7 +50,15 @@ export function mapBirdToDef(labelRaw?: string, trackIdRaw?: number): BirdDef {
   if (tid === 4) return BIRD_DEFINITIONS.H4;
   if (tid === 5) return BIRD_DEFINITIONS.H5;
   if (tid === 6) return BIRD_DEFINITIONS.R1;
-  return BIRD_DEFINITIONS.H1;
+  const fallbackId = Number.isFinite(tid) && tid > 0 ? tid : 7;
+  return {
+    shortId: `ID${fallbackId}`,
+    chId: `CH${String(fallbackId).padStart(2, '0')}`,
+    profileLabel: `Chicken (ID${fallbackId})`,
+    saddleColor: 'unidentified',
+    dotColor: '#f59e0b',
+    trackId: fallbackId,
+  };
 }
 
 // ── 1. Observation Windows ──────────────────────────────────────────────────
