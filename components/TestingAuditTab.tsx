@@ -11,6 +11,8 @@ import {
   BarChart3,
   Users,
   ArrowRightLeft,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import type { BirdAuditRow, HourBlockAudit } from '@/app/api/testing-audit/route';
 
@@ -42,6 +44,15 @@ interface IdDistTable2Row {
   changeSeconds: number;
 }
 
+interface IdDistBout {
+  behavior: string;
+  startFrame: number;
+  endFrame: number;
+  startTime: string;
+  endTime: string;
+  durationS: number;
+}
+
 interface IdDistTable3Row {
   recording: string;
   trackId: number;
@@ -51,8 +62,8 @@ interface IdDistTable3Row {
   feedingS: number;
   drinkingS: number;
   inactiveS: number;
-  firstFrame?: number;
-  lastFrame?: number;
+  sampleBout?: IdDistBout | null;
+  bouts?: IdDistBout[];
   firstStartS: number;
   lastEndS: number;
   spanS: number;
@@ -107,6 +118,7 @@ export default function TestingAuditTab() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedHourBlock, setSelectedHourBlock] = useState<string>('all');
+  const [expandedTrackKey, setExpandedTrackKey] = useState<string | null>(null);
 
   const fetchAudit = useCallback(async () => {
     try {
@@ -873,37 +885,97 @@ export default function TestingAuditTab() {
                     <th className="px-3 py-2.5 text-right">Feeding (s)</th>
                     <th className="px-3 py-2.5 text-right">Drinking (s)</th>
                     <th className="px-3 py-2.5 text-right">Inactive (s)</th>
-                    <th className="px-3 py-2.5 text-right">Frames</th>
+                    <th className="px-3 py-2.5">Verify Bout (Frame &amp; Time)</th>
                     <th className="px-3 py-2.5 text-right">First start (s)</th>
                     <th className="px-3 py-2.5 text-right">Last end (s)</th>
                     <th className="px-3 py-2.5 text-right">Span (s)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {data.identityDistribution.table3Transferred.map((r) => (
-                    <tr key={`${r.recording}_${r.trackId}`} className="hover:bg-orange-50/30">
-                      <td className="px-3 py-2 font-mono font-semibold text-slate-800">{r.recording}</td>
-                      <td className="px-3 py-2 text-right font-mono">{r.trackId}</td>
-                      <td className="px-3 py-2 font-mono text-slate-500">{r.label}</td>
-                      <td className="px-3 py-2">
-                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
-                          → {r.transferredTo}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono font-semibold">{r.events}</td>
-                      <td className="px-3 py-2 text-right font-mono text-emerald-700">{r.feedingS.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-blue-700">{r.drinkingS.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-amber-700">{r.inactiveS.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right font-mono text-[11px] font-semibold text-orange-700">
-                        {r.firstFrame != null && r.lastFrame != null
-                          ? `#${r.firstFrame.toLocaleString()}–#${r.lastFrame.toLocaleString()}`
-                          : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono">{r.firstStartS.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{r.lastEndS.toFixed(1)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{r.spanS.toFixed(1)}</td>
-                    </tr>
-                  ))}
+                  {data.identityDistribution.table3Transferred.map((r) => {
+                    const rowKey = `${r.recording}_${r.trackId}`;
+                    const isExpanded = expandedTrackKey === rowKey;
+                    const bouts = r.bouts || [];
+                    return (
+                      <React.Fragment key={rowKey}>
+                        <tr
+                          onClick={() => setExpandedTrackKey(isExpanded ? null : rowKey)}
+                          className="cursor-pointer hover:bg-orange-50/40"
+                          title="Click to inspect every individual bout frame range"
+                        >
+                          <td className="px-3 py-2 font-mono font-semibold text-slate-800">
+                            <span className="inline-flex items-center gap-1.5">
+                              {isExpanded ? (
+                                <ChevronDown className="h-3.5 w-3.5 text-orange-600" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+                              )}
+                              {r.recording}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">{r.trackId}</td>
+                          <td className="px-3 py-2 font-mono text-slate-500">{r.label}</td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
+                              → {r.transferredTo}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono font-semibold">{r.events}</td>
+                          <td className="px-3 py-2 text-right font-mono text-emerald-700">{r.feedingS.toFixed(1)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-blue-700">{r.drinkingS.toFixed(1)}</td>
+                          <td className="px-3 py-2 text-right font-mono text-amber-700">{r.inactiveS.toFixed(1)}</td>
+                          <td className="px-3 py-2 font-mono text-[11px]">
+                            {r.sampleBout ? (
+                              <span className="inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2 py-0.5 text-orange-900">
+                                <span className="font-bold">#{r.sampleBout.startFrame}–#{r.sampleBout.endFrame}</span>
+                                <span className="text-orange-700">({r.sampleBout.startTime}, {r.sampleBout.durationS}s {r.sampleBout.behavior})</span>
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono">{r.firstStartS.toFixed(1)}</td>
+                          <td className="px-3 py-2 text-right font-mono">{r.lastEndS.toFixed(1)}</td>
+                          <td className="px-3 py-2 text-right font-mono">{r.spanS.toFixed(1)}</td>
+                        </tr>
+                        {isExpanded && bouts.length > 0 && (
+                          <tr className="bg-slate-50/90">
+                            <td colSpan={12} className="px-6 py-3">
+                              <div className="mb-2 text-[11px] font-bold text-slate-700">
+                                Individual Transferred Bouts for {r.recording} · {r.label} → {r.transferredTo} ({bouts.length} bouts — scrub directly to these exact frames):
+                              </div>
+                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                                {bouts.map((bt, idx) => (
+                                  <div
+                                    key={`${rowKey}_b_${idx}`}
+                                    className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-mono text-[11px]"
+                                  >
+                                    <span className="font-bold text-orange-700">
+                                      #{bt.startFrame}–#{bt.endFrame}
+                                    </span>
+                                    <span className="text-slate-600">
+                                      {bt.startTime}–{bt.endTime}
+                                    </span>
+                                    <span
+                                      className={`rounded px-1.5 py-0.5 text-[10px] font-bold capitalize ${
+                                        bt.behavior === 'feeding'
+                                          ? 'bg-emerald-50 text-emerald-700'
+                                          : bt.behavior === 'drinking'
+                                            ? 'bg-blue-50 text-blue-700'
+                                            : 'bg-amber-50 text-amber-700'
+                                      }`}
+                                    >
+                                      {bt.behavior} · {bt.durationS}s
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
