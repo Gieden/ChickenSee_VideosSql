@@ -11,6 +11,7 @@ import {
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 // In-memory cache for sensor averages so repeated listing is instant
 const averagesCache = new Map<string, { averages: SensorAverages; size: number }>();
@@ -63,9 +64,8 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 2. Dashboard Aggregation: Calculate average values for each sensors.sqlite file
-  const enrichedFiles: Array<SyncedFileMeta & { averages: SensorAverages }> = [];
-  for (const dbMeta of databases) {
+  // 2. Dashboard Aggregation: Calculate average values for each sensors.sqlite file (in parallel batches of 4)
+  const enrichOne = async (dbMeta: SyncedFileMeta): Promise<SyncedFileMeta & { averages: SensorAverages }> => {
     const cacheKey = `${dbMeta.storagePath}:${dbMeta.size}`;
     let avg = averagesCache.get(cacheKey)?.averages;
 
@@ -124,13 +124,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    enrichedFiles.push({
+    return {
       ...dbMeta,
       dateKey: derivedDateKey,
       dateLabel: derivedDateLabel,
       sessionTime: derivedSessionTime,
       averages: avg,
-    });
+    };
+  };
+
+  const enrichedFiles: Array<SyncedFileMeta & { averages: SensorAverages }> = [];
+  for (let i = 0; i < databases.length; i += 4) {
+    const batch = databases.slice(i, i + 4);
+    const batchResults = await Promise.all(batch.map(enrichOne));
+    enrichedFiles.push(...batchResults);
   }
 
   // 3. Organize by date: Multiple sensors.sqlite files grouped under a single date

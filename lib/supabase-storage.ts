@@ -407,16 +407,16 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
 
     type RawObject = { name: string; id: string | null; created_at?: string; updated_at?: string; metadata?: { size?: number } | null };
 
-    const listFolder = async (prefix: string, delimiter?: string): Promise<RawObject[]> => {
+    const listFolder = async (prefix: string): Promise<RawObject[]> => {
       const out: RawObject[] = [];
       for (let offset = 0; ; offset += limit) {
         const { data, error } = await bucket.list(prefix, {
           limit,
           offset,
-          ...(delimiter ? { delimiter } : {}),
-          sortBy: { column: 'created_at', order: 'desc' },
-        } as Parameters<typeof bucket.list>[1]);
+          sortBy: { column: 'name', order: 'desc' },
+        });
         if (error) {
+          console.warn(`[supabase-storage] bucket.list("${prefix}") error:`, error.message);
           break;
         }
         const objects = (data || []) as RawObject[];
@@ -450,23 +450,43 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
       });
     };
 
-    const rootEntries = await listFolder('databases', '/');
+    const rootEntries = await listFolder('databases');
     for (const object of rootEntries) {
-      if (object.id === null) continue;
+      if (!object.id) continue;
       pushEntry(object);
     }
-    const folderNames = rootEntries
-      .filter((e) => e.id === null && e.name && !e.name.includes('.'))
-      .map((e) => e.name);
+    const folderSet = new Set<string>(
+      rootEntries
+        .filter((e) => !e.id && e.name && !e.name.includes('.'))
+        .map((e) => e.name.replace(/\/+$/, '')),
+    );
 
-    for (const folder of folderNames) {
-      try {
-        for (const object of await listFolder(`databases/${folder}`)) {
-          pushEntry(object, folder);
-        }
-      } catch {
-        // Skip unreadable sub-folders
+    // Also include any recording session folders discovered from results/frame_log_*.json
+    try {
+      const cloudResultsForFolders = await listStorageFiles('results');
+      for (const cf of cloudResultsForFolders) {
+        const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+        const m = base.match(/(rec_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_\d+)/i);
+        if (m) folderSet.add(m[1]);
       }
+    } catch {}
+
+    const folderNames = Array.from(folderSet);
+    // List sub-folders in parallel batches of 6
+    for (let i = 0; i < folderNames.length; i += 6) {
+      const batch = folderNames.slice(i, i + 6);
+      await Promise.all(
+        batch.map(async (folder) => {
+          try {
+            const subEntries = await listFolder(`databases/${folder}`);
+            for (const object of subEntries) {
+              pushEntry(object, folder);
+            }
+          } catch {
+            // Skip unreadable sub-folders
+          }
+        }),
+      );
     }
   } catch {
     // Supabase unavailable or credentials missing; local files are already populated
