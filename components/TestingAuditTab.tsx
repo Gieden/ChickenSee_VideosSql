@@ -124,10 +124,12 @@ export default function TestingAuditTab() {
   const [selectedHourBlock, setSelectedHourBlock] = useState<string>('all');
   const [expandedTrackKey, setExpandedTrackKey] = useState<string | null>(null);
 
-  const fetchAudit = useCallback(async () => {
+  const fetchAudit = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
       const res = await fetch(
         `/api/testing-audit?video=${encodeURIComponent(selectedVideo)}&_t=${Date.now()}`,
         { cache: 'no-store' },
@@ -135,17 +137,28 @@ export default function TestingAuditTab() {
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to compute testing audit');
       setData(payload);
-      setSelectedHourBlock('all');
-      setExpandedTrackKey(null);
+      if (!silent) {
+        setSelectedHourBlock('all');
+        setExpandedTrackKey(null);
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error loading testing audit');
+      if (!silent) {
+        setError(err instanceof Error ? err.message : 'Error loading testing audit');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [selectedVideo]);
 
   useEffect(() => {
-    fetchAudit();
+    fetchAudit(false);
+    // Real-time background polling every 10 seconds so newly processed videos appear in the dropdown automatically
+    const timer = window.setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchAudit(true);
+      }
+    }, 10000);
+    return () => window.clearInterval(timer);
   }, [fetchAudit]);
 
   const activeBirdRows: BirdAuditRow[] = useMemo(() => {
@@ -369,7 +382,7 @@ export default function TestingAuditTab() {
             </div>
             <button
               type="button"
-              onClick={fetchAudit}
+              onClick={() => fetchAudit(false)}
               disabled={loading}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
             >
