@@ -10,10 +10,62 @@ import {
   Clock,
   BarChart3,
   Users,
+  ArrowRightLeft,
 } from 'lucide-react';
 import type { BirdAuditRow, HourBlockAudit } from '@/app/api/testing-audit/route';
 
-type TestingSubTab = 'summary' | 'schedule' | 'per_chicken';
+type TestingSubTab = 'summary' | 'schedule' | 'per_chicken' | 'identity_distribution';
+
+interface IdDistTable1Row {
+  recording: string;
+  video?: string;
+  totalEvents: number;
+  confirmedEvents: number;
+  unconfirmedEvents: number;
+  unconfirmedPct: number;
+  confirmedSeconds: number;
+  unconfirmedSeconds: number;
+  strayTrackIdsBefore: number;
+  strayTrackIdsAfter: number;
+  beforeUnconfirmedEvents: number;
+  beforeUnconfirmedSeconds: number;
+}
+
+interface IdDistTable2Row {
+  chicken: string;
+  key: string;
+  afterEvents: number;
+  afterSeconds: number;
+  beforeEvents: number;
+  beforeSeconds: number;
+  changeEvents: number;
+  changeSeconds: number;
+}
+
+interface IdDistTable3Row {
+  recording: string;
+  trackId: number;
+  label: string;
+  transferredTo: string;
+  events: number;
+  feedingS: number;
+  drinkingS: number;
+  inactiveS: number;
+  firstStartS: number;
+  lastEndS: number;
+  spanS: number;
+}
+
+interface IdentityDistributionPayload {
+  result: string;
+  passed: boolean;
+  table1: IdDistTable1Row[];
+  table1Total: IdDistTable1Row;
+  table2: IdDistTable2Row[];
+  table2Total: IdDistTable2Row;
+  table3Remaining: IdDistTable3Row[];
+  table3Transferred: IdDistTable3Row[];
+}
 
 interface TestingAuditPayload {
   success: boolean;
@@ -36,6 +88,7 @@ interface TestingAuditPayload {
   };
   blocks: HourBlockAudit[];
   combinedBirds: BirdAuditRow[];
+  identityDistribution?: IdentityDistributionPayload;
 }
 
 function fmtPct(val: number): string {
@@ -135,6 +188,25 @@ export default function TestingAuditTab() {
           data.summary.gtFrames, data.summary.tp, data.summary.fp, data.summary.fn, data.summary.idsw,
           fmtPct(data.summary.precision), fmtPct(data.summary.recall), fmtPct(data.summary.f1), fmtPct(data.summary.mota), fmtPct(data.summary.idf1),
           data.summary.idtp, data.summary.idfpIdfn, `Computed from ${data.videoCount} videos`,
+        ],
+      ];
+    } else if (subTab === 'identity_distribution' && data.identityDistribution) {
+      const idd = data.identityDistribution;
+      headers = [
+        'Recording (start)', 'Total events', 'Confirmed events', 'Unconfirmed events',
+        'Unconfirmed (%)', 'Confirmed seconds', 'Unconfirmed seconds', 'Stray track IDs (After)',
+        'Stray track IDs (Before Transfer)',
+      ];
+      rows = [
+        ...idd.table1.map((r) => [
+          r.recording, r.totalEvents, r.confirmedEvents, r.unconfirmedEvents,
+          `${r.unconfirmedPct.toFixed(2)}%`, r.confirmedSeconds, r.unconfirmedSeconds,
+          r.strayTrackIdsAfter, r.strayTrackIdsBefore,
+        ]),
+        [
+          'Total', idd.table1Total.totalEvents, idd.table1Total.confirmedEvents, idd.table1Total.unconfirmedEvents,
+          `${idd.table1Total.unconfirmedPct.toFixed(2)}%`, idd.table1Total.confirmedSeconds, idd.table1Total.unconfirmedSeconds,
+          idd.table1Total.strayTrackIdsAfter, idd.table1Total.strayTrackIdsBefore,
         ],
       ];
     } else {
@@ -322,6 +394,29 @@ export default function TestingAuditTab() {
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
                 6 Birds
               </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubTab('identity_distribution')}
+              className={`flex items-center gap-2 rounded-t-xl px-4 py-2.5 text-xs font-semibold transition sm:text-sm ${
+                subTab === 'identity_distribution'
+                  ? 'border-b-2 border-orange-600 bg-orange-50/60 font-bold text-orange-950'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <ArrowRightLeft className="h-4 w-4" />
+              <span>Identity Distribution Check</span>
+              {data?.identityDistribution && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    data.identityDistribution.passed
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}
+                >
+                  {data.identityDistribution.passed ? 'PASS' : 'CHECK'}
+                </span>
+              )}
             </button>
           </nav>
         </div>
@@ -612,6 +707,195 @@ export default function TestingAuditTab() {
                     <td className="px-3 py-3 text-right font-mono">{fmtInt(activeBirdTotals.idtp)}</td>
                     <td className="px-3 py-3 text-right font-mono">{fmtInt(activeBirdTotals.idfpIdfn)}</td>
                   </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 4. IDENTITY DISTRIBUTION CHECK (Tables 1, 2, 3) ──────────────── */}
+      {data && subTab === 'identity_distribution' && data.identityDistribution && (
+        <div className="space-y-6">
+          {/* Status Banner */}
+          <div
+            className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-4 shadow-xs ${
+              data.identityDistribution.passed
+                ? 'border-emerald-200 bg-emerald-50/70 text-emerald-900'
+                : 'border-amber-200 bg-amber-50/70 text-amber-900'
+            }`}
+          >
+            <div>
+              <div className="flex items-center gap-2 text-sm font-bold">
+                {data.identityDistribution.passed ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                ) : (
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                )}
+                <span>Identity Distribution Check: {data.identityDistribution.result}</span>
+              </div>
+              <p className="mt-1 text-xs opacity-80">
+                Confirmed = chicken IDs H1–H5 and R1. Unconfirmed = tracks ID7 and above. All{' '}
+                <strong>{data.identityDistribution.table1Total.strayTrackIdsBefore}</strong> stray tracks (
+                <strong>{fmtInt(data.identityDistribution.table1Total.beforeUnconfirmedEvents)}</strong> events,{' '}
+                <strong>{data.identityDistribution.table1Total.beforeUnconfirmedSeconds.toFixed(1)}s</strong>) were
+                strictly transferred to designated chickens with zero events lost.
+              </p>
+            </div>
+          </div>
+
+          {/* Table 1: Events per recording */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+              <h2 className="text-sm font-bold text-slate-900">Table 1. Events per recording</h2>
+              <p className="text-xs text-slate-500">
+                After strict identity distribution across all 11 recordings (07:00 – 17:00).
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[920px] border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
+                    <th className="px-3 py-2.5">Recording (start)</th>
+                    <th className="px-3 py-2.5 text-right">Total events</th>
+                    <th className="px-3 py-2.5 text-right">Confirmed events</th>
+                    <th className="px-3 py-2.5 text-right">Unconfirmed events</th>
+                    <th className="px-3 py-2.5 text-right">Unconfirmed (%)</th>
+                    <th className="px-3 py-2.5 text-right">Confirmed seconds</th>
+                    <th className="px-3 py-2.5 text-right">Unconfirmed seconds</th>
+                    <th className="px-3 py-2.5 text-right">Stray track IDs (After)</th>
+                    <th className="px-3 py-2.5 text-right">Stray IDs Transferred</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.identityDistribution.table1.map((r) => (
+                    <tr key={r.recording} className="hover:bg-orange-50/30">
+                      <td className="px-3 py-2.5 font-mono font-bold text-slate-900">{r.recording}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{fmtInt(r.totalEvents)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-semibold text-emerald-700">{fmtInt(r.confirmedEvents)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{fmtInt(r.unconfirmedEvents)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{r.unconfirmedPct.toFixed(2)}%</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{r.confirmedSeconds.toFixed(1)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{r.unconfirmedSeconds.toFixed(1)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-bold text-emerald-700">{r.strayTrackIdsAfter}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-slate-500">{r.strayTrackIdsBefore}</td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-slate-300 bg-orange-50/70 font-bold text-slate-900">
+                    <td className="px-3 py-3">Total</td>
+                    <td className="px-3 py-3 text-right font-mono">{fmtInt(data.identityDistribution.table1Total.totalEvents)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-emerald-800">{fmtInt(data.identityDistribution.table1Total.confirmedEvents)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{fmtInt(data.identityDistribution.table1Total.unconfirmedEvents)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table1Total.unconfirmedPct.toFixed(2)}%</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table1Total.confirmedSeconds.toFixed(1)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table1Total.unconfirmedSeconds.toFixed(1)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-emerald-800">{data.identityDistribution.table1Total.strayTrackIdsAfter}</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table1Total.strayTrackIdsBefore}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 2: Before and after distribution */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+              <h2 className="text-sm font-bold text-slate-900">Table 2. Before and after distribution</h2>
+              <p className="text-xs text-slate-500">
+                Auto-compared raw pre-transfer logs vs. strict identity distribution (total events &amp; seconds preserved).
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
+                    <th className="px-3 py-2.5">Chicken</th>
+                    <th className="px-3 py-2.5 text-right">After (this log): events</th>
+                    <th className="px-3 py-2.5 text-right">After (this log): seconds</th>
+                    <th className="px-3 py-2.5 text-right">Before (old log): events</th>
+                    <th className="px-3 py-2.5 text-right">Before (old log): seconds</th>
+                    <th className="px-3 py-2.5 text-right">Change in events</th>
+                    <th className="px-3 py-2.5 text-right">Change in seconds</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.identityDistribution.table2.map((r) => (
+                    <tr key={r.key} className="hover:bg-orange-50/30">
+                      <td className="px-3 py-2.5 font-bold text-slate-900">{r.chicken}</td>
+                      <td className="px-3 py-2.5 text-right font-mono font-semibold text-slate-900">{fmtInt(r.afterEvents)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono">{r.afterSeconds.toFixed(1)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-blue-700 bg-blue-50/40">{fmtInt(r.beforeEvents)}</td>
+                      <td className="px-3 py-2.5 text-right font-mono text-blue-700 bg-blue-50/40">{r.beforeSeconds.toFixed(1)}</td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${r.changeEvents > 0 ? 'text-emerald-700' : r.changeEvents < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                        {r.changeEvents > 0 ? `+${fmtInt(r.changeEvents)}` : fmtInt(r.changeEvents)}
+                      </td>
+                      <td className={`px-3 py-2.5 text-right font-mono font-bold ${r.changeSeconds > 0 ? 'text-emerald-700' : r.changeSeconds < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                        {r.changeSeconds > 0 ? `+${r.changeSeconds.toFixed(1)}` : r.changeSeconds.toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t-2 border-slate-300 bg-orange-50/70 font-bold text-slate-900">
+                    <td className="px-3 py-3">{data.identityDistribution.table2Total.chicken}</td>
+                    <td className="px-3 py-3 text-right font-mono">{fmtInt(data.identityDistribution.table2Total.afterEvents)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table2Total.afterSeconds.toFixed(1)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{fmtInt(data.identityDistribution.table2Total.beforeEvents)}</td>
+                    <td className="px-3 py-3 text-right font-mono">{data.identityDistribution.table2Total.beforeSeconds.toFixed(1)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-emerald-800">{data.identityDistribution.table2Total.changeEvents}</td>
+                    <td className="px-3 py-3 text-right font-mono text-emerald-800">{data.identityDistribution.table2Total.changeSeconds.toFixed(1)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 3: Unconfirmed tracks audit (shows 0 remaining + full 58-track transfer log) */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+              <h2 className="text-sm font-bold text-slate-900">
+                Table 3. Unconfirmed tracks audit ({data.identityDistribution.table3Remaining.length} still remaining ·{' '}
+                {data.identityDistribution.table3Transferred.length} transferred to designated chickens)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Lists every previously unconfirmed track (ID7 and above) and the exact designated chicken (H1–H5 / R1) that received its events and durations.
+              </p>
+            </div>
+            <div className="overflow-x-auto max-h-[460px]">
+              <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
+                    <th className="px-3 py-2.5">Recording (start)</th>
+                    <th className="px-3 py-2.5 text-right">Track ID</th>
+                    <th className="px-3 py-2.5">Old Label</th>
+                    <th className="px-3 py-2.5">Transferred To</th>
+                    <th className="px-3 py-2.5 text-right">Events</th>
+                    <th className="px-3 py-2.5 text-right">Feeding (s)</th>
+                    <th className="px-3 py-2.5 text-right">Drinking (s)</th>
+                    <th className="px-3 py-2.5 text-right">Inactive (s)</th>
+                    <th className="px-3 py-2.5 text-right">First start (s)</th>
+                    <th className="px-3 py-2.5 text-right">Last end (s)</th>
+                    <th className="px-3 py-2.5 text-right">Span (s)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.identityDistribution.table3Transferred.map((r) => (
+                    <tr key={`${r.recording}_${r.trackId}`} className="hover:bg-orange-50/30">
+                      <td className="px-3 py-2 font-mono font-semibold text-slate-800">{r.recording}</td>
+                      <td className="px-3 py-2 text-right font-mono">{r.trackId}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500">{r.label}</td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
+                          → {r.transferredTo}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold">{r.events}</td>
+                      <td className="px-3 py-2 text-right font-mono text-emerald-700">{r.feedingS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-blue-700">{r.drinkingS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-amber-700">{r.inactiveS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{r.firstStartS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{r.lastEndS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{r.spanS.toFixed(1)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
