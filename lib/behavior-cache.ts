@@ -25,7 +25,7 @@ export interface IntervalTelemetry {
 
 let cachedIntervals: IntervalTelemetry[] | null = null;
 let lastCacheTime = 0;
-const CACHE_TTL_MS = 60 * 1000; // 1 minute
+const CACHE_TTL_MS = 5 * 1000; // 5 seconds for real-time updates
 
 export function getCachedIntervals(forceRefresh = false): IntervalTelemetry[] | null {
   if (forceRefresh) return null;

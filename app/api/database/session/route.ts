@@ -15,6 +15,7 @@ import type { SensorTimeRange } from '@/lib/db-viewer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 60;
 
 /**
  * GET /api/database/session?file=<storagePath>&timeZone=<IANA zone>
@@ -181,19 +182,27 @@ export async function GET(req: NextRequest) {
 
     db.close();
 
-    return NextResponse.json({
-      file: selectedDbMeta.storagePath,
-      sessionLabel: selectedDbMeta.sessionLabel || null,
-      sessionFolder: selectedDbMeta.sessionFolder || null,
-      sessionTime: selectedDbMeta.sessionTime || null,
-      dateKey: selectedDbMeta.dateKey || null,
-      dateLabel: selectedDbMeta.dateLabel || null,
-      size: selectedDbMeta.size || 0,
-      averages,
-      chartPoints,
-      hourOptions,
-      tables: tableData,
-    });
+    return NextResponse.json(
+      {
+        file: selectedDbMeta.storagePath,
+        sessionLabel: selectedDbMeta.sessionLabel || null,
+        sessionFolder: selectedDbMeta.sessionFolder || null,
+        sessionTime: selectedDbMeta.sessionTime || null,
+        dateKey: selectedDbMeta.dateKey || null,
+        dateLabel: selectedDbMeta.dateLabel || null,
+        size: selectedDbMeta.size || 0,
+        averages,
+        chartPoints,
+        hourOptions,
+        tables: tableData,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+        },
+      },
+    );
   } catch (error: any) {
     console.error('Error loading full session database:', error);
     return NextResponse.json(

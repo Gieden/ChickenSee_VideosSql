@@ -66,14 +66,22 @@ export async function GET(req: NextRequest) {
       }, { status: 500 });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: data || [],
-      totalCount: data?.length ?? 0,
-      retentionHours: RETENTION_HOURS,
-      isServiceRole,
-      table: 'sensor_logs',
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        data: data || [],
+        totalCount: data?.length ?? 0,
+        retentionHours: RETENTION_HOURS,
+        isServiceRole,
+        table: 'sensor_logs',
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+        },
+      },
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ success: false, error: message }, { status: 500 });

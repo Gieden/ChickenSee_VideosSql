@@ -334,19 +334,27 @@ export async function GET(req: NextRequest) {
     console.warn('[API WARN] Could not query active table rows:', err?.message);
   }
 
-  return NextResponse.json({
-    databases: enrichedFiles,
-    groupedByDate,
-    overview,
-    currentFile: selectedDbMeta.storagePath,
-    tables,
-    tableCounts,
-    selectedTable: activeTable,
-    recordingSummary,
-    queryResult,
-    pagination: {
-      limit,
-      offset,
+  return NextResponse.json(
+    {
+      databases: enrichedFiles,
+      groupedByDate,
+      overview,
+      currentFile: selectedDbMeta.storagePath,
+      tables,
+      tableCounts,
+      selectedTable: activeTable,
+      recordingSummary,
+      queryResult,
+      pagination: {
+        limit,
+        offset,
+      },
     },
-  });
+    {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+      },
+    },
+  );
 }

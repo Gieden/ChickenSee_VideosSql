@@ -1046,6 +1046,18 @@ class ZampenAnalyticsWorker:
                         dt_copy["elapsed_s"] = round(float(dt_copy.get("elapsed_s", 0.0)) + chunk_offset_s, 1)
                     all_detection_tracking.append(dt_copy)
                 all_bird_records.extend(getattr(s, "bird_records", []) or [])
+            env_readings_payload = []
+            for cm in chunk_metrics_results:
+                if cm.get("sensor_data_available") or (cm.get("temp_avg_c") or 0) > 0 or (cm.get("humidity_avg_pct") or 0) > 0:
+                    c_start = cm.get("chunk_start")
+                    ts_str = c_start.strftime("%Y-%m-%d %H:%M:%S") if hasattr(c_start, "strftime") else str(c_start or start_dt.isoformat())
+                    env_readings_payload.append({
+                        "timestamp": ts_str,
+                        "temperature_c": round(float(cm.get("temp_avg_c") or 0.0), 1),
+                        "humidity_pct": round(float(cm.get("humidity_avg_pct") or 0.0), 1),
+                        "ammonia_ppm": round(float(cm.get("ammonia_ppm_avg") or 0.0), 5),
+                        "sound_db": round(float(cm.get("sound_db_avg") or 0.0), 1),
+                    })
             log_video_name = str(getattr(job, "video_filename", "") or filename)
             frame_log_path = frame_logs_dir / f"{log_video_name}.json"
             frame_log_payload = {
@@ -1057,10 +1069,12 @@ class ZampenAnalyticsWorker:
                 "behavior_events": all_behavior_events,
                 "detection_tracking": all_detection_tracking,
                 "bird_records": all_bird_records,
+                "environment_readings": env_readings_payload,
             }
             frame_log_path.write_text(json.dumps(frame_log_payload), encoding="utf-8")
             print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames)")
-            # Also upload frame-by-frame log via Vercel /api/sync so chickensee.vercel.app shows exact frames immediately
+            # Also upload frame-by-frame log + paired sensors.sqlite via Vercel /api/sync with 3x retry so
+            # chickensee.vercel.app reflects every newly processed video in real time without any git push.
             try:
                 sync_url = (os.getenv("VERCEL_SYNC_URL") or "").strip()
                 sync_secret = (os.getenv("SYNC_SECRET") or "").strip()
@@ -1078,73 +1092,64 @@ class ZampenAnalyticsWorker:
                 if sync_url and sync_secret:
                     import urllib.request as _urlreq
                     import urllib.parse as _urlparse
-                    sync_name = f"frame_log_{log_video_name}.json"
-                    sign_req = _urlreq.Request(
-                        sync_url,
-                        data=b"",
-                        method="POST",
-                        headers={
-                            "user-agent": "ChickenSee-Worker/1.0",
-                            "x-sync-secret": sync_secret,
-                            "x-filename": _urlparse.quote(sync_name),
-                            "x-action": "get-upload-url",
-                        },
-                    )
-                    with _urlreq.urlopen(sign_req, timeout=20) as _sresp:
-                        up_info = json.loads(_sresp.read().decode("utf-8"))
-                    up_url = up_info.get("uploadUrl")
-                    if up_url:
-                        payload_bytes = frame_log_path.read_bytes()
-                        put_req = _urlreq.Request(
-                            up_url,
-                            data=payload_bytes,
-                            method="PUT",
-                            headers={
-                                "user-agent": "ChickenSee-Worker/1.0",
-                                "content-type": "application/json",
-                                "content-length": str(len(payload_bytes)),
-                                "x-upsert": "true",
-                            },
-                        )
-                        with _urlreq.urlopen(put_req, timeout=60) as _uresp:
-                            print(f"[CLOUD SYNC] Uploaded {up_info.get('storagePath')} ({_uresp.status})")
 
-                    # Also upload paired sensors.sqlite (if present in video folder) so Recorded Data Sensors updates in real time
-                    if paired_db and Path(paired_db).is_file() and Path(paired_db).name.lower() == "sensors.sqlite":
-                        try:
-                            session_folder = Path(paired_db).parent.name
-                            db_sign_req = _urlreq.Request(
-                                sync_url,
-                                data=b"",
-                                method="POST",
-                                headers={
+                    def _upload_with_retry(target_name: str, payload_bytes: bytes, content_type: str, folder: Optional[str] = None, put_timeout: int = 90) -> bool:
+                        last_err: Optional[Exception] = None
+                        for attempt in range(1, 4):
+                            try:
+                                headers = {
                                     "user-agent": "ChickenSee-Worker/1.0",
                                     "x-sync-secret": sync_secret,
-                                    "x-filename": _urlparse.quote("sensors.sqlite"),
-                                    "x-folder": _urlparse.quote(session_folder),
+                                    "x-filename": _urlparse.quote(target_name),
                                     "x-action": "get-upload-url",
-                                },
-                            )
-                            with _urlreq.urlopen(db_sign_req, timeout=20) as _dsresp:
-                                db_up_info = json.loads(_dsresp.read().decode("utf-8"))
-                            db_up_url = db_up_info.get("uploadUrl")
-                            if db_up_url:
-                                db_bytes = Path(paired_db).read_bytes()
-                                db_put_req = _urlreq.Request(
-                                    db_up_url,
-                                    data=db_bytes,
+                                }
+                                if folder:
+                                    headers["x-folder"] = _urlparse.quote(folder)
+                                sign_req = _urlreq.Request(sync_url, data=b"", method="POST", headers=headers)
+                                with _urlreq.urlopen(sign_req, timeout=25) as _sresp:
+                                    up_info = json.loads(_sresp.read().decode("utf-8"))
+                                up_url = up_info.get("uploadUrl")
+                                if not up_url:
+                                    raise RuntimeError("Missing uploadUrl from /api/sync")
+                                put_req = _urlreq.Request(
+                                    up_url,
+                                    data=payload_bytes,
                                     method="PUT",
                                     headers={
                                         "user-agent": "ChickenSee-Worker/1.0",
-                                        "content-type": "application/octet-stream",
-                                        "content-length": str(len(db_bytes)),
+                                        "content-type": content_type,
+                                        "content-length": str(len(payload_bytes)),
                                         "x-upsert": "true",
                                     },
                                 )
-                                with _urlreq.urlopen(db_put_req, timeout=90) as _duresp:
-                                    print(f"[CLOUD SYNC] Uploaded paired sensor DB {db_up_info.get('storagePath')} ({_duresp.status})")
-                        except Exception as db_up_err:
-                            print(f"[CLOUD SYNC WARN] Could not upload paired sensors.sqlite: {db_up_err}")
+                                with _urlreq.urlopen(put_req, timeout=put_timeout) as _uresp:
+                                    print(f"[CLOUD SYNC] Uploaded {up_info.get('storagePath')} ({_uresp.status}, attempt {attempt})")
+                                    return True
+                            except Exception as exc:
+                                last_err = exc
+                                if attempt < 3:
+                                    backoff = 2 * attempt
+                                    print(f"[CLOUD SYNC RETRY] {target_name} attempt {attempt} failed ({exc}); retrying in {backoff}s...")
+                                    time.sleep(backoff)
+                        print(f"[CLOUD SYNC WARN] Failed to upload {target_name} after 3 attempts: {last_err}")
+                        return False
+
+                    _upload_with_retry(
+                        f"frame_log_{log_video_name}.json",
+                        frame_log_path.read_bytes(),
+                        "application/json",
+                        put_timeout=90,
+                    )
+
+                    # Also upload paired sensors.sqlite (if present in video folder) so Recorded Data Sensors updates in real time
+                    if paired_db and Path(paired_db).is_file() and Path(paired_db).name.lower() == "sensors.sqlite":
+                        _upload_with_retry(
+                            "sensors.sqlite",
+                            Path(paired_db).read_bytes(),
+                            "application/octet-stream",
+                            folder=Path(paired_db).parent.name,
+                            put_timeout=120,
+                        )
             except Exception as up_err:
                 print(f"[CLOUD SYNC WARN] Could not upload frame log via /api/sync: {up_err}")
         except Exception as fl_err:

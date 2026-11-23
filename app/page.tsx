@@ -1539,7 +1539,7 @@ export default function DashboardPage() {
     try {
       setLoadingVideos(true);
       setVideosError(null);
-      const res = await fetch('/api/videos');
+      const res = await fetch(`/api/videos?_t=${Date.now()}`, { cache: 'no-store' });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -1565,7 +1565,7 @@ export default function DashboardPage() {
       if (table) params.set('table', table);
       params.set('limit', pageSize.toString());
       params.set('offset', offset.toString());
-      const res = await fetch(`/api/database?${params.toString()}`);
+      const res = await fetch(`/api/database?${params.toString()}`, { cache: 'no-store' });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -1604,7 +1604,9 @@ export default function DashboardPage() {
     setSessionModalError(null);
     setLoadingSessionModal(true);
     try {
-      const res = await fetch(`/api/database/session?file=${encodeURIComponent(file)}`);
+      const res = await fetch(`/api/database/session?file=${encodeURIComponent(file)}&_t=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -1714,7 +1716,7 @@ export default function DashboardPage() {
       setVideoAnalysisError(null);
       try {
         const params = new URLSearchParams({ video: videoPath });
-        const response = await fetch(`/api/video-analysis?${params.toString()}`);
+        const response = await fetch(`/api/video-analysis?${params.toString()}`, { cache: 'no-store' });
         if (response.status === 401) {
           router.push('/login');
           return;
@@ -1744,7 +1746,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeTab !== 'results') return;
     fetchResults();
-    const refreshTimer = setInterval(() => { fetchResults(); }, 30_000);
+    const refreshTimer = setInterval(() => { fetchResults(); }, 10_000);
     return () => clearInterval(refreshTimer);
   }, [activeTab, fetchResults]);
 

@@ -240,7 +240,9 @@ export default function SqliteViewerTab() {
         params.set('timeZone', Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
       }
 
-      const res = await fetch(`/api/database/session?${params.toString()}`);
+      const res = await fetch(`/api/database/session?${params.toString()}&_t=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) {
         throw new Error(`Failed to load session details (HTTP ${res.status})`);
       }

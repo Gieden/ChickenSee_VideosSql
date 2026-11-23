@@ -477,6 +477,18 @@ export async function GET(req: NextRequest) {
             });
           }
         }
+
+        if (Array.isArray(fl.environment_readings) && fl.environment_readings.length > 0) {
+          for (const er of fl.environment_readings) {
+            environmentReadings.push({
+              timestamp: formatSqlTimestamp(String(er.timestamp || startStr)),
+              temperature_c: Math.round((Number(er.temperature_c) || 0) * 10) / 10,
+              humidity_pct: Math.round((Number(er.humidity_pct) || 0) * 10) / 10,
+              ammonia_ppm: Math.round((Number(er.ammonia_ppm) || 0) * 100000) / 100000,
+              sound_db: Math.round((Number(er.sound_db) || 0) * 10) / 10,
+            });
+          }
+        }
       } catch (err) {
         console.warn(`Could not parse live frame log for ${vidName}:`, err);
       }
