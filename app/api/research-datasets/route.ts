@@ -22,10 +22,41 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const ONE_HOUR_SECONDS = 3600;
+
 function formatSqlTimestamp(raw: string): string {
   if (!raw) return '2026-11-17 08:31:49';
   const clean = raw.replace('T', ' ');
   return clean.slice(0, 19);
+}
+
+/**
+ * Parse a wall-clock SQL timestamp as UTC ms so adding elapsed seconds and
+ * formatting with .toISOString() preserves the exact local wall-clock time
+ * on both PHT localhost and UTC Vercel servers.
+ */
+function parseWallClockMs(raw: string): number {
+  const clean = formatSqlTimestamp(raw).replace(' ', 'T');
+  const ms = Date.parse(`${clean}Z`);
+  return Number.isFinite(ms) ? ms : Date.now();
+}
+
+/**
+ * Hourly camera recordings (rec_YYYY-MM-DD_HH-MM-SS_*) capture 1 real hour
+ * (~54,000 frames at ~15 FPS) but are muxed at 20 FPS (~45 min playback).
+ * Map any fast-forwarded hourly recording (raw 33–59 min) across its full
+ * 1-hour (3600 s) real-world duration.
+ */
+function computeEffectiveTiming(videoName: string, totalFrames: number, rawFps: number) {
+  const safeFps = rawFps > 0 ? rawFps : 20;
+  const safeFrames = Math.max(1, totalFrames);
+  const rawDurS = safeFrames / safeFps;
+  const isHourlyRec = /rec[_\s-]*\d{4}-\d{2}-\d{2}[_\s]+\d{2}-\d{2}/i.test(videoName);
+  const isStretched = isHourlyRec && rawDurS >= 2000 && rawDurS < 3550;
+  const targetDurS = isStretched ? ONE_HOUR_SECONDS : rawDurS;
+  const effectiveFps = safeFrames / targetDurS;
+  const timeScale = targetDurS / Math.max(1, rawDurS);
+  return { effectiveFps, targetDurS, timeScale, isStretched };
 }
 
 export async function GET(req: NextRequest) {
@@ -293,27 +324,44 @@ export async function GET(req: NextRequest) {
       try {
         const fl = JSON.parse(rawText);
         const startStr = formatSqlTimestamp(fl.start_time || '');
-        const endStr = formatSqlTimestamp(fl.end_time || '');
         const recMatch = vidName.match(/(\d{4}-\d{2}-\d{2})/);
         const flDate = recMatch ? recMatch[1] : startStr.slice(0, 10);
         if (flDate && isItemArchivedByDate(flDate, meta.updatedMs, archivedCutoffs)) {
           videosList.delete(vidName);
           continue;
         }
-        const baseStartMs = new Date(startStr.replace(' ', 'T')).getTime();
-        const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
+        const safeBaseMs = parseWallClockMs(startStr);
         const flFps = Number(fl.fps) || 20;
         const flTotalFrames = Number(fl.total_frames) || 1;
-        const flDurS = Math.max(1, flTotalFrames / flFps);
+        const { effectiveFps, targetDurS: flDurS, timeScale } = computeEffectiveTiming(
+          vidName,
+          flTotalFrames,
+          flFps,
+        );
+        const endStr = formatSqlTimestamp(new Date(safeBaseMs + flDurS * 1000).toISOString());
 
         if (Array.isArray(fl.behavior_events)) {
           exactLoadedVideos.add(vidName);
-          for (const ev of fl.behavior_events) {
+          const sortedEvents = [...fl.behavior_events].sort(
+            (a, b) => (Number(a.start_frame) || 0) - (Number(b.start_frame) || 0),
+          );
+          for (const ev of sortedEvents) {
             if (behaviorEvents.length >= maxBehaviorEvents) break;
             const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
-            const sS = Number(ev.start_s) || 0;
-            const eS = Number(ev.end_s) || sS;
-            const dS = Number(ev.duration_s) || Math.max(0, eS - sS);
+            const hasFrames = ev.start_frame != null && ev.end_frame != null;
+            const startFrame = hasFrames
+              ? Number(ev.start_frame) || 0
+              : Math.round((Number(ev.start_s) || 0) * flFps);
+            const endFrame = hasFrames
+              ? Math.max(startFrame, Number(ev.end_frame) || startFrame)
+              : Math.round((Number(ev.end_s) || Number(ev.start_s) || 0) * flFps);
+            const sS = hasFrames
+              ? startFrame / effectiveFps
+              : (Number(ev.start_s) || 0) * timeScale;
+            const eS = hasFrames
+              ? Math.max(sS, endFrame / effectiveFps)
+              : Math.max(sS, (Number(ev.end_s) || Number(ev.start_s) || 0) * timeScale);
+            const dS = Math.max(0.1, eS - sS);
             behaviorEvents.push({
               video: vidName,
               track_id: Number(ev.track_id) || def.trackId,
@@ -327,8 +375,8 @@ export async function GET(req: NextRequest) {
               behavior: String(ev.behavior || 'feeding'),
               start_time: formatSqlTimestamp(new Date(safeBaseMs + sS * 1000).toISOString()),
               end_time: formatSqlTimestamp(new Date(safeBaseMs + eS * 1000).toISOString()),
-              start_frame: Number(ev.start_frame) || Math.round(sS * flFps),
-              end_frame: Number(ev.end_frame) || Math.round(eS * flFps),
+              start_frame: startFrame,
+              end_frame: endFrame,
               start_s: Math.round(sS * 10) / 10,
               end_s: Math.round(eS * 10) / 10,
               duration_s: Math.round(dS * 10) / 10,
@@ -345,13 +393,19 @@ export async function GET(req: NextRequest) {
         }
 
         if (Array.isArray(fl.detection_tracking)) {
-          for (const dtRow of fl.detection_tracking) {
+          const sortedDetections = [...fl.detection_tracking].sort(
+            (a, b) => (Number(a.frame_number) || 0) - (Number(b.frame_number) || 0),
+          );
+          for (const dtRow of sortedDetections) {
             if (detectionTracking.length >= maxDetectionTracking) break;
             const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
-            const elS = Number(dtRow.elapsed_s) || 0;
+            const frameNum = Number(dtRow.frame_number) || 0;
+            const elS = dtRow.frame_number != null
+              ? frameNum / effectiveFps
+              : (Number(dtRow.elapsed_s) || 0) * timeScale;
             detectionTracking.push({
               timestamp: formatSqlTimestamp(new Date(safeBaseMs + elS * 1000).toISOString()),
-              frame_number: Number(dtRow.frame_number) || 0,
+              frame_number: frameNum,
               chicken_id: def.shortId,
               shortId: def.shortId,
               chId: def.chId,
@@ -376,27 +430,50 @@ export async function GET(req: NextRequest) {
 
         if (Array.isArray(fl.bird_records) && fl.bird_records.length > 0) {
           obsLoadedVideos.add(vidName);
+          // Aggregate multi-chunk bird_records into one clean full-video (e.g. 3600s) window per bird
+          const mergedBirds = new Map<
+            string,
+            {
+              def: ReturnType<typeof mapBirdToDef>;
+              validS: number;
+              occS: number;
+              rawWinS: number;
+            }
+          >();
           for (const br of fl.bird_records) {
             const def = mapBirdToDef(String(br.bird_label || ''), Number(br.track_id));
-            const winDur = Math.max(1, Number(br.window_duration_s) || Math.round(flDurS));
-            const validS = Math.min(winDur, Math.max(0, Number(br.valid_observation_duration_s) || 0));
-            const occS = Math.min(Math.max(0, winDur - validS), Math.max(0, Number(br.occluded_duration_s) || 0));
-            const lostS = Math.max(0, winDur - validS - occS);
+            const prev = mergedBirds.get(def.shortId) || {
+              def,
+              validS: 0,
+              occS: 0,
+              rawWinS: 0,
+            };
+            prev.validS += Math.max(0, Number(br.valid_observation_duration_s) || 0);
+            prev.occS += Math.max(0, Number(br.occluded_duration_s) || 0);
+            prev.rawWinS += Math.max(0, Number(br.window_duration_s) || 0);
+            mergedBirds.set(def.shortId, prev);
+          }
+          const fullWinDur = Math.max(1, Math.round(flDurS));
+          for (const entry of Array.from(mergedBirds.values())) {
+            const scale = entry.rawWinS > 0 ? fullWinDur / entry.rawWinS : timeScale;
+            const validS = Math.min(fullWinDur, Math.round(entry.validS * scale));
+            const occS = Math.min(Math.max(0, fullWinDur - validS), Math.round(entry.occS * scale));
+            const lostS = Math.max(0, fullWinDur - validS - occS);
             observationWindows.push({
               video: vidName,
-              chicken_id: def.shortId,
-              shortId: def.shortId,
-              chId: def.chId,
-              profileLabel: def.profileLabel,
-              saddleColor: def.saddleColor,
-              dotColor: def.dotColor,
+              chicken_id: entry.def.shortId,
+              shortId: entry.def.shortId,
+              chId: entry.def.chId,
+              profileLabel: entry.def.profileLabel,
+              saddleColor: entry.def.saddleColor,
+              dotColor: entry.def.dotColor,
               window_start: startStr,
               window_end: endStr,
-              window_duration_s: winDur,
+              window_duration_s: fullWinDur,
               valid_observation_duration_s: validS,
               occluded_duration_s: occS,
               lost_duration_s: lostS,
-              valid_observation_pct: Number(br.valid_observation_pct) || Math.round((validS / winDur) * 1000) / 10,
+              valid_observation_pct: Math.round((validS / fullWinDur) * 1000) / 10,
             });
           }
         }
@@ -473,20 +550,37 @@ export async function GET(req: NextRequest) {
             if (rawFrameLogText) {
               try {
                 const fl = JSON.parse(rawFrameLogText);
-                const baseStartMs = new Date(formatSqlTimestamp(fl.start_time || job.startTime).replace(' ', 'T')).getTime();
-                const safeBaseMs = Number.isFinite(baseStartMs) ? baseStartMs : Date.now();
+                const safeBaseMs = parseWallClockMs(fl.start_time || job.startTime);
                 const flFps = Number(fl.fps) || 20;
                 const flTotalFrames = Number(fl.total_frames) || job.totalFrames || 1;
-                const flDurS = Math.max(1, flTotalFrames / flFps);
+                const { effectiveFps, targetDurS: flDurS, timeScale } = computeEffectiveTiming(
+                  job.video,
+                  flTotalFrames,
+                  flFps,
+                );
 
                 if (Array.isArray(fl.behavior_events) && fl.behavior_events.length > 0) {
                   hasExactFrameLog = true;
-                  for (const ev of fl.behavior_events) {
+                  const sortedEvents = [...fl.behavior_events].sort(
+                    (a, b) => (Number(a.start_frame) || 0) - (Number(b.start_frame) || 0),
+                  );
+                  for (const ev of sortedEvents) {
                     if (behaviorEvents.length >= maxBehaviorEvents) break;
                     const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
-                    const sS = Number(ev.start_s) || 0;
-                    const eS = Number(ev.end_s) || sS;
-                    const dS = Number(ev.duration_s) || Math.max(0, eS - sS);
+                    const hasFrames = ev.start_frame != null && ev.end_frame != null;
+                    const startFrame = hasFrames
+                      ? Number(ev.start_frame) || 0
+                      : Math.round((Number(ev.start_s) || 0) * flFps);
+                    const endFrame = hasFrames
+                      ? Math.max(startFrame, Number(ev.end_frame) || startFrame)
+                      : Math.round((Number(ev.end_s) || Number(ev.start_s) || 0) * flFps);
+                    const sS = hasFrames
+                      ? startFrame / effectiveFps
+                      : (Number(ev.start_s) || 0) * timeScale;
+                    const eS = hasFrames
+                      ? Math.max(sS, endFrame / effectiveFps)
+                      : Math.max(sS, (Number(ev.end_s) || Number(ev.start_s) || 0) * timeScale);
+                    const dS = Math.max(0.1, eS - sS);
                     behaviorEvents.push({
                       video: job.video,
                       track_id: Number(ev.track_id) || def.trackId,
@@ -500,8 +594,8 @@ export async function GET(req: NextRequest) {
                       behavior: String(ev.behavior || 'feeding'),
                       start_time: formatSqlTimestamp(new Date(safeBaseMs + sS * 1000).toISOString()),
                       end_time: formatSqlTimestamp(new Date(safeBaseMs + eS * 1000).toISOString()),
-                      start_frame: Number(ev.start_frame) || Math.round(sS * flFps),
-                      end_frame: Number(ev.end_frame) || Math.round(eS * flFps),
+                      start_frame: startFrame,
+                      end_frame: endFrame,
                       start_s: Math.round(sS * 10) / 10,
                       end_s: Math.round(eS * 10) / 10,
                       duration_s: Math.round(dS * 10) / 10,
@@ -518,13 +612,19 @@ export async function GET(req: NextRequest) {
                 }
                 if (Array.isArray(fl.detection_tracking) && fl.detection_tracking.length > 0) {
                   hasExactFrameLog = true;
-                  for (const dtRow of fl.detection_tracking) {
+                  const sortedDetections = [...fl.detection_tracking].sort(
+                    (a, b) => (Number(a.frame_number) || 0) - (Number(b.frame_number) || 0),
+                  );
+                  for (const dtRow of sortedDetections) {
                     if (detectionTracking.length >= maxDetectionTracking) break;
                     const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
-                    const elS = Number(dtRow.elapsed_s) || 0;
+                    const frameNum = Number(dtRow.frame_number) || 0;
+                    const elS = dtRow.frame_number != null
+                      ? frameNum / effectiveFps
+                      : (Number(dtRow.elapsed_s) || 0) * timeScale;
                     detectionTracking.push({
                       timestamp: formatSqlTimestamp(new Date(safeBaseMs + elS * 1000).toISOString()),
-                      frame_number: Number(dtRow.frame_number) || 0,
+                      frame_number: frameNum,
                       chicken_id: def.shortId,
                       shortId: def.shortId,
                       chId: def.chId,

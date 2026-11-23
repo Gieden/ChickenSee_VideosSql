@@ -561,9 +561,22 @@ class ZampenAnalyticsWorker:
             return
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
-        fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
-        if total_frames > 1 and fps > 0:
-            duration_s = total_frames / fps
+        raw_fps = cap.get(cv2.CAP_PROP_FPS) or 20.0
+        fps = raw_fps
+        if total_frames > 1 and raw_fps > 0:
+            raw_duration_s = total_frames / raw_fps
+            is_hourly_rec = bool(
+                re.search(r"rec[_\s-]*\d{4}-\d{2}-\d{2}[_\s]+\d{2}-\d{2}", f"{filename} {video_path}", re.IGNORECASE)
+            )
+            if is_hourly_rec and 2000.0 <= raw_duration_s < 3550.0:
+                fps = total_frames / 3600.0
+                duration_s = 3600.0
+                print(
+                    f"[WORKER] Fast-forwarded 1h recording detected ({filename}): "
+                    f"{raw_duration_s / 60.0:.1f}m @ {raw_fps:.1f} FPS -> scaled to 60.0m @ {fps:.2f} FPS"
+                )
+            else:
+                duration_s = raw_duration_s
             if start_dt == end_dt:
                 start_dt = datetime.datetime.fromtimestamp(Path(video_path).stat().st_mtime) - datetime.timedelta(seconds=duration_s)
             end_dt = start_dt + datetime.timedelta(seconds=duration_s)
@@ -1012,9 +1025,26 @@ class ZampenAnalyticsWorker:
             all_behavior_events = []
             all_detection_tracking = []
             all_bird_records = []
-            for s in chunk_summaries:
-                all_behavior_events.extend(getattr(s, "behavior_events", []) or [])
-                all_detection_tracking.extend(getattr(s, "detection_tracking", []) or [])
+            for idx_s, s in enumerate(chunk_summaries):
+                chunk_first_frame = frame_ranges[idx_s][0] if idx_s < len(frame_ranges) else 0
+                chunk_offset_s = chunk_first_frame / fps if fps > 0 else 0.0
+                for ev in (getattr(s, "behavior_events", []) or []):
+                    ev_copy = dict(ev)
+                    if ev_copy.get("start_frame") is not None and fps > 0:
+                        ev_copy["start_s"] = round(float(ev_copy["start_frame"]) / fps, 1)
+                        ev_copy["end_s"] = round(float(ev_copy.get("end_frame", ev_copy["start_frame"])) / fps, 1)
+                        ev_copy["duration_s"] = round(max(0.1, ev_copy["end_s"] - ev_copy["start_s"]), 1)
+                    elif chunk_offset_s > 0:
+                        ev_copy["start_s"] = round(float(ev_copy.get("start_s", 0.0)) + chunk_offset_s, 1)
+                        ev_copy["end_s"] = round(float(ev_copy.get("end_s", 0.0)) + chunk_offset_s, 1)
+                    all_behavior_events.append(ev_copy)
+                for dt_row in (getattr(s, "detection_tracking", []) or []):
+                    dt_copy = dict(dt_row)
+                    if dt_copy.get("frame_number") is not None and fps > 0:
+                        dt_copy["elapsed_s"] = round(float(dt_copy["frame_number"]) / fps, 1)
+                    elif chunk_offset_s > 0:
+                        dt_copy["elapsed_s"] = round(float(dt_copy.get("elapsed_s", 0.0)) + chunk_offset_s, 1)
+                    all_detection_tracking.append(dt_copy)
                 all_bird_records.extend(getattr(s, "bird_records", []) or [])
             log_video_name = str(getattr(job, "video_filename", "") or filename)
             frame_log_path = frame_logs_dir / f"{log_video_name}.json"
