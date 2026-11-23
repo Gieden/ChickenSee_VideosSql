@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { AUTH_COOKIE_NAME, getSession, isAdmin } from '@/lib/auth';
-import { listArchiveFilesAsync, readArchiveSqlFileContent, restoreDataFromSql } from '@/lib/data-archive';
+import {
+  listArchiveFilesAsync,
+  readArchiveSqlFileContent,
+  restoreArchiveFromManifest,
+  restoreDataFromSql,
+} from '@/lib/data-archive';
 import { clearBehaviorResultsCache } from '@/lib/behavior-cache';
 
 export const runtime = 'nodejs';
@@ -34,12 +39,30 @@ export async function POST(req: NextRequest) {
       fileName = String(body?.fileName ?? '').trim();
       sqlContent = typeof body?.sqlContent === 'string' ? body.sqlContent : '';
 
-      // If restoring an existing file from the Archive/ folder by fileName alone
+      // If restoring an existing entry from the Archive/ repository by fileName alone
       if (fileName && !sqlContent) {
         const safeName = path.basename(fileName);
         const fetchedContent = await readArchiveSqlFileContent(safeName);
         if (!fetchedContent) {
-          return NextResponse.json({ error: `Archive file "${safeName}" not found in Archive folder.` }, { status: 404 });
+          // .sql backup files are no longer stored redundantly in Supabase Storage — restore directly via manifest!
+          const manifestResult = await restoreArchiveFromManifest({
+            fileName: safeName,
+            restoredBy: session.username,
+          });
+          if (!manifestResult) {
+            return NextResponse.json({ error: `Archive "${safeName}" not found in Archive manifest.` }, { status: 404 });
+          }
+          clearBehaviorResultsCache();
+          const updated = await listArchiveFilesAsync();
+          return NextResponse.json({
+            success: true,
+            restoredDates: manifestResult.restoredDates,
+            restoredMetricsRows: manifestResult.restoredMetricsRows,
+            restoredBirdRows: manifestResult.restoredBirdRows,
+            archive: manifestResult.archive,
+            archivedDates: updated.archivedDates,
+            files: updated.files,
+          });
         }
         fileName = safeName;
         sqlContent = fetchedContent;

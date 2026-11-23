@@ -738,18 +738,10 @@ export async function archiveDataByScope(params: {
     console.warn('Could not write SQL archive to local filesystem, persisting to cloud:', err);
   }
 
-  // Also upload SQL archive to Supabase Storage Archive/ folder
-  const bucket = getSupabaseArchiveBucket();
-  if (bucket) {
-    try {
-      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${fileName}`, sqlContent, {
-        contentType: 'application/sql',
-        upsert: true,
-      });
-    } catch (err) {
-      console.warn('Could not upload SQL archive to Supabase Storage:', err);
-    }
-  }
+  // Do NOT upload huge .sql backup blobs (25+ MB) to Supabase Storage — they are redundant
+  // because the underlying recordings/logs remain intact and only the tiny (~2 KB) manifest
+  // controls visibility, while the .sql file is saved locally / downloaded to the user's PC.
+  void purgeRedundantCloudArchiveSqlFiles();
 
   // Update manifest in Archive/.archive-manifest.json (local + cloud)
   const manifest = await syncManifestFromCloud();
@@ -805,22 +797,13 @@ export async function restoreDataFromSql(params: {
     : `${cleanBaseName}.sql`;
   const targetFilePath = path.join(archiveDir, targetFileName);
 
-  // Save attached SQL file into Archive/ (local + cloud)
+  // Save attached SQL file locally only (do NOT re-upload redundant .sql blobs to Supabase Storage)
   let sizeBytes = Buffer.byteLength(sqlContent, 'utf-8');
   try {
     fs.writeFileSync(targetFilePath, sqlContent, 'utf-8');
     sizeBytes = fs.statSync(targetFilePath).size;
   } catch {}
-
-  const bucket = getSupabaseArchiveBucket();
-  if (bucket) {
-    try {
-      await bucket.upload(`${ARCHIVE_FOLDER_NAME}/${targetFileName}`, sqlContent, {
-        contentType: 'application/sql',
-        upsert: true,
-      });
-    } catch {}
-  }
+  void purgeRedundantCloudArchiveSqlFiles();
 
   let restoredMetricsRows = 0;
   let restoredBirdRows = 0;
@@ -1016,25 +999,93 @@ export async function restoreDataFromSql(params: {
   };
 }
 
+/**
+ * Deletes any redundant Archive/*.sql backup blobs from Supabase Storage while keeping
+ * the tiny (~2 KB) Archive/.archive-manifest.json needed for cross-device archive state.
+ */
+let lastCloudSqlPurgeMs = 0;
+export async function purgeRedundantCloudArchiveSqlFiles(): Promise<number> {
+  if (Date.now() - lastCloudSqlPurgeMs < 5 * 60 * 1000) return 0;
+  lastCloudSqlPurgeMs = Date.now();
+  const bucket = getSupabaseArchiveBucket();
+  if (!bucket) return 0;
+  try {
+    const { data, error } = await bucket.list(ARCHIVE_FOLDER_NAME, { limit: 100 });
+    if (error || !data) return 0;
+    const sqlPaths = data
+      .filter((obj) => obj.name && obj.name.toLowerCase().endsWith('.sql'))
+      .map((obj) => `${ARCHIVE_FOLDER_NAME}/${obj.name}`);
+    if (sqlPaths.length === 0) return 0;
+    await bucket.remove(sqlPaths);
+    return sqlPaths.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Restores an archived entry directly from Archive/.archive-manifest.json metadata
+ * when the .sql file is stored locally on the user's PC rather than in Supabase Storage.
+ */
+export async function restoreArchiveFromManifest(params: {
+  fileName: string;
+  restoredBy: string;
+}): Promise<{
+  restoredDates: string[];
+  restoredMetricsRows: number;
+  restoredBirdRows: number;
+  archive: ArchiveFileEntry;
+} | null> {
+  const safeName = path.basename(params.fileName);
+  const manifest = await syncManifestFromCloud();
+  const existing = manifest.archives?.[safeName];
+  if (!existing) return null;
+
+  const isAllDataArchive = existing.scope === 'all' || /all_data/i.test(safeName);
+  const restoredSet = new Set<string>(existing.dates || []);
+  if (existing.startDate && existing.endDate && existing.startDate <= existing.endDate) {
+    for (const d of enumerateDates(existing.startDate, existing.endDate)) {
+      restoredSet.add(d);
+    }
+  }
+  const restoredDates = Array.from(restoredSet).sort();
+
+  if (isAllDataArchive) {
+    manifest.archivedDates = [];
+  } else {
+    manifest.archivedDates = (manifest.archivedDates || []).filter((d) => !restoredSet.has(d));
+  }
+
+  const nowIso = new Date().toISOString();
+  const updatedMeta: ArchiveMetadata = {
+    ...existing,
+    status: 'restored',
+    restoredAt: nowIso,
+    restoredBy: params.restoredBy,
+  };
+  manifest.archives[safeName] = updatedMeta;
+  await writeArchiveManifestAsync(manifest);
+  clearManifestCache();
+  void purgeRedundantCloudArchiveSqlFiles();
+
+  return {
+    restoredDates,
+    restoredMetricsRows: existing.metricsRowCount || 0,
+    restoredBirdRows: existing.birdTrackRowCount || 0,
+    archive: {
+      ...updatedMeta,
+      filePath: path.join(getArchiveDir(), safeName),
+      sizeBytes: 0,
+    },
+  };
+}
+
 export async function readArchiveSqlFileContent(fileName: string): Promise<string | null> {
   const safeName = path.basename(fileName);
   const localPath = path.join(getArchiveDir(), safeName);
   if (fs.existsSync(localPath)) {
     try {
       return fs.readFileSync(localPath, 'utf-8');
-    } catch {}
-  }
-  const bucket = getSupabaseArchiveBucket();
-  if (bucket) {
-    try {
-      const { data, error } = await bucket.download(`${ARCHIVE_FOLDER_NAME}/${safeName}`);
-      if (!error && data) {
-        const text = await data.text();
-        try {
-          fs.writeFileSync(localPath, text, 'utf-8');
-        } catch {}
-        return text;
-      }
     } catch {}
   }
   return null;
@@ -1049,6 +1100,7 @@ export async function listArchiveFilesAsync(): Promise<{
   files: ArchiveFileEntry[];
 }> {
   await syncManifestFromCloud();
+  void purgeRedundantCloudArchiveSqlFiles();
   return listArchiveFiles();
 }
 
