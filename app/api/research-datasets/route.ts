@@ -37,6 +37,9 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const targetVideo = searchParams.get('video') || 'all';
   const targetSheet = searchParams.get('sheet') || 'all';
+  const isExport = searchParams.get('export') === '1';
+  const maxBehaviorEvents = isExport ? 10000 : 1500;
+  const maxDetectionTracking = isExport ? 5000 : 3500;
 
   await syncManifestFromCloud();
   const archivedCutoffs = getArchivedDateCutoffs();
@@ -46,6 +49,19 @@ export async function GET(req: NextRequest) {
   const detectionTracking: DetectionTrackingRow[] = [];
   const environmentReadings: EnvironmentReadingRow[] = [];
   const videosList = new Set<string>();
+  const videoDates = new Map<string, string>();
+
+  const registerVideoDate = (vid: string, dateHint?: string) => {
+    const recMatch = vid.match(/(\d{4}-\d{2}-\d{2})/);
+    const normalized = recMatch
+      ? recMatch[1]
+      : dateHint && /^\d{4}-\d{2}-\d{2}/.test(dateHint)
+        ? dateHint.slice(0, 10)
+        : '';
+    if (normalized && !videoDates.has(vid)) {
+      videoDates.set(vid, normalized);
+    }
+  };
 
   // 1. PRIMARY SOURCE: Genuine research data from ChickenSee-Raw-Data.xlsx
   const rawDataPath = path.join(process.cwd(), 'data', 'research_raw_data.json');
@@ -55,6 +71,7 @@ export async function GET(req: NextRequest) {
     try {
       const rawPayload = JSON.parse(fs.readFileSync(rawDataPath, 'utf-8'));
       videosList.add(excelVideoName);
+      registerVideoDate(excelVideoName, '2026-11-13');
 
       const includeExcelData =
         targetVideo === 'all' ||
@@ -242,6 +259,7 @@ export async function GET(req: NextRequest) {
         : '';
     if (approxDate && isItemArchivedByDate(approxDate, meta.updatedMs, archivedCutoffs)) continue;
     videosList.add(vidName);
+    registerVideoDate(vidName, approxDate);
   }
 
   const exactLoadedVideos = new Set<string>();
@@ -291,7 +309,7 @@ export async function GET(req: NextRequest) {
         if (Array.isArray(fl.behavior_events)) {
           exactLoadedVideos.add(vidName);
           for (const ev of fl.behavior_events) {
-            if (behaviorEvents.length >= 1500) break;
+            if (behaviorEvents.length >= maxBehaviorEvents) break;
             const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
             const sS = Number(ev.start_s) || 0;
             const eS = Number(ev.end_s) || sS;
@@ -328,7 +346,7 @@ export async function GET(req: NextRequest) {
 
         if (Array.isArray(fl.detection_tracking)) {
           for (const dtRow of fl.detection_tracking) {
-            if (detectionTracking.length >= 3500) break;
+            if (detectionTracking.length >= maxDetectionTracking) break;
             const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
             const elS = Number(dtRow.elapsed_s) || 0;
             detectionTracking.push({
@@ -419,6 +437,7 @@ export async function GET(req: NextRequest) {
 
         for (const job of jobs) {
           videosList.add(job.video);
+          registerVideoDate(job.video, job.dateSlot);
         }
 
         // Compute real observation_windows & behavior_events from zampen_analytics.db for selected analyzed videos
@@ -463,7 +482,7 @@ export async function GET(req: NextRequest) {
                 if (Array.isArray(fl.behavior_events) && fl.behavior_events.length > 0) {
                   hasExactFrameLog = true;
                   for (const ev of fl.behavior_events) {
-                    if (behaviorEvents.length >= 1500) break;
+                    if (behaviorEvents.length >= maxBehaviorEvents) break;
                     const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
                     const sS = Number(ev.start_s) || 0;
                     const eS = Number(ev.end_s) || sS;
@@ -500,7 +519,7 @@ export async function GET(req: NextRequest) {
                 if (Array.isArray(fl.detection_tracking) && fl.detection_tracking.length > 0) {
                   hasExactFrameLog = true;
                   for (const dtRow of fl.detection_tracking) {
-                    if (detectionTracking.length >= 3500) break;
+                    if (detectionTracking.length >= maxDetectionTracking) break;
                     const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
                     const elS = Number(dtRow.elapsed_s) || 0;
                     detectionTracking.push({
@@ -775,12 +794,24 @@ export async function GET(req: NextRequest) {
     allVideos.push(excelVideoName);
   }
   const defaultVideo = allVideos[0] || excelVideoName;
+  const videoDatesObj: Record<string, string> = {};
+  const availableDateSet = new Set<string>();
+  for (const vid of allVideos) {
+    const d = videoDates.get(vid);
+    if (d) {
+      videoDatesObj[vid] = d;
+      availableDateSet.add(d);
+    }
+  }
+  const availableDates = Array.from(availableDateSet).sort((a, b) => b.localeCompare(a));
 
   return NextResponse.json(
     {
       success: true,
       serverTime: new Date().toISOString(),
       videos: allVideos,
+      videoDates: videoDatesObj,
+      availableDates,
       defaultVideo,
       sheetCounts: {
         behavior_events: behaviorEvents.length,

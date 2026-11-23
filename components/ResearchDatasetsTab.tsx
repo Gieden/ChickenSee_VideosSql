@@ -19,6 +19,8 @@ import {
   AlertTriangle,
   Eye,
   ShieldAlert,
+  FolderArchive,
+  Loader2,
 } from 'lucide-react';
 import {
   ObservationWindowRow,
@@ -28,6 +30,7 @@ import {
   ChickenIdDisplayFormat,
   ExcelSheetName,
 } from '@/lib/research-datasets';
+import { buildZipBlob } from '@/lib/simple-zip';
 
 interface SheetMeta {
   key: ExcelSheetName;
@@ -80,6 +83,11 @@ export default function ResearchDatasetsTab() {
 
   // Data states for the 4 sheets
   const [videos, setVideos] = useState<string[]>([]);
+  const [videoDates, setVideoDates] = useState<Record<string, string>>({});
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedExportDate, setSelectedExportDate] = useState<string>('');
+  const [exportingDay, setExportingDay] = useState<boolean>(false);
+  const [exportProgress, setExportProgress] = useState<string>('');
   const [sheetCounts, setSheetCounts] = useState<Record<ExcelSheetName, number>>({
     behavior_events: 0,
     detection_tracking: 0,
@@ -105,6 +113,10 @@ export default function ResearchDatasetsTab() {
       if (!res.ok) throw new Error(data.error || 'Failed to load research datasets');
 
       setVideos(data.videos || []);
+      setVideoDates(data.videoDates || {});
+      const dates: string[] = Array.isArray(data.availableDates) ? data.availableDates : [];
+      setAvailableDates(dates);
+      setSelectedExportDate((prev) => (prev && dates.includes(prev) ? prev : dates[0] || ''));
       setSheetCounts(data.sheetCounts || {
         behavior_events: 0,
         detection_tracking: 0,
@@ -242,131 +254,9 @@ export default function ResearchDatasetsTab() {
 
   const totalPages = Math.max(1, Math.ceil(currentTotal / pageSize));
 
-  // CSV Export
-  const exportCurrentSheetCsv = useCallback(() => {
-    let headers: string[] = [];
-    let rows: (string | number | boolean)[][] = [];
-    let filename = `${activeSheet}_${selectedVideo || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
-
-    if (activeSheet === 'behavior_events') {
-      headers = [
-        'video',
-        'track_id',
-        'chicken_id',
-        'saddle_color',
-        'identity_status',
-        'behavior',
-        'start_time',
-        'end_time',
-        'start_frame',
-        'end_frame',
-        'start_s',
-        'end_s',
-        'duration_s',
-        'tracking_visible_pct',
-        'mean_detection_conf',
-        'nearest_distance_mean_px',
-        'nearest_distance_min_px',
-        'nearest_distance_max_px',
-        'nearest_distance_mean_body_lengths',
-        'nearest_distance_min_body_lengths',
-        'nearest_distance_max_body_lengths',
-      ];
-      rows = filteredBehaviorEvents.map((r) => [
-        r.video,
-        r.track_id,
-        idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
-        r.saddle_color,
-        r.identity_status,
-        r.behavior,
-        r.start_time,
-        r.end_time,
-        r.start_frame ?? '',
-        r.end_frame ?? '',
-        r.start_s,
-        r.end_s,
-        r.duration_s,
-        r.tracking_visible_pct,
-        r.mean_detection_conf,
-        r.nearest_distance_mean_px,
-        r.nearest_distance_min_px,
-        r.nearest_distance_max_px,
-        r.nearest_distance_mean_body_lengths,
-        r.nearest_distance_min_body_lengths,
-        r.nearest_distance_max_body_lengths,
-      ]);
-    } else if (activeSheet === 'detection_tracking') {
-      headers = [
-        'timestamp',
-        'frame_number',
-        'chicken_id',
-        'saddle_color',
-        'track_id',
-        'x_center_px',
-        'y_center_px',
-        'bbox_width_px',
-        'bbox_height_px',
-        'detection_confidence',
-        'visibility_status',
-        'in_feeder_zone',
-        'in_waterer_zone',
-        'nearest_neighbor_distance_px',
-        'nearest_neighbor_distance_body_lengths',
-        'visible_chicken_count',
-      ];
-      rows = filteredDetectionTracking.map((r) => [
-        r.timestamp,
-        r.frame_number,
-        idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
-        r.saddle_color,
-        r.track_id,
-        r.x_center_px,
-        r.y_center_px,
-        r.bbox_width_px,
-        r.bbox_height_px,
-        r.detection_confidence,
-        r.visibility_status,
-        r.in_feeder_zone ? 'TRUE' : 'FALSE',
-        r.in_waterer_zone ? 'TRUE' : 'FALSE',
-        r.nearest_neighbor_distance_px,
-        r.nearest_neighbor_distance_body_lengths,
-        r.visible_chicken_count,
-      ]);
-    } else if (activeSheet === 'observation_windows') {
-      headers = [
-        'video',
-        'chicken_id',
-        'window_start',
-        'window_end',
-        'window_duration_s',
-        'valid_observation_duration_s',
-        'occluded_duration_s',
-        'lost_duration_s',
-        'valid_observation_pct',
-      ];
-      rows = filteredObservationWindows.map((r) => [
-        r.video,
-        idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
-        r.window_start,
-        r.window_end,
-        r.window_duration_s,
-        r.valid_observation_duration_s,
-        r.occluded_duration_s,
-        r.lost_duration_s,
-        r.valid_observation_pct,
-      ]);
-    } else if (activeSheet === 'environment_readings') {
-      headers = ['timestamp', 'temperature_c', 'humidity_pct', 'ammonia_ppm', 'sound_db'];
-      rows = filteredEnvironmentReadings.map((r) => [
-        r.timestamp,
-        r.temperature_c,
-        r.humidity_pct,
-        r.ammonia_ppm,
-        r.sound_db,
-      ]);
-    }
-
-    const csvContent =
+  // Shared CSV serializer
+  const toCsvString = useCallback((headers: string[], rows: (string | number | boolean)[][]) => {
+    return (
       '\uFEFF' +
       [
         headers.join(','),
@@ -380,7 +270,160 @@ export default function ResearchDatasetsTab() {
             })
             .join(','),
         ),
-      ].join('\r\n');
+      ].join('\r\n')
+    );
+  }, []);
+
+  const buildSheetCsv = useCallback(
+    (
+      sheet: ExcelSheetName,
+      data: {
+        behaviorEvents: BehaviorEventRow[];
+        detectionTracking: DetectionTrackingRow[];
+        observationWindows: ObservationWindowRow[];
+        environmentReadings: EnvironmentReadingRow[];
+      },
+    ): string => {
+      if (sheet === 'behavior_events') {
+        const headers = [
+          'video',
+          'track_id',
+          'chicken_id',
+          'saddle_color',
+          'identity_status',
+          'behavior',
+          'start_time',
+          'end_time',
+          'start_frame',
+          'end_frame',
+          'start_s',
+          'end_s',
+          'duration_s',
+          'tracking_visible_pct',
+          'mean_detection_conf',
+          'nearest_distance_mean_px',
+          'nearest_distance_min_px',
+          'nearest_distance_max_px',
+          'nearest_distance_mean_body_lengths',
+          'nearest_distance_min_body_lengths',
+          'nearest_distance_max_body_lengths',
+        ];
+        const rows = data.behaviorEvents
+          .filter((r) => r.behavior.toLowerCase() !== 'social_isolation')
+          .map((r) => [
+            r.video,
+            r.track_id,
+            idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
+            r.saddle_color,
+            r.identity_status,
+            r.behavior,
+            r.start_time,
+            r.end_time,
+            r.start_frame ?? '',
+            r.end_frame ?? '',
+            r.start_s,
+            r.end_s,
+            r.duration_s,
+            r.tracking_visible_pct,
+            r.mean_detection_conf,
+            r.nearest_distance_mean_px,
+            r.nearest_distance_min_px,
+            r.nearest_distance_max_px,
+            r.nearest_distance_mean_body_lengths,
+            r.nearest_distance_min_body_lengths,
+            r.nearest_distance_max_body_lengths,
+          ]);
+        return toCsvString(headers, rows);
+      }
+
+      if (sheet === 'detection_tracking') {
+        const headers = [
+          'timestamp',
+          'frame_number',
+          'chicken_id',
+          'saddle_color',
+          'track_id',
+          'x_center_px',
+          'y_center_px',
+          'bbox_width_px',
+          'bbox_height_px',
+          'detection_confidence',
+          'visibility_status',
+          'in_feeder_zone',
+          'in_waterer_zone',
+          'nearest_neighbor_distance_px',
+          'nearest_neighbor_distance_body_lengths',
+          'visible_chicken_count',
+        ];
+        const rows = data.detectionTracking.map((r) => [
+          r.timestamp,
+          r.frame_number,
+          idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
+          r.saddle_color,
+          r.track_id,
+          r.x_center_px,
+          r.y_center_px,
+          r.bbox_width_px,
+          r.bbox_height_px,
+          r.detection_confidence,
+          r.visibility_status,
+          r.in_feeder_zone ? 'TRUE' : 'FALSE',
+          r.in_waterer_zone ? 'TRUE' : 'FALSE',
+          r.nearest_neighbor_distance_px,
+          r.nearest_neighbor_distance_body_lengths,
+          r.visible_chicken_count,
+        ]);
+        return toCsvString(headers, rows);
+      }
+
+      if (sheet === 'observation_windows') {
+        const headers = [
+          'video',
+          'chicken_id',
+          'window_start',
+          'window_end',
+          'window_duration_s',
+          'valid_observation_duration_s',
+          'occluded_duration_s',
+          'lost_duration_s',
+          'valid_observation_pct',
+        ];
+        const rows = data.observationWindows.map((r) => [
+          r.video,
+          idFormat === 'ch' ? r.chId : idFormat === 'profile' ? r.profileLabel : r.shortId,
+          r.window_start,
+          r.window_end,
+          r.window_duration_s,
+          r.valid_observation_duration_s,
+          r.occluded_duration_s,
+          r.lost_duration_s,
+          r.valid_observation_pct,
+        ]);
+        return toCsvString(headers, rows);
+      }
+
+      const headers = ['timestamp', 'temperature_c', 'humidity_pct', 'ammonia_ppm', 'sound_db'];
+      const rows = data.environmentReadings.map((r) => [
+        r.timestamp,
+        r.temperature_c,
+        r.humidity_pct,
+        r.ammonia_ppm,
+        r.sound_db,
+      ]);
+      return toCsvString(headers, rows);
+    },
+    [idFormat, toCsvString],
+  );
+
+  // CSV Export (current active sheet)
+  const exportCurrentSheetCsv = useCallback(() => {
+    const filename = `${activeSheet}_${selectedVideo || 'all'}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const csvContent = buildSheetCsv(activeSheet, {
+      behaviorEvents: filteredBehaviorEvents,
+      detectionTracking: filteredDetectionTracking,
+      observationWindows: filteredObservationWindows,
+      environmentReadings: filteredEnvironmentReadings,
+    });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -393,13 +436,179 @@ export default function ResearchDatasetsTab() {
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }, [
     activeSheet,
+    buildSheetCsv,
     filteredBehaviorEvents,
     filteredDetectionTracking,
     filteredObservationWindows,
     filteredEnvironmentReadings,
-    idFormat,
     selectedVideo,
   ]);
+
+  // Full-Day Multi-Sheet Export (.zip containing all 4 CSV sheets for all videos of a specific day)
+  const videosCountByDate = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const vid of videos) {
+      const d = videoDates[vid] || vid.match(/(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+      if (d) counts[d] = (counts[d] || 0) + 1;
+    }
+    return counts;
+  }, [videos, videoDates]);
+
+  const exportDayLogsZip = useCallback(async () => {
+    if (!selectedExportDate || exportingDay) return;
+    const dayVideos = videos
+      .filter((vid) => {
+        const d = videoDates[vid] || vid.match(/(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+        return d === selectedExportDate;
+      })
+      .sort((a, b) => a.localeCompare(b));
+
+    if (dayVideos.length === 0) {
+      setError(`No research logs found for ${selectedExportDate}.`);
+      return;
+    }
+
+    setExportingDay(true);
+    setError(null);
+    setExportProgress(`0/${dayVideos.length}`);
+
+    try {
+      const allBehavior: BehaviorEventRow[] = [];
+      const allDetection: DetectionTrackingRow[] = [];
+      const allObs: ObservationWindowRow[] = [];
+      const envMap = new Map<string, EnvironmentReadingRow>();
+
+      for (let i = 0; i < dayVideos.length; i++) {
+        const vid = dayVideos[i];
+        setExportProgress(`${i + 1}/${dayVideos.length}`);
+        const url = `/api/research-datasets?video=${encodeURIComponent(vid)}&sheet=all&export=1&_t=${Date.now()}`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const payload = await res.json();
+
+        if (Array.isArray(payload.behavior_events)) {
+          allBehavior.push(...payload.behavior_events);
+        }
+        if (Array.isArray(payload.detection_tracking)) {
+          allDetection.push(...payload.detection_tracking);
+        }
+        if (Array.isArray(payload.observation_windows)) {
+          allObs.push(...payload.observation_windows);
+        }
+        if (Array.isArray(payload.environment_readings)) {
+          for (const row of payload.environment_readings as EnvironmentReadingRow[]) {
+            if (!row?.timestamp) continue;
+            if (!envMap.has(row.timestamp)) {
+              envMap.set(row.timestamp, row);
+            }
+          }
+        }
+      }
+
+      // Fallback: if environment_readings is empty (e.g. on Vercel without live SQLite metrics),
+      // pull matching date's session summaries from /api/database (paired sensors.sqlite).
+      if (envMap.size === 0) {
+        try {
+          const dbRes = await fetch(`/api/database?_t=${Date.now()}`, { cache: 'no-store' });
+          if (dbRes.ok) {
+            const dbData = await dbRes.json();
+            const dbs = Array.isArray(dbData.databases) ? dbData.databases : [];
+            for (const dbItem of dbs) {
+              const folder = String(dbItem.folder || dbItem.name || '');
+              if (!folder.includes(selectedExportDate)) continue;
+              const sum = dbItem.summary;
+              if (!sum) continue;
+              const timeMatch = folder.match(/\d{4}-\d{2}-\d{2}_(\d{2})-(\d{2})-(\d{2})/);
+              const ts = timeMatch
+                ? `${selectedExportDate} ${timeMatch[1]}:${timeMatch[2]}:${timeMatch[3]}`
+                : `${selectedExportDate} 00:00:00`;
+              if (!envMap.has(ts)) {
+                envMap.set(ts, {
+                  timestamp: ts,
+                  temperature_c: Number(sum.avgTemp) || 0,
+                  humidity_pct: Number(sum.avgHumidity) || 0,
+                  ammonia_ppm: Number(sum.avgAmmonia) || 0,
+                  sound_db: Number(sum.avgSound) || 0,
+                });
+              }
+            }
+          }
+        } catch {
+          // Ignore optional fallback errors
+        }
+      }
+
+      const allEnv = Array.from(envMap.values()).sort((a, b) =>
+        a.timestamp.localeCompare(b.timestamp),
+      );
+      const visibleBehavior = allBehavior.filter(
+        (r) => r.behavior.toLowerCase() !== 'social_isolation',
+      );
+
+      const datasetBundle = {
+        behaviorEvents: visibleBehavior,
+        detectionTracking: allDetection,
+        observationWindows: allObs,
+        environmentReadings: allEnv,
+      };
+
+      const summaryText = [
+        `ChickenSee Research Logs — Full Day Export`,
+        `Date: ${selectedExportDate}`,
+        `Exported At: ${new Date().toISOString()}`,
+        `Chicken ID Format: ${idFormat}`,
+        `Included Videos (${dayVideos.length}):`,
+        ...dayVideos.map((v) => `  - ${v}`),
+        ``,
+        `Row Counts:`,
+        `  - behavior_events_${selectedExportDate}.csv: ${visibleBehavior.length} rows`,
+        `  - detection_tracking_${selectedExportDate}.csv: ${allDetection.length} rows`,
+        `  - observation_windows_${selectedExportDate}.csv: ${allObs.length} rows`,
+        `  - environment_readings_${selectedExportDate}.csv: ${allEnv.length} rows`,
+      ].join('\r\n');
+
+      const zipBlob = buildZipBlob([
+        {
+          name: `behavior_events_${selectedExportDate}.csv`,
+          content: buildSheetCsv('behavior_events', datasetBundle),
+        },
+        {
+          name: `detection_tracking_${selectedExportDate}.csv`,
+          content: buildSheetCsv('detection_tracking', datasetBundle),
+        },
+        {
+          name: `observation_windows_${selectedExportDate}.csv`,
+          content: buildSheetCsv('observation_windows', datasetBundle),
+        },
+        {
+          name: `environment_readings_${selectedExportDate}.csv`,
+          content: buildSheetCsv('environment_readings', datasetBundle),
+        },
+        {
+          name: `README_${selectedExportDate}.txt`,
+          content: summaryText,
+        },
+      ]);
+
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `chickensee_research_logs_${selectedExportDate}.zip`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : `Failed to download logs for ${selectedExportDate}.`,
+      );
+    } finally {
+      setExportingDay(false);
+      setExportProgress('');
+    }
+  }, [selectedExportDate, exportingDay, videos, videoDates, idFormat, buildSheetCsv]);
 
   return (
     <div className="space-y-6">
@@ -475,6 +684,58 @@ export default function ResearchDatasetsTab() {
             </button>
           </div>
         </div>
+
+        {/* ── Download All Logs for a Specific Day (.zip) ──────────────────── */}
+        {availableDates.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-orange-200/80 bg-orange-50/50 px-3.5 py-2.5">
+            <div className="flex items-center gap-2 text-xs text-slate-700">
+              <FolderArchive className="h-4 w-4 shrink-0 text-orange-600" />
+              <span className="font-semibold text-slate-800">Download All Day Logs:</span>
+              <span className="hidden text-slate-500 sm:inline">
+                Exports all 4 sheets (behavior, tracking, windows, sensors) across every video recorded on that day.
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="h-3.5 w-3.5 text-slate-500" />
+                <select
+                  aria-label="Select date to download all logs"
+                  value={selectedExportDate}
+                  onChange={(e) => setSelectedExportDate(e.target.value)}
+                  disabled={exportingDay}
+                  className="rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-xs focus:border-orange-500 focus:outline-hidden disabled:opacity-60"
+                >
+                  {availableDates.map((d) => {
+                    const count = videosCountByDate[d] || 0;
+                    return (
+                      <option key={d} value={d}>
+                        {d} ({count} {count === 1 ? 'video' : 'videos'})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={exportDayLogsZip}
+                disabled={exportingDay || !selectedExportDate}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-900 bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportingDay ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Bundling {selectedExportDate} ({exportProgress})...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download All Logs (.zip)</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── THE 4-SHEET EXCEL NAV BAR ────────────────────────────────────── */}
         <div className="mt-6 border-b border-slate-200">
