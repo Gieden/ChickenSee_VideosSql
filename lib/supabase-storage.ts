@@ -44,6 +44,70 @@ type StorageObject = {
 
 let storageClient: SupabaseClient | undefined;
 
+// Versioned in-memory LRU cache for large immutable/semi-immutable cloud downloads
+// (frame_log_*.json ~3.2MB, sensors.sqlite ~6.2MB). Keyed by storagePath + latest
+// (uploadedAt, size) observed from bucket.list(), so newly uploaded or updated files
+// ALWAYS bypass the cache immediately while repeated 5–30s polls use 0 bytes of egress!
+const MAX_DOWNLOAD_CACHE_BYTES = 80 * 1024 * 1024; // 80 MB cap
+const latestObjectVersions = new Map<string, string>();
+const downloadCache = new Map<string, { version: string; buf: Buffer; size: number }>();
+let downloadCacheBytes = 0;
+
+function recordObjectVersion(storagePath: string, uploadedAt?: string, size?: number) {
+  if (!storagePath) return;
+  const ver = `${uploadedAt || ''}:${size ?? 0}`;
+  latestObjectVersions.set(storagePath, ver);
+}
+
+function shouldCacheDownload(storagePath: string): boolean {
+  const lower = storagePath.toLowerCase();
+  // Never cache live-mutating status/manifest/preview files
+  if (
+    lower.endsWith('queue_status.json') ||
+    lower.endsWith('live_detection.jpg') ||
+    lower.endsWith('.archive-manifest.json')
+  ) {
+    return false;
+  }
+  return lower.endsWith('.json') || lower.endsWith('.sqlite') || lower.endsWith('.db');
+}
+
+function getCachedDownload(storagePath: string): Blob | null {
+  if (!shouldCacheDownload(storagePath)) return null;
+  const entry = downloadCache.get(storagePath);
+  if (!entry) return null;
+  const knownVer = latestObjectVersions.get(storagePath);
+  if (knownVer && entry.version !== knownVer) {
+    // Cloud object was updated since we cached it -> evict immediately
+    downloadCache.delete(storagePath);
+    downloadCacheBytes = Math.max(0, downloadCacheBytes - entry.size);
+    return null;
+  }
+  // Refresh LRU order
+  downloadCache.delete(storagePath);
+  downloadCache.set(storagePath, entry);
+  return new Blob([new Uint8Array(entry.buf)]);
+}
+
+function putCachedDownload(storagePath: string, buf: Buffer) {
+  if (!shouldCacheDownload(storagePath) || buf.length > 20 * 1024 * 1024) return;
+  const prev = downloadCache.get(storagePath);
+  if (prev) {
+    downloadCache.delete(storagePath);
+    downloadCacheBytes = Math.max(0, downloadCacheBytes - prev.size);
+  }
+  while (downloadCacheBytes + buf.length > MAX_DOWNLOAD_CACHE_BYTES && downloadCache.size > 0) {
+    const oldestKey = downloadCache.keys().next().value;
+    if (!oldestKey) break;
+    const oldest = downloadCache.get(oldestKey);
+    downloadCache.delete(oldestKey);
+    if (oldest) downloadCacheBytes = Math.max(0, downloadCacheBytes - oldest.size);
+  }
+  const version = latestObjectVersions.get(storagePath) || `size:${buf.length}`;
+  downloadCache.set(storagePath, { version, buf, size: buf.length });
+  downloadCacheBytes += buf.length;
+}
+
 function getCandidateLocalDirs(): string[] {
   const dirs: string[] = [];
   const envDirs = process.env.WATCH_DIRS || '';
@@ -220,11 +284,13 @@ export async function listStorageFiles(folder: string, search?: string): Promise
       .map((object) => {
         const storagePath = `${folder}/${object.name}`;
         const uploadedAt = object.updated_at || object.created_at || new Date(0).toISOString();
+        const size = Number(object.metadata?.size || 0);
+        recordObjectVersion(storagePath, uploadedAt, size);
         return {
           url: '',
           pathname: object.name,
           storagePath,
-          size: Number(object.metadata?.size || 0),
+          size,
           uploadedAt,
         };
       }));
@@ -286,7 +352,12 @@ export async function downloadStorageFile(storagePath: string) {
     }
   }
 
-  // 3. Fallback to Supabase Storage client
+  // 3. Fallback to Supabase Storage client (with versioned in-memory LRU cache to prevent redundant egress)
+  const cachedBlob = getCachedDownload(storagePath);
+  if (cachedBlob) {
+    return cachedBlob;
+  }
+
   const bucket = getStorageClient().storage.from(getBucketName());
   const { data, error } = await bucket.download(storagePath);
 
@@ -300,9 +371,13 @@ export async function downloadStorageFile(storagePath: string) {
     ];
     for (const fbPath of fallbackPaths) {
       if (fbPath === storagePath) continue;
+      const fbCached = getCachedDownload(fbPath);
+      if (fbCached) return fbCached;
       const fbRes = await bucket.download(fbPath);
       if (!fbRes.error && fbRes.data) {
-        return fbRes.data;
+        const fbBuf = Buffer.from(await fbRes.data.arrayBuffer());
+        putCachedDownload(fbPath, fbBuf);
+        return new Blob([new Uint8Array(fbBuf)]);
       }
     }
   }
@@ -314,6 +389,12 @@ export async function downloadStorageFile(storagePath: string) {
       error.message,
       Number.isInteger(statusCode) ? statusCode : null,
     );
+  }
+
+  if (shouldCacheDownload(storagePath) && data) {
+    const buf = Buffer.from(await data.arrayBuffer());
+    putCachedDownload(storagePath, buf);
+    return new Blob([new Uint8Array(buf)]);
   }
 
   return data;
@@ -439,13 +520,15 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
       const storagePath = sessionFolder
         ? `databases/${sessionFolder}/${fileName}`
         : `databases/${fileName}`;
+      const size = Number(object.metadata?.size || 0);
+      recordObjectVersion(storagePath, uploadedAt, size);
 
       const parsed = parseSessionFolder(sessionFolder, new Date(uploadedAt));
       files.push({
         url: '',
         pathname: fileName,
         storagePath,
-        size: Number(object.metadata?.size || 0),
+        size,
         uploadedAt,
         sessionLabel: parsed.sessionLabel,
         dateKey: parsed.dateKey,

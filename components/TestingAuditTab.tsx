@@ -152,12 +152,12 @@ export default function TestingAuditTab() {
 
   useEffect(() => {
     fetchAudit(false);
-    // Real-time background polling every 10 seconds so newly processed videos appear in the dropdown automatically
+    // Real-time background polling every 30 seconds so newly processed videos appear automatically (egress-friendly)
     const timer = window.setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchAudit(true);
       }
-    }, 10000);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [fetchAudit]);
 

@@ -206,12 +206,12 @@ export default function SqliteViewerTab() {
 
   useEffect(() => {
     fetchDatabases(false);
-    // Real-time background polling every 10 seconds while tab is visible
+    // Real-time background polling every 30 seconds while tab is visible (egress-friendly)
     const timer = window.setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchDatabases(true);
       }
-    }, 10000);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, [fetchDatabases]);
 

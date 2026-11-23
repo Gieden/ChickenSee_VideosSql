@@ -147,14 +147,14 @@ export default function ResearchDatasetsTab() {
     fetchDataset(false);
   }, [fetchDataset]);
 
-  // Real-time background polling every 5 seconds while tab is visible
+  // Real-time background polling every 15 seconds while tab is visible (egress-friendly)
   useEffect(() => {
     if (!liveEnabled) return;
     const timer = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchDataset(true);
       }
-    }, 5000);
+    }, 15000);
     return () => clearInterval(timer);
   }, [liveEnabled, fetchDataset]);
 
@@ -643,7 +643,7 @@ export default function ResearchDatasetsTab() {
             )}
             <button
               onClick={() => setLiveEnabled((prev) => !prev)}
-              title={liveEnabled ? 'Real-time polling active (every 5s) — click to pause' : 'Real-time polling paused — click to resume'}
+              title={liveEnabled ? 'Real-time polling active (every 15s) — click to pause' : 'Real-time polling paused — click to resume'}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                 liveEnabled
                   ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
@@ -660,7 +660,7 @@ export default function ResearchDatasetsTab() {
                   }`}
                 />
               </span>
-              <span>{liveEnabled ? 'Live · 5s' : 'Paused'}</span>
+              <span>{liveEnabled ? 'Live · 15s' : 'Paused'}</span>
               {lastUpdatedAt && (
                 <span className="hidden text-[10px] font-normal opacity-75 sm:inline">
                   ({lastUpdatedAt})
