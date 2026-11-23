@@ -1076,10 +1076,11 @@ class ZampenAnalyticsWorker:
             # Also upload frame-by-frame log + paired sensors.sqlite via Vercel /api/sync with 3x retry so
             # chickensee.vercel.app reflects every newly processed video in real time without any git push.
             try:
+                _project_root = Path(__file__).resolve().parent.parent
                 sync_url = (os.getenv("VERCEL_SYNC_URL") or "").strip()
                 sync_secret = (os.getenv("SYNC_SECRET") or "").strip()
                 if not (sync_url and sync_secret):
-                    for env_file in (PROJECT_ROOT / "agent" / ".env", PROJECT_ROOT / ".env.local", PROJECT_ROOT / ".env"):
+                    for env_file in (_project_root / "agent" / ".env", _project_root / ".env.local", _project_root / ".env"):
                         if env_file.is_file():
                             for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
                                 if "=" in line and not line.strip().startswith("#"):
