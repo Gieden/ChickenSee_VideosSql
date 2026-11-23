@@ -202,7 +202,7 @@ export async function listStorageFiles(folder: string): Promise<SyncedFileMeta[]
     const { data, error } = await bucket.list(folder, {
       limit,
       offset,
-      sortBy: { column: 'created_at', order: 'desc' },
+      sortBy: { column: 'name', order: 'desc' },
     });
 
     if (error) {

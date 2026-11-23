@@ -138,6 +138,7 @@ export async function GET(req: NextRequest) {
     } catch {}
   }
 
+  let cloudListError: string | null = null;
   try {
     const cloudFiles = await listStorageFiles('results');
     for (const cf of cloudFiles) {
@@ -153,37 +154,54 @@ export async function GET(req: NextRequest) {
         updatedMs: Math.max(prev?.updatedMs || 0, upMs),
       });
     }
-  } catch {}
+  } catch (err) {
+    cloudListError = err instanceof Error ? err.message : String(err);
+    console.warn('[testing-audit] listStorageFiles("results") failed:', cloudListError);
+  }
+
+  // Also ensure any videos from the precomputed 11-video audit are always selectable in the dropdown
+  const staticAuditPath = path.join(process.cwd(), 'data', 'testing_audit_11videos.json');
+  let staticPayloadCache: any = null;
+  if (fs.existsSync(staticAuditPath)) {
+    try {
+      staticPayloadCache = JSON.parse(fs.readFileSync(staticAuditPath, 'utf-8'));
+      if (Array.isArray(staticPayloadCache?.blocks)) {
+        for (const blk of staticPayloadCache.blocks) {
+          if (blk?.video && !allSources.has(blk.video)) {
+            allSources.set(blk.video, {
+              cloudKey: `results/frame_log_${blk.video}.json`,
+              updatedMs: 1,
+            });
+          }
+        }
+      }
+    } catch {}
+  }
 
   const availableVideos = Array.from(allSources.entries())
     .sort((a, b) => b[1].updatedMs - a[1].updatedMs)
     .map(([video, meta]) => ({
       video,
-      updatedAt: meta.updatedMs > 0 ? new Date(meta.updatedMs).toISOString() : '',
+      updatedAt: meta.updatedMs > 1 ? new Date(meta.updatedMs).toISOString() : '',
     }));
 
   // Fast path: when viewing "all" (11-video 2026-11-17 audit) and live ?live=1 wasn't forced,
   // serve precomputed JSON instantaneously and attach the live availableVideos list!
-  const staticAuditPath = path.join(process.cwd(), 'data', 'testing_audit_11videos.json');
-  if (selectedVideo === 'all' && !forceLive && fs.existsSync(staticAuditPath)) {
-    try {
-      const staticPayload = JSON.parse(fs.readFileSync(staticAuditPath, 'utf-8'));
-      if (Array.isArray(staticPayload?.blocks) && staticPayload.blocks.length > 0) {
-        return NextResponse.json(
-          {
-            ...staticPayload,
-            selectedVideo: 'all',
-            availableVideos,
-          },
-          {
-            headers: {
-              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-              Pragma: 'no-cache',
-            },
-          },
-        );
-      }
-    } catch {}
+  if (selectedVideo === 'all' && !forceLive && staticPayloadCache?.blocks?.length > 0) {
+    return NextResponse.json(
+      {
+        ...staticPayloadCache,
+        selectedVideo: 'all',
+        availableVideos,
+        cloudListError,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+        },
+      },
+    );
   }
 
   const sortedVideos =
