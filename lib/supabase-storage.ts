@@ -169,6 +169,10 @@ function getStorageClient() {
   if (!storageClient) {
     storageClient = createClient(url, serviceRoleKey, {
       auth: { autoRefreshToken: false, persistSession: false },
+      global: {
+        // Prevent Next.js 14 Data Cache from caching Supabase Storage list/download responses!
+        fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+      },
     });
   }
 
@@ -192,16 +196,17 @@ export async function createStorageUploadUrl(storagePath: string) {
   return data.signedUrl;
 }
 
-export async function listStorageFiles(folder: string): Promise<SyncedFileMeta[]> {
+export async function listStorageFiles(folder: string, search?: string): Promise<SyncedFileMeta[]> {
   const client = getStorageClient();
   const bucket = client.storage.from(getBucketName());
   const files: SyncedFileMeta[] = [];
-  const limit = 1000;
+  const limit = 100;
 
   for (let offset = 0; ; offset += limit) {
     const { data, error } = await bucket.list(folder, {
       limit,
       offset,
+      ...(search ? { search } : {}),
       sortBy: { column: 'name', order: 'desc' },
     });
 

@@ -263,7 +263,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const cloudResultFiles = await listStorageFiles('results');
+    const cloudResultFiles = await listStorageFiles('results', 'frame_log_');
     for (const cf of cloudResultFiles) {
       const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
       if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;

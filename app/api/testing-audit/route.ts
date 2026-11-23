@@ -140,7 +140,7 @@ export async function GET(req: NextRequest) {
 
   let cloudListError: string | null = null;
   try {
-    const cloudFiles = await listStorageFiles('results');
+    const cloudFiles = await listStorageFiles('results', 'frame_log_');
     for (const cf of cloudFiles) {
       const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
       if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
