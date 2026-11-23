@@ -43,17 +43,19 @@ import {
   Settings,
   FileSpreadsheet,
   Bell,
+  FlaskConical,
 } from 'lucide-react';
 import SensorLiveMonitoringTab from '@/components/SensorLiveMonitoringTab';
 import BehaviorResultsTab from '@/components/BehaviorResultsTab';
 import StaffAccountsTab from '@/components/StaffAccountsTab';
 import AdminSettingsTab from '@/components/AdminSettingsTab';
 import ResearchDatasetsTab from '@/components/ResearchDatasetsTab';
+import TestingAuditTab from '@/components/TestingAuditTab';
 import { useInactivityLogout } from '@/hooks/useInactivityLogout';
 
-type DashboardTab = 'sensors' | 'results' | 'datasets' | 'queue' | 'staff' | 'settings';
+type DashboardTab = 'sensors' | 'results' | 'datasets' | 'queue' | 'testing' | 'staff' | 'settings';
 
-const DASHBOARD_TABS: readonly DashboardTab[] = ['sensors', 'results', 'datasets', 'queue', 'staff', 'settings'];
+const DASHBOARD_TABS: readonly DashboardTab[] = ['sensors', 'results', 'datasets', 'queue', 'testing', 'staff', 'settings'];
 
 interface QueueItem {
   item_id: string;
@@ -2925,6 +2927,11 @@ export default function DashboardPage() {
               <span>Research Logs</span>
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">4 Sheets</span>
             </button>
+            <button onClick={() => handleTabChange('testing')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'testing' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
+              <FlaskConical className="h-4 w-4" />
+              <span>Testing</span>
+              <span className="rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold text-purple-800">Audit</span>
+            </button>
             {isAdminUser && (
               <button onClick={() => handleTabChange('staff')} className={`flex min-h-12 shrink-0 items-center gap-1.5 border-b-2 px-2 text-xs font-semibold transition sm:gap-2 sm:px-0 sm:text-sm ${activeTab === 'staff' ? 'border-orange-500 text-orange-700' : 'border-transparent text-slate-500 hover:border-orange-300 hover:text-orange-700'}`}>
                 <Users className="h-4 w-4" />
@@ -3188,6 +3195,11 @@ export default function DashboardPage() {
         {/* RESEARCH LOGS & DATASETS TAB (Excel: behavior_events, detection_tracking, observation_windows, environment_readings) */}
         {activeTab === 'datasets' && (
           <ResearchDatasetsTab />
+        )}
+
+        {/* TEMPORARY TESTING TAB (Summary Dashboard, 10-Hr Schedule Audit, Per-Chicken Breakdown) */}
+        {activeTab === 'testing' && (
+          <TestingAuditTab />
         )}
 
         {/* STAFF ACCOUNTS TAB (administrators only) */}
