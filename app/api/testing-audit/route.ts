@@ -528,6 +528,7 @@ export async function GET(req: NextRequest) {
   const idTable1: any[] = [];
   const table3Transferred: any[] = [];
   const table3Remaining: any[] = [];
+  const table4Events: any[] = [];
 
   for (const { vidName, fl } of rawFrameLogsForDist.sort((a, b) => a.blockNumber - b.blockNumber)) {
     const tf = Math.max(1, Number(fl.total_frames) || 1);
@@ -767,6 +768,24 @@ export async function GET(req: NextRequest) {
       };
       table3Transferred.push(entry);
       if (!DESIGNATED_SET.has(entry.transferredTo)) table3Remaining.push(entry);
+
+      // Populate Table 4: one chronological row per transferred bout (or tracking episode if no completed bout)
+      const rowsForT4 = sortedBouts.length > 0 ? sortedBouts : sampleBout ? [sampleBout] : [];
+      for (const bt of rowsForT4) {
+        table4Events.push({
+          recording: st.recording,
+          startTime: bt.startTime,
+          endTime: bt.endTime,
+          startFrame: bt.startFrame,
+          endFrame: bt.endFrame,
+          frames: `#${bt.startFrame}–#${bt.endFrame}`,
+          trackId: st.trackId,
+          chickenId: st.label,
+          behavior: bt.behavior,
+          timeS: bt.durationS,
+          transferredTo: bt.transferredTo || st.transferredTo,
+        });
+      }
     }
 
     idTable1.push({
@@ -839,6 +858,11 @@ export async function GET(req: NextRequest) {
     table2Total: t2Total,
     table3Remaining,
     table3Transferred,
+    table4Events: table4Events.sort((a, b) =>
+      a.recording === b.recording
+        ? a.startFrame - b.startFrame || a.trackId - b.trackId
+        : a.recording.localeCompare(b.recording),
+    ),
   };
 
   return NextResponse.json(

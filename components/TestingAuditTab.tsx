@@ -70,6 +70,20 @@ interface IdDistTable3Row {
   spanS: number;
 }
 
+interface IdDistTable4Row {
+  recording: string;
+  startTime: string;
+  endTime: string;
+  startFrame: number;
+  endFrame: number;
+  frames: string;
+  trackId: number;
+  chickenId: string;
+  behavior: string;
+  timeS: number;
+  transferredTo: string;
+}
+
 interface IdentityDistributionPayload {
   result: string;
   passed: boolean;
@@ -79,6 +93,7 @@ interface IdentityDistributionPayload {
   table2Total: IdDistTable2Row;
   table3Remaining: IdDistTable3Row[];
   table3Transferred: IdDistTable3Row[];
+  table4Events?: IdDistTable4Row[];
 }
 
 interface TestingAuditPayload {
@@ -1020,6 +1035,74 @@ export default function TestingAuditTab() {
                       </React.Fragment>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Table 4: Detailed Transferred Events Log */}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div className="border-b border-slate-200 bg-slate-50 px-5 py-3.5">
+              <h2 className="text-sm font-bold text-slate-900">
+                Table 4. Detailed identity transfer log ({(data.identityDistribution.table4Events || []).length} rows)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Chronological frame-by-frame transfer log showing exact start/end times, frame ranges, track ID, chicken ID, behavior, duration, and target ID.
+              </p>
+            </div>
+            <div className="overflow-x-auto max-h-[480px]">
+              <table className="w-full min-w-[880px] border-collapse text-left text-xs">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
+                    <th className="px-3 py-2.5">Start time</th>
+                    <th className="px-3 py-2.5">End time</th>
+                    <th className="px-3 py-2.5">Frames</th>
+                    <th className="px-3 py-2.5 text-right">Track ID</th>
+                    <th className="px-3 py-2.5">Chicken ID</th>
+                    <th className="px-3 py-2.5">Behavior</th>
+                    <th className="px-3 py-2.5 text-right">Time (s)</th>
+                    <th className="px-3 py-2.5">ID transferred to</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data.identityDistribution.table4Events || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                        No transferred events recorded for this selection.
+                      </td>
+                    </tr>
+                  ) : (
+                    (data.identityDistribution.table4Events || []).map((row, idx) => (
+                      <tr key={`${row.recording}_${row.trackId}_${row.startFrame}_${idx}`} className="hover:bg-orange-50/40">
+                        <td className="px-3 py-2 font-mono text-slate-700">{row.startTime}</td>
+                        <td className="px-3 py-2 font-mono text-slate-700">{row.endTime}</td>
+                        <td className="px-3 py-2 font-mono font-semibold text-orange-800">{row.frames}</td>
+                        <td className="px-3 py-2 text-right font-mono">{row.trackId}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600">{row.chickenId}</td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold capitalize ${
+                              row.behavior === 'feeding'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : row.behavior === 'drinking'
+                                  ? 'bg-blue-50 text-blue-700'
+                                  : row.behavior === 'inactive'
+                                    ? 'bg-amber-50 text-amber-700'
+                                    : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {row.behavior}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold">{row.timeS.toFixed(1)}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
+                            → {row.transferredTo}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
