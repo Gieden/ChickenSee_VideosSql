@@ -414,28 +414,37 @@ class BehaviorAnalysisEngine:
             if b.track_id is not None and not self._is_designated_label(b.bird_label)
         }
 
-        # 0a. Check if any active unidentified episode just ended & a designated bird appeared at its (x, y)
+        # 0a. Check if any active unidentified episode just ended & a NON-CO-OCCURRING designated bird appeared at its (x, y)
         for unid_tid, meta in list(self._unid_episode_meta.items()):
             if unid_tid in cur_unid_tids:
                 continue
             gap_frames = cur_frame_idx - meta["last_frame"]
+            ep_frames = max(1, int(meta.get("frame_count", 1)))
+            co_counts: Dict[int, int] = meta.get("co_seen_counts", {})
+
+            def _is_disqualified(d_tid: int) -> bool:
+                c = co_counts.get(d_tid, 0)
+                return c >= 3 and (c / ep_frames) > 0.15
+
             # Try matching a designated bird currently at the unidentified episode's last (x, y) within 60 px
             best_target: Optional[Tuple[int, str]] = None
             best_dist = 60.0
             for b in current_birds:
                 if b.track_id is None or not self._is_designated_label(b.bird_label):
                     continue
+                if _is_disqualified(b.track_id):
+                    continue  # Physically impossible: this bird was simultaneously visible alongside ID7+
                 d = math.hypot(b.centroid[0] - meta["last_x"], b.centroid[1] - meta["last_y"])
                 if d <= best_dist:
                     best_dist = d
                     best_target = (b.track_id, b.bird_label)
             if best_target is not None:
                 self._transfer_unid_episode(unid_tid, best_target[0], best_target[1], meta["start_frame"])
-            elif gap_frames > 25 and meta.get("origin_tid") is not None:
-                # Episode ended and stayed gone > 25 frames: transfer to its spatial origin bird
+            elif gap_frames > 25 and meta.get("origin_tid") is not None and not _is_disqualified(meta["origin_tid"]):
+                # Episode ended and stayed gone > 25 frames: transfer to its non-co-occurring spatial origin bird
                 self._transfer_unid_episode(unid_tid, meta["origin_tid"], meta["origin_label"], meta["start_frame"])
 
-        # 0b. Register new unidentified episodes & record their spatial origin bird (vanished within 60 px & 25 frames)
+        # 0b. Register new unidentified episodes & record co-occurring designated birds for mutual exclusion
         for b in current_birds:
             if b.track_id is None:
                 continue
@@ -462,6 +471,7 @@ class BehaviorAnalysisEngine:
                                 best_d = dist
                                 origin_tid = d_tid
                                 origin_label = dlbl
+                    co_init = {dtid: 1 for dtid in cur_designated_tids}
                     self._unid_episode_meta[b.track_id] = {
                         "start_frame": cur_frame_idx,
                         "last_frame": cur_frame_idx,
@@ -469,11 +479,17 @@ class BehaviorAnalysisEngine:
                         "last_y": float(b.centroid[1]),
                         "origin_tid": origin_tid,
                         "origin_label": origin_label,
+                        "frame_count": 1,
+                        "co_seen_counts": co_init,
                     }
                 else:
                     meta["last_frame"] = cur_frame_idx
                     meta["last_x"] = float(b.centroid[0])
                     meta["last_y"] = float(b.centroid[1])
+                    meta["frame_count"] = int(meta.get("frame_count", 0)) + 1
+                    co_counts = meta.setdefault("co_seen_counts", {})
+                    for dtid in cur_designated_tids:
+                        co_counts[dtid] = co_counts.get(dtid, 0) + 1
 
         # -------------------------------------------------------------
         # Step 1: Update Kinematics & States for each Tracked Bird
@@ -935,14 +951,22 @@ class BehaviorAnalysisEngine:
             u_state = self.bird_states[tid]
             target: Optional[BirdBehaviorState] = None
 
-            # Rule 1: Prefer live spatial origin bird if recorded, otherwise nearest designated bird within 85 px
+            # Only transfer if we have a verified non-co-occurring spatial origin or spatial handoff within 60 px.
+            # NEVER blindly force-transfer an extra/7th bird that co-occurred with all 6 designated birds!
             meta = self._unid_episode_meta.get(tid)
-            if meta and meta.get("origin_tid") in self.bird_states:
+            ep_frames = max(1, int(meta.get("frame_count", 1))) if meta else 1
+            co_counts: Dict[int, int] = meta.get("co_seen_counts", {}) if meta else {}
+
+            def _disq(d_tid: int) -> bool:
+                c = co_counts.get(d_tid, 0)
+                return c >= 3 and (c / ep_frames) > 0.15
+
+            if meta and meta.get("origin_tid") in self.bird_states and not _disq(meta["origin_tid"]):
                 target = self.bird_states[meta["origin_tid"]]
             elif u_state.last_centroid is not None:
-                best_dist = 85.0
+                best_dist = 60.0
                 for d_state in designated_states:
-                    if d_state.last_centroid is None:
+                    if d_state.last_centroid is None or _disq(d_state.track_id):
                         continue
                     dist = math.hypot(
                         u_state.last_centroid[0] - d_state.last_centroid[0],
@@ -952,12 +976,8 @@ class BehaviorAnalysisEngine:
                         best_dist = dist
                         target = d_state
 
-            # Rule 2: Strict 6-bird capacity distribution (designated bird with largest unobserved gap)
             if target is None:
-                target = max(
-                    designated_states,
-                    key=lambda d: max(0.0, monitored_s - d.valid_observation_s),
-                )
+                continue  # Keep as genuine unidentified bird (e.g. 7th unsaddled chicken)
 
             transfer_map[tid] = target
 

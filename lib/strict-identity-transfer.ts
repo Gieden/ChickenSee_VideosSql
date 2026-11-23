@@ -128,19 +128,48 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
       sy: number;
       ex: number;
       ey: number;
+      frameCount: number;
+      coSeenCounts: Map<string, number>;
     }> = [];
 
-    let curEp: { startFrame: number; endFrame: number; sx: number; sy: number; ex: number; ey: number } | null = null;
+    let curEp: {
+      startFrame: number;
+      endFrame: number;
+      sx: number;
+      sy: number;
+      ex: number;
+      ey: number;
+      frameCount: number;
+      coSeenCounts: Map<string, number>;
+    } | null = null;
     for (const f of sortedFrames) {
-      const hit = (byFrame.get(f) || []).find((r) => r.tid === tid && !isDesignatedBird(r.lbl, r.tid));
+      const frameRows = byFrame.get(f) || [];
+      const hit = frameRows.find((r) => r.tid === tid && !isDesignatedBird(r.lbl, r.tid));
       if (!hit) continue;
       if (!curEp || f - curEp.endFrame > EPISODE_GAP_FRAMES) {
-        curEp = { startFrame: f, endFrame: f, sx: hit.x, sy: hit.y, ex: hit.x, ey: hit.y };
+        curEp = {
+          startFrame: f,
+          endFrame: f,
+          sx: hit.x,
+          sy: hit.y,
+          ex: hit.x,
+          ey: hit.y,
+          frameCount: 1,
+          coSeenCounts: new Map(),
+        };
         rawEpisodes.push(curEp);
       } else {
         curEp.endFrame = f;
         curEp.ex = hit.x;
         curEp.ey = hit.y;
+        curEp.frameCount += 1;
+      }
+      // Record every designated bird simultaneously visible in this exact frame (mutual exclusion)
+      for (const r of frameRows) {
+        if (isDesignatedBird(r.lbl, r.tid)) {
+          const sid = mapBirdToDef(r.lbl, r.tid).shortId;
+          curEp.coSeenCounts.set(sid, (curEp.coSeenCounts.get(sid) || 0) + 1);
+        }
       }
     }
 
@@ -148,6 +177,11 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
     const voteCounts = new Map<string, number>();
 
     for (const ep of rawEpisodes) {
+      const isDisqualified = (shortId: string) => {
+        const c = ep.coSeenCounts.get(shortId) || 0;
+        return c >= 3 && c / Math.max(1, ep.frameCount) > 0.15;
+      };
+
       let bestDef: BirdDef | null = null;
       let bestScore = Infinity;
 
@@ -157,12 +191,14 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
           const gap = ep.startFrame - f;
           for (const r of byFrame.get(f) || []) {
             if (!isDesignatedBird(r.lbl, r.tid)) continue;
+            const candDef = mapBirdToDef(r.lbl, r.tid);
+            if (isDisqualified(candDef.shortId)) continue;
             const dist = Math.hypot(r.x - ep.sx, r.y - ep.sy);
             if (dist <= HANDOFF_MAX_DIST_PX) {
               const score = dist + gap * 0.5;
               if (score < bestScore) {
                 bestScore = score;
-                bestDef = mapBirdToDef(r.lbl, r.tid);
+                bestDef = candDef;
               }
             }
           }
@@ -170,12 +206,14 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
           const gap = f - ep.endFrame;
           for (const r of byFrame.get(f) || []) {
             if (!isDesignatedBird(r.lbl, r.tid)) continue;
+            const candDef = mapBirdToDef(r.lbl, r.tid);
+            if (isDisqualified(candDef.shortId)) continue;
             const dist = Math.hypot(r.x - ep.ex, r.y - ep.ey);
             if (dist <= HANDOFF_MAX_DIST_PX) {
               const score = dist + gap * 0.5;
               if (score < bestScore) {
                 bestScore = score;
-                bestDef = mapBirdToDef(r.lbl, r.tid);
+                bestDef = candDef;
               }
             }
           }
@@ -190,7 +228,6 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
 
     if (matchedEpisodes.length > 0) {
       episodesByTrack.set(tid, matchedEpisodes);
-      // Set majority-vote designated bird as track-level fallback for unsampled frames
       let topShortId = matchedEpisodes[0].def.shortId;
       let topVotes = 0;
       for (const [sid, cnt] of Array.from(voteCounts.entries())) {
@@ -203,45 +240,8 @@ export function buildStrictIdentityTransferMap(fl: FrameLogLike): StrictTransfer
     }
   }
 
-  // Fallback for any unidentified track with zero sampled spatial coordinates:
-  // assign to whichever designated pen bird has the largest unobserved time gap.
-  const remainingGap = new Map<string, number>();
-  for (const b of ORDERED_BIRDS) {
-    const obs = designatedTrackObs.get(b.shortId) || { validS: 0, winS: 0 };
-    const expectedWin = obs.winS > 0 ? obs.winS : 2700;
-    remainingGap.set(b.shortId, Math.max(0, expectedWin - obs.validS));
-  }
-
-  const unidValidByTid = new Map<number, number>();
-  for (const br of birdRecords) {
-    const tid = Number(br.track_id) || 0;
-    if (tid > 0 && unidTrackIds.has(tid) && !trackToDesignated.has(tid)) {
-      unidValidByTid.set(
-        tid,
-        (unidValidByTid.get(tid) || 0) + Math.max(0, Number(br.valid_observation_duration_s) || 0),
-      );
-    }
-  }
-
-  const unresolvedTids = Array.from(unidTrackIds)
-    .filter((tid) => !trackToDesignated.has(tid))
-    .sort((a, b) => (unidValidByTid.get(b) || 0) - (unidValidByTid.get(a) || 0));
-
-  for (const tid of unresolvedTids) {
-    let bestShortId: keyof typeof BIRD_DEFINITIONS = 'H1';
-    let maxGap = -1;
-    for (const b of ORDERED_BIRDS) {
-      const gap = remainingGap.get(b.shortId) ?? 0;
-      if (gap > maxGap) {
-        maxGap = gap;
-        bestShortId = b.shortId as keyof typeof BIRD_DEFINITIONS;
-      }
-    }
-    const def = BIRD_DEFINITIONS[bestShortId];
-    trackToDesignated.set(tid, def);
-    const consumed = unidValidByTid.get(tid) || 30;
-    remainingGap.set(bestShortId, Math.max(0, (remainingGap.get(bestShortId) || 0) - consumed));
-  }
+  // NOTE: Do NOT force-transfer unidentified tracks that had no non-co-occurring spatial handoff
+  // (e.g., an extra/7th unsaddled bird visible simultaneously alongside all 6 designated birds).
 
   let transferredTrackCount = 0;
   for (const tid of Array.from(unidTrackIds)) {
