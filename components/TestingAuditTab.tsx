@@ -46,6 +46,7 @@ interface IdDistTable2Row {
 
 interface IdDistBout {
   behavior: string;
+  transferredTo?: string;
   startFrame: number;
   endFrame: number;
   startTime: string;
@@ -953,8 +954,13 @@ export default function TestingAuditTab() {
                                     <span className="font-bold text-orange-700">
                                       #{bt.startFrame}–#{bt.endFrame}
                                     </span>
+                                    {bt.transferredTo && (
+                                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200">
+                                        → {bt.transferredTo}
+                                      </span>
+                                    )}
                                     <span className="text-slate-600">
-                                      {bt.startTime}–{bt.endTime}
+                                      {bt.startTime}
                                     </span>
                                     <span
                                       className={`rounded px-1.5 py-0.5 text-[10px] font-bold capitalize ${

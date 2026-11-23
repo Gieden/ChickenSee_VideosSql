@@ -343,7 +343,7 @@ export async function GET(req: NextRequest) {
           flFps,
         );
         const endStr = formatSqlTimestamp(new Date(safeBaseMs + flDurS * 1000).toISOString());
-        const { trackToDesignated } = buildStrictIdentityTransferMap(fl);
+        const strictTransfer = buildStrictIdentityTransferMap(fl);
 
         if (Array.isArray(fl.behavior_events)) {
           exactLoadedVideos.add(vidName);
@@ -352,11 +352,6 @@ export async function GET(req: NextRequest) {
           );
           for (const ev of sortedEvents) {
             if (behaviorEvents.length >= maxBehaviorEvents) break;
-            const { def, wasTransferred } = resolveStrictBirdDef(
-              String(ev.bird_label || ''),
-              Number(ev.track_id),
-              trackToDesignated,
-            );
             const hasFrames = ev.start_frame != null && ev.end_frame != null;
             const startFrame = hasFrames
               ? Number(ev.start_frame) || 0
@@ -364,6 +359,12 @@ export async function GET(req: NextRequest) {
             const endFrame = hasFrames
               ? Math.max(startFrame, Number(ev.end_frame) || startFrame)
               : Math.round((Number(ev.end_s) || Number(ev.start_s) || 0) * flFps);
+            const { def, wasTransferred } = resolveStrictBirdDef(
+              String(ev.bird_label || ''),
+              Number(ev.track_id),
+              strictTransfer,
+              Math.round((startFrame + endFrame) / 2),
+            );
             const sS = hasFrames
               ? startFrame / effectiveFps
               : (Number(ev.start_s) || 0) * timeScale;
@@ -407,12 +408,13 @@ export async function GET(req: NextRequest) {
           );
           for (const dtRow of sortedDetections) {
             if (detectionTracking.length >= maxDetectionTracking) break;
+            const frameNum = Number(dtRow.frame_number) || 0;
             const { def } = resolveStrictBirdDef(
               String(dtRow.bird_label || ''),
               Number(dtRow.track_id),
-              trackToDesignated,
+              strictTransfer,
+              frameNum,
             );
-            const frameNum = Number(dtRow.frame_number) || 0;
             const elS = dtRow.frame_number != null
               ? frameNum / effectiveFps
               : (Number(dtRow.elapsed_s) || 0) * timeScale;
@@ -457,7 +459,7 @@ export async function GET(req: NextRequest) {
             const { def } = resolveStrictBirdDef(
               String(br.bird_label || ''),
               Number(br.track_id),
-              trackToDesignated,
+              strictTransfer,
             );
             const prev = mergedBirds.get(def.shortId) || {
               def,

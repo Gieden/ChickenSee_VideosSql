@@ -136,6 +136,9 @@ class BehaviorAnalysisEngine:
         self._active_bouts: Dict[Tuple[int, str], Dict[str, Any]] = {}
         self._completed_bouts: List[Dict[str, Any]] = []
         self._detection_tracking_rows: List[Dict[str, Any]] = []
+        # Per-episode live spatial handoff tracking (prevents reusable ID7+ slots from mixing birds)
+        self._last_designated_pos: Dict[int, Tuple[float, float, int, str]] = {}
+        self._unid_episode_meta: Dict[int, Dict[str, Any]] = {}
 
     def reset_chunk(self):
         """Resets tracking accumulators for a new 30-minute interval."""
@@ -148,6 +151,67 @@ class BehaviorAnalysisEngine:
         self._active_bouts.clear()
         self._completed_bouts.clear()
         self._detection_tracking_rows.clear()
+        self._last_designated_pos.clear()
+        self._unid_episode_meta.clear()
+
+    @staticmethod
+    def _is_designated_label(label: Optional[str]) -> bool:
+        lbl = (label or "").strip().lower()
+        return bool(lbl) and lbl != "chicken" and "unidentified" not in lbl
+
+    def _transfer_unid_episode(self, unid_tid: int, target_tid: int, target_label: str, start_frame: int) -> None:
+        """
+        Transfers ONLY the current live episode of an unidentified track slot (ID7+)
+        into the exact designated bird (H1–H5 / R1) and resets the unidentified slot
+        so any future bird that reuses ID7 starts a fresh episode.
+        """
+        u_state = self.bird_states.pop(unid_tid, None)
+        self._unid_episode_meta.pop(unid_tid, None)
+        if u_state is None:
+            return
+
+        if target_tid not in self.bird_states:
+            self.bird_states[target_tid] = BirdTrackState(
+                track_id=target_tid,
+                label=target_label,
+                bird_type="rooster" if "rooster" in target_label.lower() else "hen",
+                last_centroid=u_state.last_centroid,
+                last_timestamp_s=u_state.last_timestamp_s,
+            )
+        tgt = self.bird_states[target_tid]
+        monitored_s = max(1.0, self.current_chunk_elapsed_s)
+        tgt.valid_observation_s = min(monitored_s, tgt.valid_observation_s + u_state.valid_observation_s)
+        tgt.feeding_time_s += u_state.feeding_time_s
+        tgt.feeding_bouts += u_state.feeding_bouts
+        tgt.reduced_feeding_events += u_state.reduced_feeding_events
+        tgt.drinking_time_s += u_state.drinking_time_s
+        tgt.drinking_bouts += u_state.drinking_bouts
+        tgt.reduced_drinking_events += u_state.reduced_drinking_events
+        tgt.total_inactivity_s += u_state.total_inactivity_s
+        tgt.prolonged_low_activity_events += u_state.prolonged_low_activity_events
+        tgt.total_isolation_s += u_state.total_isolation_s
+        tgt.social_isolation_events += u_state.social_isolation_events
+        if u_state.is_lethargic_flag:
+            tgt.is_lethargic_flag = True
+
+        # Flush any active bouts of this unidentified episode directly under the designated bird
+        for key in list(self._active_bouts.keys()):
+            if key[0] == unid_tid:
+                bout = self._active_bouts.pop(key)
+                bout["track_id"] = target_tid
+                bout["bird_label"] = target_label
+                self._finalize_bout(bout)
+
+        # Retroactively re-label ONLY this episode's completed bouts & detection_tracking rows (frame >= start_frame)
+        for bout in self._completed_bouts:
+            if int(bout.get("track_id") or 0) == unid_tid and int(bout.get("end_frame") or 0) >= start_frame:
+                bout["track_id"] = target_tid
+                bout["bird_label"] = target_label
+
+        for row in self._detection_tracking_rows:
+            if int(row.get("track_id") or 0) == unid_tid and int(row.get("frame_number") or 0) >= start_frame:
+                row["track_id"] = target_tid
+                row["bird_label"] = target_label
 
     def get_live_bird_behaviors(self) -> Dict[int, str]:
         """Returns the current live behavior label for every tracked bird ID (for video HUD overlays)."""
@@ -333,6 +397,83 @@ class BehaviorAnalysisEngine:
         self.current_chunk_elapsed_s += dt
         current_birds = frame_out.birds
         self.bird_frame_counts.append(len(current_birds))
+
+        # -------------------------------------------------------------
+        # Step 0: Live Per-Episode Spatial Handoff (ID7+ -> Designated Bird)
+        # Detects the exact frame when an unidentified box (e.g. ID7) flips back
+        # to its designated bird (e.g. H5 Yellow-Green) at the same (x, y) spot,
+        # transferring ONLY that episode's data and resetting ID7 cleanly.
+        # -------------------------------------------------------------
+        cur_frame_idx = int(getattr(frame_out, "frame_idx", self.total_frames_in_chunk))
+        cur_designated_tids = {
+            b.track_id for b in current_birds
+            if b.track_id is not None and self._is_designated_label(b.bird_label)
+        }
+        cur_unid_tids = {
+            b.track_id for b in current_birds
+            if b.track_id is not None and not self._is_designated_label(b.bird_label)
+        }
+
+        # 0a. Check if any active unidentified episode just ended & a designated bird appeared at its (x, y)
+        for unid_tid, meta in list(self._unid_episode_meta.items()):
+            if unid_tid in cur_unid_tids:
+                continue
+            gap_frames = cur_frame_idx - meta["last_frame"]
+            # Try matching a designated bird currently at the unidentified episode's last (x, y) within 60 px
+            best_target: Optional[Tuple[int, str]] = None
+            best_dist = 60.0
+            for b in current_birds:
+                if b.track_id is None or not self._is_designated_label(b.bird_label):
+                    continue
+                d = math.hypot(b.centroid[0] - meta["last_x"], b.centroid[1] - meta["last_y"])
+                if d <= best_dist:
+                    best_dist = d
+                    best_target = (b.track_id, b.bird_label)
+            if best_target is not None:
+                self._transfer_unid_episode(unid_tid, best_target[0], best_target[1], meta["start_frame"])
+            elif gap_frames > 25 and meta.get("origin_tid") is not None:
+                # Episode ended and stayed gone > 25 frames: transfer to its spatial origin bird
+                self._transfer_unid_episode(unid_tid, meta["origin_tid"], meta["origin_label"], meta["start_frame"])
+
+        # 0b. Register new unidentified episodes & record their spatial origin bird (vanished within 60 px & 25 frames)
+        for b in current_birds:
+            if b.track_id is None:
+                continue
+            if self._is_designated_label(b.bird_label):
+                self._last_designated_pos[b.track_id] = (
+                    float(b.centroid[0]),
+                    float(b.centroid[1]),
+                    cur_frame_idx,
+                    b.bird_label,
+                )
+            else:
+                meta = self._unid_episode_meta.get(b.track_id)
+                if meta is None or (cur_frame_idx - meta["last_frame"]) > 25:
+                    # Brand-new episode for this reusable ID7+ slot
+                    origin_tid = None
+                    origin_label = None
+                    best_d = 60.0
+                    for d_tid, (dx, dy, df, dlbl) in self._last_designated_pos.items():
+                        if d_tid in cur_designated_tids:
+                            continue  # That designated bird is still visible elsewhere in this frame
+                        if (cur_frame_idx - df) <= 25:
+                            dist = math.hypot(b.centroid[0] - dx, b.centroid[1] - dy)
+                            if dist <= best_d:
+                                best_d = dist
+                                origin_tid = d_tid
+                                origin_label = dlbl
+                    self._unid_episode_meta[b.track_id] = {
+                        "start_frame": cur_frame_idx,
+                        "last_frame": cur_frame_idx,
+                        "last_x": float(b.centroid[0]),
+                        "last_y": float(b.centroid[1]),
+                        "origin_tid": origin_tid,
+                        "origin_label": origin_label,
+                    }
+                else:
+                    meta["last_frame"] = cur_frame_idx
+                    meta["last_x"] = float(b.centroid[0])
+                    meta["last_y"] = float(b.centroid[1])
 
         # -------------------------------------------------------------
         # Step 1: Update Kinematics & States for each Tracked Bird
@@ -794,15 +935,18 @@ class BehaviorAnalysisEngine:
             u_state = self.bird_states[tid]
             target: Optional[BirdBehaviorState] = None
 
-            # Rule 1: Spatial handoff (nearest designated bird within 85 px)
-            if u_state.last_pos is not None:
+            # Rule 1: Prefer live spatial origin bird if recorded, otherwise nearest designated bird within 85 px
+            meta = self._unid_episode_meta.get(tid)
+            if meta and meta.get("origin_tid") in self.bird_states:
+                target = self.bird_states[meta["origin_tid"]]
+            elif u_state.last_centroid is not None:
                 best_dist = 85.0
                 for d_state in designated_states:
-                    if d_state.last_pos is None:
+                    if d_state.last_centroid is None:
                         continue
                     dist = math.hypot(
-                        u_state.last_pos[0] - d_state.last_pos[0],
-                        u_state.last_pos[1] - d_state.last_pos[1],
+                        u_state.last_centroid[0] - d_state.last_centroid[0],
+                        u_state.last_centroid[1] - d_state.last_centroid[1],
                     )
                     if dist <= best_dist:
                         best_dist = dist
