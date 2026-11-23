@@ -112,6 +112,7 @@ class BehaviorChunkSummary:
     # Exact frame-by-frame verification logs (for Research Logs manual checking)
     behavior_events: List[Dict[str, Any]] = field(default_factory=list)
     detection_tracking: List[Dict[str, Any]] = field(default_factory=list)
+    identity_transfers: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class BehaviorAnalysisEngine:
@@ -139,6 +140,7 @@ class BehaviorAnalysisEngine:
         # Per-episode live spatial handoff tracking (prevents reusable ID7+ slots from mixing birds)
         self._last_designated_pos: Dict[int, Tuple[float, float, int, str]] = {}
         self._unid_episode_meta: Dict[int, Dict[str, Any]] = {}
+        self._identity_transfers: List[Dict[str, Any]] = []
 
     def reset_chunk(self):
         """Resets tracking accumulators for a new 30-minute interval."""
@@ -153,22 +155,39 @@ class BehaviorAnalysisEngine:
         self._detection_tracking_rows.clear()
         self._last_designated_pos.clear()
         self._unid_episode_meta.clear()
+        self._identity_transfers.clear()
 
     @staticmethod
     def _is_designated_label(label: Optional[str]) -> bool:
         lbl = (label or "").strip().lower()
         return bool(lbl) and lbl != "chicken" and "unidentified" not in lbl
 
-    def _transfer_unid_episode(self, unid_tid: int, target_tid: int, target_label: str, start_frame: int) -> None:
+    def _transfer_unid_episode(
+        self,
+        unid_tid: int,
+        target_tid: int,
+        target_label: str,
+        start_frame: int,
+        end_frame: Optional[int] = None,
+        reason: str = "spatial_handoff",
+    ) -> None:
         """
         Transfers ONLY the current live episode of an unidentified track slot (ID7+)
-        into the exact designated bird (H1–H5 / R1) and resets the unidentified slot
-        so any future bird that reuses ID7 starts a fresh episode.
+        into the exact designated bird (H1–H5 / R1), records an explicit audit entry
+        in self._identity_transfers, and clears the unidentified slot.
         """
         u_state = self.bird_states.pop(unid_tid, None)
-        self._unid_episode_meta.pop(unid_tid, None)
+        meta = self._unid_episode_meta.pop(unid_tid, None)
         if u_state is None:
             return
+
+        ep_start = int(meta["start_frame"]) if (meta and meta.get("start_frame") is not None) else int(start_frame)
+        if end_frame is not None:
+            ep_end = max(ep_start, int(end_frame))
+        elif meta and meta.get("last_frame") is not None:
+            ep_end = max(ep_start, int(meta["last_frame"]))
+        else:
+            ep_end = ep_start
 
         if target_tid not in self.bird_states:
             self.bird_states[target_tid] = BirdTrackState(
@@ -194,24 +213,66 @@ class BehaviorAnalysisEngine:
         if u_state.is_lethargic_flag:
             tgt.is_lethargic_flag = True
 
-        # Flush any active bouts of this unidentified episode directly under the designated bird
+        transferred_bouts: List[Dict[str, Any]] = []
+
+        # Flush or hand over any active bouts of this unidentified episode under the designated bird
         for key in list(self._active_bouts.keys()):
             if key[0] == unid_tid:
+                beh = key[1]
                 bout = self._active_bouts.pop(key)
                 bout["track_id"] = target_tid
                 bout["bird_label"] = target_label
-                self._finalize_bout(bout)
+                dur_s = round(max(0.0, bout["end_s"] - bout["start_s"]), 1)
+                if dur_s >= 1.0:
+                    before_len = len(self._completed_bouts)
+                    self._finalize_bout(bout)
+                    if len(self._completed_bouts) > before_len:
+                        cb = self._completed_bouts[-1]
+                        transferred_bouts.append({
+                            "behavior": cb["behavior"],
+                            "start_frame": cb["start_frame"],
+                            "end_frame": cb["end_frame"],
+                            "start_s": cb["start_s"],
+                            "end_s": cb["end_s"],
+                            "duration_s": cb["duration_s"],
+                        })
+                elif (target_tid, beh) not in self._active_bouts:
+                    # Preserve short in-progress bout across promotion so it isn't silently dropped
+                    self._active_bouts[(target_tid, beh)] = bout
 
-        # Retroactively re-label ONLY this episode's completed bouts & detection_tracking rows (frame >= start_frame)
+        # Retroactively re-label ONLY this episode's completed bouts & detection_tracking rows (frame >= ep_start)
         for bout in self._completed_bouts:
-            if int(bout.get("track_id") or 0) == unid_tid and int(bout.get("end_frame") or 0) >= start_frame:
+            if int(bout.get("track_id") or 0) == unid_tid and int(bout.get("end_frame") or 0) >= ep_start:
                 bout["track_id"] = target_tid
                 bout["bird_label"] = target_label
+                transferred_bouts.append({
+                    "behavior": bout["behavior"],
+                    "start_frame": int(bout["start_frame"]),
+                    "end_frame": int(bout["end_frame"]),
+                    "start_s": bout["start_s"],
+                    "end_s": bout["end_s"],
+                    "duration_s": bout["duration_s"],
+                })
 
         for row in self._detection_tracking_rows:
-            if int(row.get("track_id") or 0) == unid_tid and int(row.get("frame_number") or 0) >= start_frame:
+            if int(row.get("track_id") or 0) == unid_tid and int(row.get("frame_number") or 0) >= ep_start:
                 row["track_id"] = target_tid
                 row["bird_label"] = target_label
+
+        self._identity_transfers.append({
+            "old_track_id": int(unid_tid),
+            "old_label": f"ID{unid_tid}",
+            "transferred_to_track_id": int(target_tid),
+            "transferred_to_label": str(target_label),
+            "reason": reason,
+            "start_frame": int(ep_start),
+            "end_frame": int(ep_end),
+            "valid_s": round(float(u_state.valid_observation_s), 1),
+            "feeding_s": round(float(u_state.feeding_time_s), 1),
+            "drinking_s": round(float(u_state.drinking_time_s), 1),
+            "inactive_s": round(float(u_state.total_inactivity_s), 1),
+            "bouts": transferred_bouts,
+        })
 
     def get_live_bird_behaviors(self) -> Dict[int, str]:
         """Returns the current live behavior label for every tracked bird ID (for video HUD overlays)."""
@@ -404,11 +465,19 @@ class BehaviorAnalysisEngine:
         #     unidentified track (ID7, ID8, ...) is confirmed as H1–H5 or Rooster on the
         #     same raw_track_id (100% deterministic, zero guessing).
         # -------------------------------------------------------------
+        cur_frame_idx = int(getattr(frame_out, "frame_idx", self.total_frames_in_chunk))
         for old_unid_id, new_canonical_id, new_label in getattr(frame_out, "promoted_tracks", []) or []:
             if old_unid_id in self.bird_states:
-                self._transfer_unid_episode(old_unid_id, new_canonical_id, new_label, start_frame=0)
-
-        cur_frame_idx = int(getattr(frame_out, "frame_idx", self.total_frames_in_chunk))
+                meta_p = self._unid_episode_meta.get(old_unid_id)
+                ep_start_p = int(meta_p["start_frame"]) if (meta_p and meta_p.get("start_frame") is not None) else 0
+                self._transfer_unid_episode(
+                    old_unid_id,
+                    new_canonical_id,
+                    new_label,
+                    start_frame=ep_start_p,
+                    end_frame=cur_frame_idx,
+                    reason="bytetrack_promotion",
+                )
         cur_designated_tids = {
             b.track_id for b in current_birds
             if b.track_id is not None and self._is_designated_label(b.bird_label)
@@ -443,10 +512,24 @@ class BehaviorAnalysisEngine:
                     best_dist = d
                     best_target = (b.track_id, b.bird_label)
             if best_target is not None:
-                self._transfer_unid_episode(unid_tid, best_target[0], best_target[1], meta["start_frame"])
+                self._transfer_unid_episode(
+                    unid_tid,
+                    best_target[0],
+                    best_target[1],
+                    meta["start_frame"],
+                    end_frame=meta["last_frame"],
+                    reason="spatial_handoff",
+                )
             elif gap_frames > 25 and meta.get("origin_tid") is not None and not _is_disqualified(meta["origin_tid"]):
                 # Episode ended and stayed gone > 25 frames: transfer to its non-co-occurring spatial origin bird
-                self._transfer_unid_episode(unid_tid, meta["origin_tid"], meta["origin_label"], meta["start_frame"])
+                self._transfer_unid_episode(
+                    unid_tid,
+                    meta["origin_tid"],
+                    meta["origin_label"],
+                    meta["start_frame"],
+                    end_frame=meta["last_frame"],
+                    reason="spatial_origin_handoff",
+                )
 
         # 0b. Register new unidentified episodes & record co-occurring designated birds for mutual exclusion
         for b in current_birds:
@@ -949,11 +1032,12 @@ class BehaviorAnalysisEngine:
 
         # Sort unidentified tracks largest-first so major segments claim their best match first
         unid_ids.sort(key=lambda tid: self.bird_states[tid].valid_observation_s, reverse=True)
-        transfer_map: Dict[int, BirdBehaviorState] = {}
+        transfer_map: Dict[int, BirdTrackState] = {}
+        transferred_meta: Dict[int, Dict[str, Any]] = {}
 
         for tid in unid_ids:
             u_state = self.bird_states[tid]
-            target: Optional[BirdBehaviorState] = None
+            target: Optional[BirdTrackState] = None
 
             # Only transfer if we have a verified non-co-occurring spatial origin or spatial handoff within 60 px.
             # NEVER blindly force-transfer an extra/7th bird that co-occurred with all 6 designated birds!
@@ -984,6 +1068,22 @@ class BehaviorAnalysisEngine:
                 continue  # Keep as genuine unidentified bird (e.g. 7th unsaddled chicken)
 
             transfer_map[tid] = target
+            ep_start = int(meta["start_frame"]) if (meta and meta.get("start_frame") is not None) else 0
+            ep_end = int(meta["last_frame"]) if (meta and meta.get("last_frame") is not None) else ep_start
+            transferred_meta[tid] = {
+                "old_track_id": int(tid),
+                "old_label": f"ID{tid}",
+                "transferred_to_track_id": int(target.track_id),
+                "transferred_to_label": str(target.label),
+                "reason": "chunk_end_handoff",
+                "start_frame": ep_start,
+                "end_frame": max(ep_start, ep_end),
+                "valid_s": round(float(u_state.valid_observation_s), 1),
+                "feeding_s": round(float(u_state.feeding_time_s), 1),
+                "drinking_s": round(float(u_state.drinking_time_s), 1),
+                "inactive_s": round(float(u_state.total_inactivity_s), 1),
+                "bouts": [],
+            }
 
             # Transfer accumulated behavioral & observation metrics
             target.valid_observation_s = min(monitored_s, target.valid_observation_s + u_state.valid_observation_s)
@@ -1009,6 +1109,14 @@ class BehaviorAnalysisEngine:
                 tgt = transfer_map[tid]
                 bout["track_id"] = tgt.track_id
                 bout["bird_label"] = tgt.label
+                transferred_meta[tid]["bouts"].append({
+                    "behavior": bout["behavior"],
+                    "start_frame": int(bout["start_frame"]),
+                    "end_frame": int(bout["end_frame"]),
+                    "start_s": bout["start_s"],
+                    "end_s": bout["end_s"],
+                    "duration_s": bout["duration_s"],
+                })
 
         for row in self._detection_tracking_rows:
             tid = int(row.get("track_id") or 0)
@@ -1016,6 +1124,9 @@ class BehaviorAnalysisEngine:
                 tgt = transfer_map[tid]
                 row["track_id"] = tgt.track_id
                 row["bird_label"] = tgt.label
+
+        for entry in transferred_meta.values():
+            self._identity_transfers.append(entry)
 
     def compute_chunk_summary(self) -> BehaviorChunkSummary:
         """
@@ -1163,4 +1274,5 @@ class BehaviorAnalysisEngine:
             bird_records=bird_records,
             behavior_events=sorted(self._completed_bouts, key=lambda e: (e["start_frame"], e["track_id"])),
             detection_tracking=list(self._detection_tracking_rows),
+            identity_transfers=sorted(self._identity_transfers, key=lambda t: (t["start_frame"], t["old_track_id"])),
         )

@@ -1025,6 +1025,7 @@ class ZampenAnalyticsWorker:
             all_behavior_events = []
             all_detection_tracking = []
             all_bird_records = []
+            all_identity_transfers = []
             for idx_s, s in enumerate(chunk_summaries):
                 chunk_first_frame = frame_ranges[idx_s][0] if idx_s < len(frame_ranges) else 0
                 chunk_offset_s = chunk_first_frame / fps if fps > 0 else 0.0
@@ -1045,6 +1046,23 @@ class ZampenAnalyticsWorker:
                     elif chunk_offset_s > 0:
                         dt_copy["elapsed_s"] = round(float(dt_copy.get("elapsed_s", 0.0)) + chunk_offset_s, 1)
                     all_detection_tracking.append(dt_copy)
+                for tr in (getattr(s, "identity_transfers", []) or []):
+                    tr_copy = dict(tr)
+                    sf = int(tr_copy.get("start_frame") or 0)
+                    ef = max(sf, int(tr_copy.get("end_frame") or sf))
+                    if fps > 0:
+                        tr_copy["first_start_s"] = round(float(sf) / fps, 1)
+                        tr_copy["last_end_s"] = round(float(ef) / fps, 1)
+                    bouts_norm = []
+                    for bt in (tr_copy.get("bouts") or []):
+                        bt_copy = dict(bt)
+                        if bt_copy.get("start_frame") is not None and fps > 0:
+                            bt_copy["start_s"] = round(float(bt_copy["start_frame"]) / fps, 1)
+                            bt_copy["end_s"] = round(float(bt_copy.get("end_frame", bt_copy["start_frame"])) / fps, 1)
+                            bt_copy["duration_s"] = round(max(0.1, bt_copy["end_s"] - bt_copy["start_s"]), 1)
+                        bouts_norm.append(bt_copy)
+                    tr_copy["bouts"] = bouts_norm
+                    all_identity_transfers.append(tr_copy)
                 all_bird_records.extend(getattr(s, "bird_records", []) or [])
             env_readings_payload = []
             for cm in chunk_metrics_results:
@@ -1070,9 +1088,10 @@ class ZampenAnalyticsWorker:
                 "detection_tracking": all_detection_tracking,
                 "bird_records": all_bird_records,
                 "environment_readings": env_readings_payload,
+                "identity_transfers": all_identity_transfers,
             }
             frame_log_path.write_text(json.dumps(frame_log_payload), encoding="utf-8")
-            print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames)")
+            print(f"[LOCAL STORE] Saved frame-by-frame verification log: {frame_log_path} ({len(all_behavior_events)} events, {len(all_detection_tracking)} frames, {len(all_identity_transfers)} identity transfers)")
             # Also upload frame-by-frame log + paired sensors.sqlite via Vercel /api/sync with 3x retry so
             # chickensee.vercel.app reflects every newly processed video in real time without any git push.
             try:

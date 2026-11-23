@@ -622,9 +622,134 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Merge live identity_transfers recorded by analytics/behavior_engine.py during processing
+    // (for videos where ID7+ tracks were already promoted/transferred live before saving frame_log).
+    const liveTransfers = Array.isArray(fl.identity_transfers) ? fl.identity_transfers : [];
+    for (const tr of liveTransfers) {
+      const oldTid = Number(tr.old_track_id) || 0;
+      if (oldTid < 7) continue;
+      const targetDef = mapBirdToDef(String(tr.transferred_to_label || ''), Number(tr.transferred_to_track_id) || 0);
+      const targetKey = DESIGNATED_SET.has(targetDef.shortId) ? targetDef.shortId : 'UNCONFIRMED';
+      if (targetKey === 'UNCONFIRMED') continue;
+
+      const epStartFrame = Number(tr.start_frame) || 0;
+      const epEndFrame = Math.max(epStartFrame, Number(tr.end_frame) || epStartFrame);
+      const epStartS = epStartFrame / efps;
+      const epEndS = epEndFrame / efps;
+
+      let st = strayByTid.get(oldTid);
+      if (!st) {
+        st = {
+          recording: recLabel,
+          trackId: oldTid,
+          label: String(tr.old_label || `ID${oldTid}`),
+          transferredTo: targetKey,
+          events: 0,
+          feedingS: 0,
+          drinkingS: 0,
+          inactiveS: 0,
+          firstStartS: epStartS,
+          lastEndS: epEndS,
+          bouts: [],
+          liveEpisodeFrameRange: {
+            startFrame: epStartFrame,
+            endFrame: epEndFrame,
+            startS: epStartS,
+            endS: epEndS,
+            validS: Math.max(0.1, Number(tr.valid_s) || (epEndS - epStartS)),
+            reason: String(tr.reason || 'live_transfer'),
+          },
+        };
+        strayByTid.set(oldTid, st);
+      } else {
+        st.firstStartS = Math.min(st.firstStartS, epStartS);
+        st.lastEndS = Math.max(st.lastEndS, epEndS);
+      }
+
+      const trBouts = Array.isArray(tr.bouts) ? tr.bouts : [];
+      let boutFeedS = 0;
+      let boutDrinkS = 0;
+      let boutInactS = 0;
+      for (const bt of trBouts) {
+        const beh = String(bt.behavior || '').toLowerCase();
+        if (beh === 'social_isolation') continue;
+        const sf = Number(bt.start_frame) || epStartFrame;
+        const ef = Math.max(sf, Number(bt.end_frame) || sf);
+        const sS = sf / efps;
+        const eS = ef / efps;
+        const durS = Math.max(0.1, eS - sS);
+
+        // Reconstruct pre-transfer ("Before") counts: these bouts were already rewritten to targetKey live
+        beforeMap[targetKey].events = Math.max(0, beforeMap[targetKey].events - 1);
+        beforeMap[targetKey].seconds = Math.max(0, beforeMap[targetKey].seconds - durS);
+        beforeMap.UNCONFIRMED.events += 1;
+        beforeMap.UNCONFIRMED.seconds += durS;
+        unconfEvBefore += 1;
+        unconfSBefore += durS;
+
+        st.events += 1;
+        if (beh === 'feeding') {
+          st.feedingS += durS;
+          boutFeedS += durS;
+        } else if (beh === 'drinking') {
+          st.drinkingS += durS;
+          boutDrinkS += durS;
+        } else if (beh === 'inactive') {
+          st.inactiveS += durS;
+          boutInactS += durS;
+        }
+        st.firstStartS = Math.min(st.firstStartS, sS);
+        st.lastEndS = Math.max(st.lastEndS, eS);
+
+        const mm1 = Math.floor(sS / 60);
+        const ss1 = Math.floor(sS % 60);
+        const mm2 = Math.floor(eS / 60);
+        const ss2 = Math.floor(eS % 60);
+        st.bouts.push({
+          behavior: beh,
+          transferredTo: targetKey,
+          startFrame: sf,
+          endFrame: ef,
+          startTime: `${String(hourNum).padStart(2, '0')}:${String(mm1).padStart(2, '0')}:${String(ss1).padStart(2, '0')}`,
+          endTime: `${String(hourNum).padStart(2, '0')}:${String(mm2).padStart(2, '0')}:${String(ss2).padStart(2, '0')}`,
+          durationS: Math.round(durS * 10) / 10,
+        });
+      }
+
+      // Include live accumulated durations even for sub-1s feeding/drinking/inactive segments before promotion
+      const liveFeedS = Number(tr.feeding_s) || 0;
+      const liveDrinkS = Number(tr.drinking_s) || 0;
+      const liveInactS = Number(tr.inactive_s) || 0;
+      if (liveFeedS > boutFeedS) st.feedingS += liveFeedS - boutFeedS;
+      if (liveDrinkS > boutDrinkS) st.drinkingS += liveDrinkS - boutDrinkS;
+      if (liveInactS > boutInactS) st.inactiveS += liveInactS - boutInactS;
+    }
+
     for (const st of Array.from(strayByTid.values()).sort((a, b) => a.trackId - b.trackId)) {
       const sortedBouts = [...st.bouts].sort((a, b) => a.startFrame - b.startFrame);
-      const sampleBout = sortedBouts.reduce((best, b) => (!best || b.durationS > best.durationS ? b : best), null);
+      let sampleBout = sortedBouts.reduce((best, b) => (!best || b.durationS > best.durationS ? b : best), null);
+      if (!sampleBout && st.liveEpisodeFrameRange) {
+        const ep = st.liveEpisodeFrameRange;
+        const mm1 = Math.floor(ep.startS / 60);
+        const ss1 = Math.floor(ep.startS % 60);
+        const mm2 = Math.floor(ep.endS / 60);
+        const ss2 = Math.floor(ep.endS % 60);
+        const reasonLabel =
+          ep.reason === 'bytetrack_promotion'
+            ? 'promoted'
+            : ep.reason === 'spatial_handoff' || ep.reason === 'spatial_origin_handoff'
+              ? 'handoff'
+              : 'transferred';
+        sampleBout = {
+          behavior: reasonLabel,
+          transferredTo: st.transferredTo,
+          startFrame: ep.startFrame,
+          endFrame: ep.endFrame,
+          startTime: `${String(hourNum).padStart(2, '0')}:${String(mm1).padStart(2, '0')}:${String(ss1).padStart(2, '0')}`,
+          endTime: `${String(hourNum).padStart(2, '0')}:${String(mm2).padStart(2, '0')}:${String(ss2).padStart(2, '0')}`,
+          durationS: Math.round(ep.validS * 10) / 10,
+        };
+      }
       const entry = {
         recording: st.recording,
         trackId: st.trackId,
