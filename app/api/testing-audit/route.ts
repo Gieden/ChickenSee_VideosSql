@@ -4,6 +4,11 @@ import path from 'path';
 import { AUTH_COOKIE_NAME, getSession } from '@/lib/auth';
 import { downloadStorageFile, listStorageFiles } from '@/lib/supabase-storage';
 import { mapBirdToDef } from '@/lib/research-datasets';
+import {
+  buildStrictIdentityTransferMap,
+  isDesignatedBird,
+  resolveStrictBirdDef,
+} from '@/lib/strict-identity-transfer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -112,34 +117,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Fast path: if precomputed 11-video audit JSON exists and live ?live=1 wasn't forced,
-  // serve it instantaneously (avoids downloading 11 x 3.3MB = 36MB on every Vercel request).
-  const forceLive = new URL(req.url).searchParams.get('live') === '1';
-  const staticAuditPath = path.join(process.cwd(), 'data', 'testing_audit_11videos.json');
-  if (!forceLive && fs.existsSync(staticAuditPath)) {
-    try {
-      const staticPayload = JSON.parse(fs.readFileSync(staticAuditPath, 'utf-8'));
-      if (Array.isArray(staticPayload?.blocks) && staticPayload.blocks.length > 0) {
-        return NextResponse.json(staticPayload, {
-          headers: {
-            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-            Pragma: 'no-cache',
-          },
-        });
-      }
-    } catch {}
-  }
+  const { searchParams } = new URL(req.url);
+  const selectedVideo = (searchParams.get('video') || 'all').trim();
+  const forceLive = searchParams.get('live') === '1';
 
-  // Discover all uploaded rec_2026-11-17_* frame_log JSONs (local disk first, Supabase Storage fallback for Vercel)
-  const sources = new Map<string, { localPath?: string; cloudKey?: string }>();
+  // Discover ALL uploaded frame_log JSONs (newest-first) so any newly processed fragment appears in the dropdown immediately
+  const allSources = new Map<string, { localPath?: string; cloudKey?: string; updatedMs: number }>();
 
   const localDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
   if (fs.existsSync(localDir)) {
     try {
       for (const fname of fs.readdirSync(localDir)) {
-        if (!fname.endsWith('.json') || !fname.includes('rec_2026-11-17_')) continue;
+        if (!fname.endsWith('.json')) continue;
         const vidName = fname.replace(/^frame_log_/, '').replace(/\.json$/i, '');
-        sources.set(vidName, { localPath: path.join(localDir, fname) });
+        if (!vidName) continue;
+        const fullPath = path.join(localDir, fname);
+        const mtimeMs = fs.statSync(fullPath).mtimeMs || 0;
+        allSources.set(vidName, { localPath: fullPath, updatedMs: mtimeMs });
       }
     } catch {}
   }
@@ -148,19 +142,59 @@ export async function GET(req: NextRequest) {
     const cloudFiles = await listStorageFiles('results');
     for (const cf of cloudFiles) {
       const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
-      if (!base.startsWith('frame_log_') || !base.endsWith('.json') || !base.includes('rec_2026-11-17_')) continue;
+      if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
       const vidName = base.slice('frame_log_'.length, -'.json'.length);
-      const prev = sources.get(vidName);
-      sources.set(vidName, {
+      if (!vidName) continue;
+      const upMs = cf.uploadedAt ? Date.parse(cf.uploadedAt) || 0 : 0;
+      const prev = allSources.get(vidName);
+      allSources.set(vidName, {
         localPath: prev?.localPath,
         cloudKey: cf.storagePath || `results/${base}`,
+        updatedMs: Math.max(prev?.updatedMs || 0, upMs),
       });
     }
   } catch {}
 
-  const sortedVideos = Array.from(sources.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  const availableVideos = Array.from(allSources.entries())
+    .sort((a, b) => b[1].updatedMs - a[1].updatedMs)
+    .map(([video, meta]) => ({
+      video,
+      updatedAt: meta.updatedMs > 0 ? new Date(meta.updatedMs).toISOString() : '',
+    }));
+
+  // Fast path: when viewing "all" (11-video 2026-11-17 audit) and live ?live=1 wasn't forced,
+  // serve precomputed JSON instantaneously and attach the live availableVideos list!
+  const staticAuditPath = path.join(process.cwd(), 'data', 'testing_audit_11videos.json');
+  if (selectedVideo === 'all' && !forceLive && fs.existsSync(staticAuditPath)) {
+    try {
+      const staticPayload = JSON.parse(fs.readFileSync(staticAuditPath, 'utf-8'));
+      if (Array.isArray(staticPayload?.blocks) && staticPayload.blocks.length > 0) {
+        return NextResponse.json(
+          {
+            ...staticPayload,
+            selectedVideo: 'all',
+            availableVideos,
+          },
+          {
+            headers: {
+              'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+              Pragma: 'no-cache',
+            },
+          },
+        );
+      }
+    } catch {}
+  }
+
+  const sortedVideos =
+    selectedVideo !== 'all'
+      ? Array.from(allSources.entries()).filter(([vid]) => vid === selectedVideo)
+      : Array.from(allSources.entries())
+          .filter(([vid]) => vid.includes('rec_2026-11-17_'))
+          .sort((a, b) => a[0].localeCompare(b[0]));
 
   const blocks: HourBlockAudit[] = [];
+  const rawFrameLogsForDist: Array<{ vidName: string; fl: any; blockNumber: number }> = [];
 
   // Process in parallel batches of 4 for fast Vercel response
   const analyzeVideo = async (
@@ -188,6 +222,7 @@ export async function GET(req: NextRequest) {
 
     try {
       const fl = JSON.parse(rawText);
+      rawFrameLogsForDist.push({ vidName, fl, blockNumber });
       const totalFrames = Math.max(1, Number(fl.total_frames) || 54000);
       const recMatch = vidName.match(/rec_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})/);
       const dateStr = recMatch ? recMatch[1] : '2026-11-17';
@@ -452,10 +487,223 @@ export async function GET(req: NextRequest) {
     };
   });
 
+  // Compute Identity Distribution Check (Tables 1, 2, 3) for the live selected video(s)
+  const DESIGNATED_SET = new Set(['H1', 'H2', 'H3', 'H4', 'H5', 'R1']);
+  const beforeMap: Record<string, { events: number; seconds: number }> = {
+    H1: { events: 0, seconds: 0 },
+    H2: { events: 0, seconds: 0 },
+    H3: { events: 0, seconds: 0 },
+    H4: { events: 0, seconds: 0 },
+    H5: { events: 0, seconds: 0 },
+    R1: { events: 0, seconds: 0 },
+    UNCONFIRMED: { events: 0, seconds: 0 },
+  };
+  const afterMap: Record<string, { events: number; seconds: number }> = {
+    H1: { events: 0, seconds: 0 },
+    H2: { events: 0, seconds: 0 },
+    H3: { events: 0, seconds: 0 },
+    H4: { events: 0, seconds: 0 },
+    H5: { events: 0, seconds: 0 },
+    R1: { events: 0, seconds: 0 },
+    UNCONFIRMED: { events: 0, seconds: 0 },
+  };
+  const idTable1: any[] = [];
+  const table3Transferred: any[] = [];
+  const table3Remaining: any[] = [];
+
+  for (const { vidName, fl } of rawFrameLogsForDist.sort((a, b) => a.blockNumber - b.blockNumber)) {
+    const tf = Math.max(1, Number(fl.total_frames) || 1);
+    const rawFps = Number(fl.fps) || 20;
+    const rawDurS = tf / rawFps;
+    const isHourly = /rec[_\s-]*\d{4}-\d{2}-\d{2}[_\s]+\d{2}-\d{2}/i.test(vidName) && rawDurS >= 2000 && rawDurS < 3550;
+    const efps = isHourly ? tf / 3600.0 : rawFps;
+    const m = vidName.match(/rec_\d{4}-\d{2}-\d{2}_(\d{2})-(\d{2})/);
+    const hourNum = m ? Number.parseInt(m[1], 10) : 0;
+    const recLabel = m ? `${m[1]}:00` : vidName;
+
+    const strictTransfer = buildStrictIdentityTransferMap(fl);
+    let totalEv = 0;
+    let confEvAfter = 0;
+    let unconfEvAfter = 0;
+    let confSAfter = 0;
+    let unconfSAfter = 0;
+    let unconfEvBefore = 0;
+    let unconfSBefore = 0;
+    const strayByTid = new Map<number, any>();
+
+    for (const ev of Array.isArray(fl.behavior_events) ? fl.behavior_events : []) {
+      const beh = String(ev.behavior || '').toLowerCase();
+      if (beh === 'social_isolation') continue;
+      const tid = Number(ev.track_id) || 0;
+      const lbl = String(ev.bird_label || '');
+      const sf = Number(ev.start_frame) || 0;
+      const ef = Math.max(sf, Number(ev.end_frame) || sf);
+      const sS = sf / efps;
+      const eS = ef / efps;
+      const durS = Math.max(0.1, eS - sS);
+      totalEv += 1;
+
+      const resolved = resolveStrictBirdDef(lbl, tid, strictTransfer, Math.round((sf + ef) / 2));
+      const ak = DESIGNATED_SET.has(resolved.def.shortId) ? resolved.def.shortId : 'UNCONFIRMED';
+
+      if (isDesignatedBird(lbl, tid)) {
+        const bk = mapBirdToDef(lbl, tid).shortId;
+        beforeMap[bk].events += 1;
+        beforeMap[bk].seconds += durS;
+      } else {
+        beforeMap.UNCONFIRMED.events += 1;
+        beforeMap.UNCONFIRMED.seconds += durS;
+        unconfEvBefore += 1;
+        unconfSBefore += durS;
+        let st = strayByTid.get(tid);
+        if (!st) {
+          st = {
+            recording: recLabel,
+            trackId: tid,
+            label: `ID${tid}`,
+            transferredTo: ak,
+            events: 0,
+            feedingS: 0,
+            drinkingS: 0,
+            inactiveS: 0,
+            firstStartS: sS,
+            lastEndS: eS,
+            bouts: [],
+          };
+          strayByTid.set(tid, st);
+        }
+        st.events += 1;
+        if (beh === 'feeding') st.feedingS += durS;
+        else if (beh === 'drinking') st.drinkingS += durS;
+        else if (beh === 'inactive') st.inactiveS += durS;
+        st.firstStartS = Math.min(st.firstStartS, sS);
+        st.lastEndS = Math.max(st.lastEndS, eS);
+        const mm1 = Math.floor(sS / 60);
+        const ss1 = Math.floor(sS % 60);
+        const mm2 = Math.floor(eS / 60);
+        const ss2 = Math.floor(eS % 60);
+        st.bouts.push({
+          behavior: beh,
+          transferredTo: ak,
+          startFrame: sf,
+          endFrame: ef,
+          startTime: `${String(hourNum).padStart(2, '0')}:${String(mm1).padStart(2, '0')}:${String(ss1).padStart(2, '0')}`,
+          endTime: `${String(hourNum).padStart(2, '0')}:${String(mm2).padStart(2, '0')}:${String(ss2).padStart(2, '0')}`,
+          durationS: Math.round(durS * 10) / 10,
+        });
+      }
+
+      afterMap[ak].events += 1;
+      afterMap[ak].seconds += durS;
+      if (ak !== 'UNCONFIRMED') {
+        confEvAfter += 1;
+        confSAfter += durS;
+      } else {
+        unconfEvAfter += 1;
+        unconfSAfter += durS;
+      }
+    }
+
+    for (const st of Array.from(strayByTid.values()).sort((a, b) => a.trackId - b.trackId)) {
+      const sortedBouts = [...st.bouts].sort((a, b) => a.startFrame - b.startFrame);
+      const sampleBout = sortedBouts.reduce((best, b) => (!best || b.durationS > best.durationS ? b : best), null);
+      const entry = {
+        recording: st.recording,
+        trackId: st.trackId,
+        label: st.label,
+        transferredTo: st.transferredTo,
+        events: st.events,
+        feedingS: Math.round(st.feedingS * 10) / 10,
+        drinkingS: Math.round(st.drinkingS * 10) / 10,
+        inactiveS: Math.round(st.inactiveS * 10) / 10,
+        sampleBout,
+        bouts: sortedBouts,
+        firstStartS: Math.round(st.firstStartS * 10) / 10,
+        lastEndS: Math.round(st.lastEndS * 10) / 10,
+        spanS: Math.round(Math.max(0, st.lastEndS - st.firstStartS) * 10) / 10,
+      };
+      table3Transferred.push(entry);
+      if (!DESIGNATED_SET.has(entry.transferredTo)) table3Remaining.push(entry);
+    }
+
+    idTable1.push({
+      recording: recLabel,
+      video: vidName,
+      totalEvents: totalEv,
+      confirmedEvents: confEvAfter,
+      unconfirmedEvents: unconfEvAfter,
+      unconfirmedPct: totalEv > 0 ? Math.round((unconfEvAfter / totalEv) * 10000) / 100 : 0,
+      confirmedSeconds: Math.round(confSAfter * 10) / 10,
+      unconfirmedSeconds: Math.round(unconfSAfter * 10) / 10,
+      strayTrackIdsBefore: strayByTid.size,
+      strayTrackIdsAfter: Array.from(strayByTid.values()).filter((s) => !DESIGNATED_SET.has(s.transferredTo)).length,
+      beforeUnconfirmedEvents: unconfEvBefore,
+      beforeUnconfirmedSeconds: Math.round(unconfSBefore * 10) / 10,
+    });
+  }
+
+  const t1TotalEv = idTable1.reduce((s, r) => s + r.totalEvents, 0);
+  const t1ConfEv = idTable1.reduce((s, r) => s + r.confirmedEvents, 0);
+  const t1UnconfEv = idTable1.reduce((s, r) => s + r.unconfirmedEvents, 0);
+  const t2Rows = (['H1', 'H2', 'H3', 'H4', 'H5', 'R1', 'UNCONFIRMED'] as const).map((k) => {
+    const ae = afterMap[k].events;
+    const as_ = Math.round(afterMap[k].seconds * 10) / 10;
+    const be = beforeMap[k].events;
+    const bs = Math.round(beforeMap[k].seconds * 10) / 10;
+    return {
+      chicken: k === 'UNCONFIRMED' ? 'Unconfirmed (ID7 and above)' : k,
+      key: k,
+      afterEvents: ae,
+      afterSeconds: as_,
+      beforeEvents: be,
+      beforeSeconds: bs,
+      changeEvents: ae - be,
+      changeSeconds: Math.round((as_ - bs) * 10) / 10,
+    };
+  });
+  const t2Total = {
+    chicken: 'All chickens (total)',
+    key: 'TOTAL',
+    afterEvents: t2Rows.reduce((s, r) => s + r.afterEvents, 0),
+    afterSeconds: Math.round(t2Rows.reduce((s, r) => s + r.afterSeconds, 0) * 10) / 10,
+    beforeEvents: t2Rows.reduce((s, r) => s + r.beforeEvents, 0),
+    beforeSeconds: Math.round(t2Rows.reduce((s, r) => s + r.beforeSeconds, 0) * 10) / 10,
+    changeEvents: t2Rows.reduce((s, r) => s + r.changeEvents, 0),
+    changeSeconds: Math.round(t2Rows.reduce((s, r) => s + r.changeSeconds, 0) * 10) / 10,
+  };
+
+  const identityDistribution = {
+    result:
+      t1UnconfEv === 0
+        ? 'PASS — All unconfirmed tracks transferred to designated chickens (0 unconfirmed events remaining)'
+        : `REVIEW — ${t1UnconfEv} unconfirmed events remain`,
+    passed: t1UnconfEv === 0 && t2Total.changeEvents === 0,
+    table1: idTable1,
+    table1Total: {
+      recording: 'Total',
+      totalEvents: t1TotalEv,
+      confirmedEvents: t1ConfEv,
+      unconfirmedEvents: t1UnconfEv,
+      unconfirmedPct: t1TotalEv > 0 ? Math.round((t1UnconfEv / t1TotalEv) * 10000) / 100 : 0,
+      confirmedSeconds: Math.round(idTable1.reduce((s, r) => s + r.confirmedSeconds, 0) * 10) / 10,
+      unconfirmedSeconds: Math.round(idTable1.reduce((s, r) => s + r.unconfirmedSeconds, 0) * 10) / 10,
+      strayTrackIdsBefore: idTable1.reduce((s, r) => s + r.strayTrackIdsBefore, 0),
+      strayTrackIdsAfter: idTable1.reduce((s, r) => s + r.strayTrackIdsAfter, 0),
+      beforeUnconfirmedEvents: beforeMap.UNCONFIRMED.events,
+      beforeUnconfirmedSeconds: Math.round(beforeMap.UNCONFIRMED.seconds * 10) / 10,
+    },
+    table2: t2Rows,
+    table2Total: t2Total,
+    table3Remaining,
+    table3Transferred,
+  };
+
   return NextResponse.json(
     {
       success: true,
       generatedAt: new Date().toISOString(),
+      selectedVideo,
+      availableVideos,
       videoCount: blocks.length,
       date: blocks[0]?.date || '2026-11-17',
       summary: {
@@ -464,6 +712,7 @@ export async function GET(req: NextRequest) {
       },
       blocks,
       combinedBirds,
+      identityDistribution,
     },
     {
       headers: {

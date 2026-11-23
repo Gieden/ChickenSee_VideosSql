@@ -84,6 +84,8 @@ interface IdentityDistributionPayload {
 interface TestingAuditPayload {
   success: boolean;
   generatedAt: string;
+  selectedVideo?: string;
+  availableVideos?: Array<{ video: string; updatedAt: string }>;
   videoCount: number;
   date: string;
   summary: {
@@ -118,6 +120,7 @@ export default function TestingAuditTab() {
   const [data, setData] = useState<TestingAuditPayload | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedVideo, setSelectedVideo] = useState<string>('all');
   const [selectedHourBlock, setSelectedHourBlock] = useState<string>('all');
   const [expandedTrackKey, setExpandedTrackKey] = useState<string | null>(null);
 
@@ -125,16 +128,21 @@ export default function TestingAuditTab() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/testing-audit?_t=${Date.now()}`, { cache: 'no-store' });
+      const res = await fetch(
+        `/api/testing-audit?video=${encodeURIComponent(selectedVideo)}&_t=${Date.now()}`,
+        { cache: 'no-store' },
+      );
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || 'Failed to compute testing audit');
       setData(payload);
+      setSelectedHourBlock('all');
+      setExpandedTrackKey(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Error loading testing audit');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedVideo]);
 
   useEffect(() => {
     fetchAudit();
@@ -342,6 +350,23 @@ export default function TestingAuditTab() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-600">Video:</span>
+              <select
+                aria-label="Select video scope for testing audit"
+                value={selectedVideo}
+                onChange={(e) => setSelectedVideo(e.target.value)}
+                disabled={loading}
+                className="max-w-[260px] rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 shadow-xs focus:border-orange-500 focus:outline-hidden disabled:opacity-60"
+              >
+                <option value="all">All 11 Videos (2026-11-17 Audit)</option>
+                {(data?.availableVideos || []).map((v, idx) => (
+                  <option key={v.video} value={v.video}>
+                    {idx === 0 ? `★ Latest: ${v.video}` : v.video}
+                  </option>
+                ))}
+              </select>
+            </div>
             <button
               type="button"
               onClick={fetchAudit}
