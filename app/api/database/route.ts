@@ -42,22 +42,25 @@ export async function GET(req: NextRequest) {
   const databases = rawDatabases.filter((d) => d.pathname.toLowerCase() === 'sensors.sqlite');
 
   if (!databases.length) {
-    return NextResponse.json({
-      databases: [],
-      groupedByDate: [],
-      overview: {
-        totalFiles: 0,
-        totalReadings: 0,
-        avgTemperature: null,
-        avgHumidity: null,
-        avgAmmoniaPpm: null,
-        avgSoundDb: null,
+    return NextResponse.json(
+      {
+        databases: [],
+        groupedByDate: [],
+        overview: {
+          totalFiles: 0,
+          totalReadings: 0,
+          avgTemperature: null,
+          avgHumidity: null,
+          avgAmmoniaPpm: null,
+          avgSoundDb: null,
+        },
+        currentFile: null,
+        tables: [],
+        selectedTable: null,
+        queryResult: null,
       },
-      currentFile: null,
-      tables: [],
-      selectedTable: null,
-      queryResult: null,
-    });
+      { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } },
+    );
   }
 
   // 2. Dashboard Aggregation: Calculate average values for each sensors.sqlite file

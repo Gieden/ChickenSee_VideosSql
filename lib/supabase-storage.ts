@@ -472,23 +472,71 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
     // Supabase unavailable or credentials missing; local files are already populated
   }
 
-  // De-duplicate by storagePath or sessionFolder
+  // De-duplicate by storagePath or sessionFolder, preserving the newest uploadedAt and any localPath
   const unique = new Map<string, SyncedFileMeta>();
   for (const f of files) {
     const key = f.sessionFolder ? `session:${f.sessionFolder}` : f.storagePath;
-    if (!unique.has(key) || (f.size > (unique.get(key)?.size || 0))) {
+    const prev = unique.get(key);
+    if (!prev) {
       unique.set(key, f);
+    } else {
+      const prevMs = parseTimestampMs(prev.uploadedAt);
+      const nextMs = parseTimestampMs(f.uploadedAt);
+      const best = f.size > prev.size ? { ...f } : { ...prev };
+      best.uploadedAt = nextMs > prevMs ? f.uploadedAt : prev.uploadedAt;
+      best.localPath = prev.localPath || f.localPath;
+      unique.set(key, best);
     }
   }
 
-  // Filter out pre-wipe archived dates while keeping paired sensors.sqlite uploaded AFTER a wipe
+  // Filter out pre-wipe archived dates while keeping paired sensors.sqlite uploaded OR paired with
+  // a video processed AFTER a wipe (checks both database uploadedAt and matching frame_log timestamp)
   if (!options?.includeArchived) {
     await syncManifestFromCloud();
   }
   const archivedCutoffs = options?.includeArchived ? new Map<string, number>() : getArchivedDateCutoffs();
-  const visibleList = Array.from(unique.values()).filter(
-    (f) => !f.dateKey || !isItemArchivedByDate(f.dateKey, parseTimestampMs(f.uploadedAt), archivedCutoffs),
-  );
+
+  // Build sessionFolder -> latest processed frame_log timestamp (local + cloud)
+  const sessionProcessedMs = new Map<string, number>();
+  if (!options?.includeArchived && archivedCutoffs.size > 0) {
+    const localFlDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
+    if (fs.existsSync(localFlDir)) {
+      try {
+        for (const fname of fs.readdirSync(localFlDir)) {
+          if (!fname.endsWith('.json')) continue;
+          const m = fname.match(/(rec_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_\d+)/i);
+          if (!m) continue;
+          const folderKey = m[1];
+          const ms = fs.statSync(path.join(localFlDir, fname)).mtimeMs || 0;
+          if (ms > (sessionProcessedMs.get(folderKey) || 0)) {
+            sessionProcessedMs.set(folderKey, ms);
+          }
+        }
+      } catch {}
+    }
+    try {
+      const cloudResults = await listStorageFiles('results');
+      for (const cf of cloudResults) {
+        const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+        if (!base.startsWith('frame_log_')) continue;
+        const m = base.match(/(rec_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}_\d+)/i);
+        if (!m) continue;
+        const folderKey = m[1];
+        const ms = parseTimestampMs(cf.uploadedAt);
+        if (ms > (sessionProcessedMs.get(folderKey) || 0)) {
+          sessionProcessedMs.set(folderKey, ms);
+        }
+      }
+    } catch {}
+  }
+
+  const visibleList = Array.from(unique.values()).filter((f) => {
+    if (!f.dateKey) return true;
+    const dbMs = parseTimestampMs(f.uploadedAt);
+    const pairedMs = f.sessionFolder ? sessionProcessedMs.get(f.sessionFolder) || 0 : 0;
+    const effectiveMs = Math.max(dbMs, pairedMs);
+    return !isItemArchivedByDate(f.dateKey, effectiveMs, archivedCutoffs);
+  });
 
   // Sort newest first
   return visibleList.sort(
