@@ -1635,7 +1635,7 @@ export default function DashboardPage() {
     try {
       setLoadingResults(true);
       setResultsError(null);
-      const res = await fetch('/api/behavior-results?refresh=true', { cache: 'no-store' });
+      const res = await fetch('/api/behavior-results', { cache: 'no-store' });
       if (res.status === 401) { router.push('/login'); return; }
       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
@@ -1748,7 +1748,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeTab !== 'results') return;
     fetchResults();
-    const refreshTimer = setInterval(() => { fetchResults(); }, 10_000);
+    const refreshTimer = setInterval(() => { fetchResults(); }, 60_000);
     return () => clearInterval(refreshTimer);
   }, [activeTab, fetchResults]);
 

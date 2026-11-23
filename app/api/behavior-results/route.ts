@@ -362,9 +362,10 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // Real-time cloud & local frame-log merge: distribute newly uploaded/processed videos
-      // across Behavior Results immediately (even before any git deploy updates zampen_analytics.db)
-      const liveLogs = new Map<string, { localPath?: string; cloudKey?: string; uploadedAt?: string; updatedMs: number }>();
+      // Real-time cloud & local frame-log merge: prefer tiny (~2 KB) behavior_summary_<video>.json
+      // sidecars to avoid downloading 3.2 MB frame_logs on every rebuild, with 100% lossless
+      // fallback to full frame_log_<video>.json if a sidecar does not exist yet.
+      const liveLogs = new Map<string, { localPath?: string; summaryCloudKey?: string; cloudKey?: string; uploadedAt?: string; updatedMs: number }>();
       const localFlDir = path.join(process.cwd(), 'local-storage', 'results', 'frame_logs');
       if (fs.existsSync(localFlDir)) {
         try {
@@ -378,8 +379,25 @@ export async function GET(req: NextRequest) {
         } catch {}
       }
       try {
-        const cloudFiles = await listStorageFiles('results');
-        for (const cf of cloudFiles) {
+        const [summaryFiles, frameLogFiles] = await Promise.all([
+          listStorageFiles('results', 'behavior_summary_'),
+          listStorageFiles('results', 'frame_log_'),
+        ]);
+        for (const cf of summaryFiles) {
+          const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+          if (!base.startsWith('behavior_summary_') || !base.endsWith('.json')) continue;
+          const vid = base.slice('behavior_summary_'.length, -'.json'.length);
+          if (!vid) continue;
+          const upMs = cf.uploadedAt ? Date.parse(cf.uploadedAt) || 0 : 0;
+          const prev = liveLogs.get(vid);
+          liveLogs.set(vid, {
+            ...prev,
+            summaryCloudKey: cf.storagePath || `results/${base}`,
+            uploadedAt: cf.uploadedAt || prev?.uploadedAt,
+            updatedMs: Math.max(prev?.updatedMs || 0, upMs),
+          });
+        }
+        for (const cf of frameLogFiles) {
           const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
           if (!base.startsWith('frame_log_') || !base.endsWith('.json')) continue;
           const vid = base.slice('frame_log_'.length, -'.json'.length);
@@ -387,9 +405,10 @@ export async function GET(req: NextRequest) {
           const upMs = cf.uploadedAt ? Date.parse(cf.uploadedAt) || 0 : 0;
           const prev = liveLogs.get(vid);
           liveLogs.set(vid, {
+            ...prev,
             localPath: prev?.localPath,
             cloudKey: cf.storagePath || `results/${base}`,
-            uploadedAt: cf.uploadedAt,
+            uploadedAt: cf.uploadedAt || prev?.uploadedAt,
             updatedMs: Math.max(prev?.updatedMs || 0, upMs),
           });
         }
@@ -397,9 +416,17 @@ export async function GET(req: NextRequest) {
 
       for (const [vid, meta] of Array.from(liveLogs.entries())) {
         if (dbVideoNames.has(vid)) continue;
+        // Skip archived dates BEFORE downloading anything from Supabase Storage!
+        const preRec = parseRecFolderDateTime(vid);
+        if (preRec?.date && isItemArchivedByDate(preRec.date, meta.updatedMs, archivedCutoffs)) {
+          continue;
+        }
         let rawText: string | null = null;
         if (meta.localPath && fs.existsSync(meta.localPath)) {
           try { rawText = fs.readFileSync(meta.localPath, 'utf-8'); } catch {}
+        }
+        if (!rawText && meta.summaryCloudKey) {
+          try { rawText = await (await downloadStorageFile(meta.summaryCloudKey)).text(); } catch {}
         }
         if (!rawText && meta.cloudKey) {
           try { rawText = await (await downloadStorageFile(meta.cloudKey)).text(); } catch {}

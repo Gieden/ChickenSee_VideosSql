@@ -542,7 +542,10 @@ export default function BehaviorResultsTab() {
           setIsLoading(true);
           setLoadError(null);
         }
-        const url = `/api/behavior-results?refresh=true&t=${Date.now()}`;
+        // Only pass refresh=true on explicit user refresh; silent polls use the 5s server cache
+        const url = silent
+          ? `/api/behavior-results?t=${Date.now()}`
+          : `/api/behavior-results?refresh=true&t=${Date.now()}`;
         const res = await fetch(url, { cache: 'no-store' });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -569,12 +572,12 @@ export default function BehaviorResultsTab() {
       }
     }
     loadTelemetry(false);
-    // Real-time background polling every 10 seconds while tab is visible
+    // Egress-friendly background polling every 45 seconds while tab is visible (instant refresh on job completion via dataVersion)
     const pollTimer = window.setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         loadTelemetry(true);
       }
-    }, 10000);
+    }, 45000);
     return () => {
       active = false;
       window.clearInterval(pollTimer);

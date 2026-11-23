@@ -1142,15 +1142,81 @@ class ZampenAnalyticsWorker:
                         put_timeout=90,
                     )
 
-                    # Also upload paired sensors.sqlite (if present in video folder) so Recorded Data Sensors updates in real time
+                    # Also upload tiny (~2 KB) behavior_summary sidecar so /api/behavior-results
+                    # never has to download 3.2 MB frame_logs (saves >99.9% Supabase Cached Egress)
+                    behavior_summary_bytes = json.dumps({
+                        "video": log_video_name,
+                        "fps": round(float(fps), 2),
+                        "total_frames": int(total_frames),
+                        "start_time": start_dt.isoformat(),
+                        "end_time": end_dt.isoformat(),
+                        "bird_records": all_bird_records,
+                        "environment_readings": env_readings_payload,
+                    }).encode("utf-8")
+                    _upload_with_retry(
+                        f"behavior_summary_{log_video_name}.json",
+                        behavior_summary_bytes,
+                        "application/json",
+                        put_timeout=30,
+                    )
+
+                    # Also upload paired sensors.sqlite + tiny (~0.5 KB) sensor_summary sidecar
                     if paired_db and Path(paired_db).is_file() and Path(paired_db).name.lower() == "sensors.sqlite":
+                        _sess_folder = Path(paired_db).parent.name
                         _upload_with_retry(
                             "sensors.sqlite",
                             Path(paired_db).read_bytes(),
                             "application/octet-stream",
-                            folder=Path(paired_db).parent.name,
+                            folder=_sess_folder,
                             put_timeout=120,
                         )
+                        try:
+                            import sqlite3 as _sq
+                            _sc = _sq.connect(str(paired_db))
+                            _row = _sc.execute(
+                                "SELECT COUNT(*), AVG(temperature), AVG(humidity), AVG(ammonia_ppm), AVG(sound_db), "
+                                "MIN(temperature), MAX(temperature), MIN(humidity), MAX(humidity), "
+                                "MIN(ammonia_ppm), MAX(ammonia_ppm), MIN(sound_db), MAX(sound_db) FROM sensor_logs"
+                            ).fetchone()
+                            _rec = None
+                            try:
+                                _rec = _sc.execute("SELECT video_file, started_at, ended_at, frame_count, duration_seconds FROM recording LIMIT 1").fetchone()
+                            except Exception:
+                                pass
+                            _sc.close()
+                            if _row and (_row[0] or 0) > 0:
+                                _t_avg = round(float(_row[1]), 1) if _row[1] is not None else None
+                                _h_avg = round(float(_row[2]), 1) if _row[2] is not None else None
+                                _thi = round(_t_avg - (0.55 - 0.0055 * _h_avg) * (_t_avg - 14.5), 1) if (_t_avg is not None and _h_avg is not None) else None
+                                _sum_obj = {
+                                    "totalReadings": int(_row[0]),
+                                    "avgTemperature": _t_avg,
+                                    "avgHumidity": _h_avg,
+                                    "avgAmmoniaPpm": round(float(_row[3]), 5) if _row[3] is not None else None,
+                                    "avgSoundDb": round(float(_row[4]), 1) if _row[4] is not None else None,
+                                    "minTemperature": round(float(_row[5]), 1) if _row[5] is not None else None,
+                                    "maxTemperature": round(float(_row[6]), 1) if _row[6] is not None else None,
+                                    "minHumidity": round(float(_row[7]), 1) if _row[7] is not None else None,
+                                    "maxHumidity": round(float(_row[8]), 1) if _row[8] is not None else None,
+                                    "minAmmoniaPpm": round(float(_row[9]), 5) if _row[9] is not None else None,
+                                    "maxAmmoniaPpm": round(float(_row[10]), 5) if _row[10] is not None else None,
+                                    "minSoundDb": round(float(_row[11]), 1) if _row[11] is not None else None,
+                                    "maxSoundDb": round(float(_row[12]), 1) if _row[12] is not None else None,
+                                    "thi": _thi,
+                                    "videoFile": str(_rec[0]) if (_rec and _rec[0]) else None,
+                                    "startedAt": str(_rec[1]) if (_rec and _rec[1]) else None,
+                                    "endedAt": str(_rec[2]) if (_rec and _rec[2]) else None,
+                                    "frameCount": int(_rec[3]) if (_rec and _rec[3] is not None) else None,
+                                    "durationSeconds": float(_rec[4]) if (_rec and _rec[4] is not None) else None,
+                                }
+                                _upload_with_retry(
+                                    f"sensor_summary_{_sess_folder}.json",
+                                    json.dumps(_sum_obj).encode("utf-8"),
+                                    "application/json",
+                                    put_timeout=30,
+                                )
+                        except Exception as _ss_err:
+                            print(f"[CLOUD SYNC WARN] Could not upload sensor_summary sidecar: {_ss_err}")
             except Exception as up_err:
                 print(f"[CLOUD SYNC WARN] Could not upload frame log via /api/sync: {up_err}")
         except Exception as fl_err:

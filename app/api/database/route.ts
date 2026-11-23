@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AUTH_COOKIE_NAME, verifySessionToken } from '@/lib/auth';
-import { downloadStorageFile, formatDateGroupingFromIso, listSyncedDatabases, SyncedFileMeta } from '@/lib/supabase-storage';
+import { downloadStorageFile, formatDateGroupingFromIso, listStorageFiles, listSyncedDatabases, SyncedFileMeta } from '@/lib/supabase-storage';
 import {
   openDatabaseFromBytes,
   getDatabaseTables,
@@ -64,10 +64,35 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // 2. Dashboard Aggregation: Calculate average values for each sensors.sqlite file (in parallel batches of 4)
+  // 2. Dashboard Aggregation: Prefer tiny (~0.5 KB) results/sensor_summary_<sessionFolder>.json sidecars
+  // to avoid downloading 11 x 6.2 MB = 68 MB of SQLite files on cold loads (100% lossless fallback to full SQLite).
+  const sensorSummaryMap = new Map<string, string>();
+  try {
+    const summaryFiles = await listStorageFiles('results', 'sensor_summary_');
+    for (const sf of summaryFiles) {
+      const base = (sf.pathname || sf.storagePath || '').split('/').pop() || '';
+      if (!base.startsWith('sensor_summary_') || !base.endsWith('.json')) continue;
+      const folder = base.slice('sensor_summary_'.length, -'.json'.length);
+      if (folder) sensorSummaryMap.set(folder, sf.storagePath || `results/${base}`);
+    }
+  } catch {}
+
   const enrichOne = async (dbMeta: SyncedFileMeta): Promise<SyncedFileMeta & { averages: SensorAverages }> => {
     const cacheKey = `${dbMeta.storagePath}:${dbMeta.size}`;
     let avg = averagesCache.get(cacheKey)?.averages;
+
+    if (!avg && dbMeta.sessionFolder && sensorSummaryMap.has(dbMeta.sessionFolder)) {
+      try {
+        const sumBlob = await downloadStorageFile(sensorSummaryMap.get(dbMeta.sessionFolder)!);
+        const parsedSum = JSON.parse(await sumBlob.text()) as SensorAverages;
+        if (parsedSum && typeof parsedSum.totalReadings === 'number') {
+          avg = parsedSum;
+          averagesCache.set(cacheKey, { averages: avg, size: dbMeta.size });
+        }
+      } catch {
+        // Fall through to full SQLite read
+      }
+    }
 
     if (!avg) {
       try {
@@ -283,55 +308,59 @@ export async function GET(req: NextRequest) {
   let recordingSummary: any = null;
   let activeTable = targetTable || null;
 
-  try {
-    const filePath = selectedDbMeta.localPath || selectedDbMeta.storagePath;
-    const content = await downloadStorageFile(filePath);
-    const db = await openDatabaseFromBytes(await content.arrayBuffer());
-    tables = getDatabaseTables(db);
+  // 4. Only download & query raw table rows if caller explicitly requested a file or table
+  // (overview list views in Recorded Data Sensors only need groupedByDate + overview, saving 6.2 MB per poll!)
+  if (targetFile || targetTable) {
+    try {
+      const filePath = selectedDbMeta.localPath || selectedDbMeta.storagePath;
+      const content = await downloadStorageFile(filePath);
+      const db = await openDatabaseFromBytes(await content.arrayBuffer());
+      tables = getDatabaseTables(db);
 
-    for (const t of tables) {
-      try {
-        const sanitized = t.replace(/[^a-zA-Z0-9_]/g, '');
-        const cRes = db.exec(`SELECT COUNT(*) FROM "${sanitized}";`);
-        tableCounts[t] = cRes.length && cRes[0].values.length ? Number(cRes[0].values[0][0]) : 0;
-      } catch {
-        tableCounts[t] = 0;
-      }
-    }
-
-    let defaultTable = tables[0] || null;
-    if (tables.includes('sensor_logs')) {
-      defaultTable = 'sensor_logs';
-    } else if (tables.includes('recording')) {
-      defaultTable = 'recording';
-    }
-    activeTable = targetTable && tables.includes(targetTable) ? targetTable : defaultTable;
-
-    if (activeTable) {
-      queryResult = queryTableData(db, activeTable, limit, offset);
-    }
-
-    if (tables.includes('recording')) {
-      try {
-        const recRes = db.exec('SELECT video_file, started_at, ended_at, frame_count, duration_seconds FROM recording LIMIT 1;');
-        if (recRes.length && recRes[0].values.length) {
-          const row = recRes[0].values[0];
-          recordingSummary = {
-            videoFile: String(row[0] || 'video.mp4'),
-            startedAt: row[1] ? String(row[1]) : null,
-            endedAt: row[2] ? String(row[2]) : null,
-            frameCount: typeof row[3] === 'number' ? row[3] : Number(row[3]) || null,
-            durationSeconds: typeof row[4] === 'number' ? row[4] : Number(row[4]) || null,
-          };
+      for (const t of tables) {
+        try {
+          const sanitized = t.replace(/[^a-zA-Z0-9_]/g, '');
+          const cRes = db.exec(`SELECT COUNT(*) FROM "${sanitized}";`);
+          tableCounts[t] = cRes.length && cRes[0].values.length ? Number(cRes[0].values[0][0]) : 0;
+        } catch {
+          tableCounts[t] = 0;
         }
-      } catch {
-        // ignore
       }
-    }
 
-    db.close();
-  } catch (err: any) {
-    console.warn('[API WARN] Could not query active table rows:', err?.message);
+      let defaultTable = tables[0] || null;
+      if (tables.includes('sensor_logs')) {
+        defaultTable = 'sensor_logs';
+      } else if (tables.includes('recording')) {
+        defaultTable = 'recording';
+      }
+      activeTable = targetTable && tables.includes(targetTable) ? targetTable : defaultTable;
+
+      if (activeTable) {
+        queryResult = queryTableData(db, activeTable, limit, offset);
+      }
+
+      if (tables.includes('recording')) {
+        try {
+          const recRes = db.exec('SELECT video_file, started_at, ended_at, frame_count, duration_seconds FROM recording LIMIT 1;');
+          if (recRes.length && recRes[0].values.length) {
+            const row = recRes[0].values[0];
+            recordingSummary = {
+              videoFile: String(row[0] || 'video.mp4'),
+              startedAt: row[1] ? String(row[1]) : null,
+              endedAt: row[2] ? String(row[2]) : null,
+              frameCount: typeof row[3] === 'number' ? row[3] : Number(row[3]) || null,
+              durationSeconds: typeof row[4] === 'number' ? row[4] : Number(row[4]) || null,
+            };
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      db.close();
+    } catch (err: any) {
+      console.warn('[API WARN] Could not query active table rows:', err?.message);
+    }
   }
 
   return NextResponse.json(
