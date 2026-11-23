@@ -1313,9 +1313,48 @@ class ZampenAnalyticsWorker:
         return None, None, None
 
 
+def _acquire_worker_singleton_lock():
+    """
+    OS-level non-blocking lock on analytics/.worker.lock so two analytics.worker
+    processes can NEVER run simultaneously and overwrite each other's job progress.
+    """
+    lock_path = Path(__file__).resolve().parent / ".worker.lock"
+    lock_fp = open(lock_path, "a+")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            lock_fp.seek(0)
+            msvcrt.locking(lock_fp.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        lock_fp.seek(0)
+        lock_fp.truncate()
+        lock_fp.write(str(os.getpid()))
+        lock_fp.flush()
+        return lock_fp
+    except OSError:
+        lock_fp.close()
+        return None
+
+
 def main():
-    worker = ZampenAnalyticsWorker()
-    worker.start_daemon()
+    lock_fp = _acquire_worker_singleton_lock()
+    if lock_fp is None:
+        print("[WORKER] Another analytics.worker instance is already running (lock held). Exiting duplicate.")
+        sys.exit(0)
+    try:
+        worker = ZampenAnalyticsWorker()
+        worker.start_daemon()
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+                lock_fp.seek(0)
+                msvcrt.locking(lock_fp.fileno(), msvcrt.LK_UNLCK, 1)
+            lock_fp.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
