@@ -135,7 +135,7 @@ class ZampenYOLOTracker:
     CLASS_SWITCH_MARGIN = 10
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
-    MIN_DETECTION_CONFIDENCE = 0.25  # Calibrated for poultry_v8 (Chicken/Rooster mAP50=95.7-97.0%)
+    MIN_DETECTION_CONFIDENCE = 0.65  # Strict Chicken/Rooster bird gate (filters out non-chicken background/mesh false positives)
     MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
     MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
     MIN_HEAD_CONFIDENCE = 0.22       # Low gate for new Head class (poultry_v8 R=0.227)
