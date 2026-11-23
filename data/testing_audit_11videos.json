@@ -1,6 +1,6 @@
 {
   "success": true,
-  "generatedAt": "2026-11-23T03:06:26.433344+00:00",
+  "generatedAt": "2026-11-23T03:21:00.527566+00:00",
   "videoCount": 11,
   "date": "2026-11-17",
   "summary": {
@@ -1979,6 +1979,8 @@
         "feedingS": 30.0,
         "drinkingS": 7.3,
         "inactiveS": 29.9,
+        "firstFrame": 2870,
+        "lastFrame": 53880,
         "firstStartS": 191.3,
         "lastEndS": 3591.9,
         "spanS": 3400.5
@@ -1992,6 +1994,8 @@
         "feedingS": 95.9,
         "drinkingS": 23.2,
         "inactiveS": 76.4,
+        "firstFrame": 2352,
+        "lastFrame": 53986,
         "firstStartS": 156.8,
         "lastEndS": 3598.9,
         "spanS": 3442.1
@@ -2005,6 +2009,8 @@
         "feedingS": 132.8,
         "drinkingS": 4.0,
         "inactiveS": 126.7,
+        "firstFrame": 16736,
+        "lastFrame": 53558,
         "firstStartS": 1115.7,
         "lastEndS": 3570.4,
         "spanS": 2454.7
@@ -2018,6 +2024,8 @@
         "feedingS": 0.0,
         "drinkingS": 0.0,
         "inactiveS": 54.1,
+        "firstFrame": 6142,
+        "lastFrame": 30646,
         "firstStartS": 409.5,
         "lastEndS": 2043.0,
         "spanS": 1633.5
@@ -2031,6 +2039,8 @@
         "feedingS": 160.0,
         "drinkingS": 2.8,
         "inactiveS": 28.5,
+        "firstFrame": 18,
+        "lastFrame": 53236,
         "firstStartS": 1.2,
         "lastEndS": 3548.9,
         "spanS": 3547.7
@@ -2044,6 +2054,8 @@
         "feedingS": 149.9,
         "drinkingS": 14.0,
         "inactiveS": 99.5,
+        "firstFrame": 142,
+        "lastFrame": 52472,
         "firstStartS": 9.5,
         "lastEndS": 3498.0,
         "spanS": 3488.5
@@ -2057,6 +2069,8 @@
         "feedingS": 87.1,
         "drinkingS": 2.4,
         "inactiveS": 63.5,
+        "firstFrame": 1864,
+        "lastFrame": 53592,
         "firstStartS": 124.3,
         "lastEndS": 3572.7,
         "spanS": 3448.4
@@ -2070,6 +2084,8 @@
         "feedingS": 275.7,
         "drinkingS": 35.1,
         "inactiveS": 14.3,
+        "firstFrame": 3736,
+        "lastFrame": 53998,
         "firstStartS": 249.1,
         "lastEndS": 3599.7,
         "spanS": 3350.7
@@ -2083,6 +2099,8 @@
         "feedingS": 18.7,
         "drinkingS": 4.9,
         "inactiveS": 73.7,
+        "firstFrame": 7180,
+        "lastFrame": 51556,
         "firstStartS": 478.6,
         "lastEndS": 3436.9,
         "spanS": 2958.3
@@ -2096,6 +2114,8 @@
         "feedingS": 0.0,
         "drinkingS": 0.0,
         "inactiveS": 5.7,
+        "firstFrame": 242,
+        "lastFrame": 364,
         "firstStartS": 16.1,
         "lastEndS": 24.3,
         "spanS": 8.1
@@ -2109,6 +2129,8 @@
         "feedingS": 78.7,
         "drinkingS": 27.1,
         "inactiveS": 8.3,
+        "firstFrame": 12364,
+        "lastFrame": 53486,
         "firstStartS": 824.2,
         "lastEndS": 3565.6,
         "spanS": 2741.4
@@ -2122,6 +2144,8 @@
         "feedingS": 211.6,
         "drinkingS": 23.3,
         "inactiveS": 26.7,
+        "firstFrame": 5158,
+        "lastFrame": 49146,
         "firstStartS": 343.9,
         "lastEndS": 3276.3,
         "spanS": 2932.4
@@ -2135,6 +2159,8 @@
         "feedingS": 137.5,
         "drinkingS": 23.7,
         "inactiveS": 56.1,
+        "firstFrame": 1748,
+        "lastFrame": 53984,
         "firstStartS": 116.5,
         "lastEndS": 3598.8,
         "spanS": 3482.3
@@ -2148,6 +2174,8 @@
         "feedingS": 49.9,
         "drinkingS": 3.1,
         "inactiveS": 14.3,
+        "firstFrame": 1228,
+        "lastFrame": 41772,
         "firstStartS": 81.9,
         "lastEndS": 2784.7,
         "spanS": 2702.8
@@ -2161,6 +2189,8 @@
         "feedingS": 0.0,
         "drinkingS": 1.9,
         "inactiveS": 21.7,
+        "firstFrame": 4670,
+        "lastFrame": 49768,
         "firstStartS": 311.3,
         "lastEndS": 3317.7,
         "spanS": 3006.4
@@ -2174,6 +2204,8 @@
         "feedingS": 46.3,
         "drinkingS": 4.7,
         "inactiveS": 43.6,
+        "firstFrame": 2140,
+        "lastFrame": 53710,
         "firstStartS": 142.7,
         "lastEndS": 3580.6,
         "spanS": 3437.9
@@ -2187,6 +2219,8 @@
         "feedingS": 206.4,
         "drinkingS": 11.6,
         "inactiveS": 42.3,
+        "firstFrame": 1928,
+        "lastFrame": 50074,
         "firstStartS": 128.5,
         "lastEndS": 3338.2,
         "spanS": 3209.7
@@ -2200,6 +2234,8 @@
         "feedingS": 130.7,
         "drinkingS": 26.8,
         "inactiveS": 74.5,
+        "firstFrame": 5934,
+        "lastFrame": 53090,
         "firstStartS": 395.6,
         "lastEndS": 3539.3,
         "spanS": 3143.7
@@ -2213,6 +2249,8 @@
         "feedingS": 50.1,
         "drinkingS": 7.6,
         "inactiveS": 12.7,
+        "firstFrame": 7366,
+        "lastFrame": 41880,
         "firstStartS": 491.1,
         "lastEndS": 2791.9,
         "spanS": 2300.9
@@ -2226,6 +2264,8 @@
         "feedingS": 18.1,
         "drinkingS": 1.6,
         "inactiveS": 10.9,
+        "firstFrame": 24392,
+        "lastFrame": 52612,
         "firstStartS": 1626.1,
         "lastEndS": 3507.4,
         "spanS": 1881.3
@@ -2239,6 +2279,8 @@
         "feedingS": 18.1,
         "drinkingS": 0.0,
         "inactiveS": 1.7,
+        "firstFrame": 26,
+        "lastFrame": 2344,
         "firstStartS": 1.7,
         "lastEndS": 156.3,
         "spanS": 154.5
@@ -2252,6 +2294,8 @@
         "feedingS": 71.3,
         "drinkingS": 8.1,
         "inactiveS": 41.1,
+        "firstFrame": 1002,
+        "lastFrame": 49600,
         "firstStartS": 66.8,
         "lastEndS": 3306.5,
         "spanS": 3239.7
@@ -2265,6 +2309,8 @@
         "feedingS": 260.3,
         "drinkingS": 11.7,
         "inactiveS": 65.5,
+        "firstFrame": 12744,
+        "lastFrame": 51898,
         "firstStartS": 849.6,
         "lastEndS": 3459.7,
         "spanS": 2610.2
@@ -2278,6 +2324,8 @@
         "feedingS": 386.9,
         "drinkingS": 34.5,
         "inactiveS": 58.9,
+        "firstFrame": 9568,
+        "lastFrame": 51114,
         "firstStartS": 637.8,
         "lastEndS": 3407.5,
         "spanS": 2769.6
@@ -2291,6 +2339,8 @@
         "feedingS": 0.0,
         "drinkingS": 13.9,
         "inactiveS": 64.0,
+        "firstFrame": 16396,
+        "lastFrame": 52722,
         "firstStartS": 1093.0,
         "lastEndS": 3514.7,
         "spanS": 2421.6
@@ -2304,6 +2354,8 @@
         "feedingS": 15.7,
         "drinkingS": 1.6,
         "inactiveS": 0.0,
+        "firstFrame": 17096,
+        "lastFrame": 40644,
         "firstStartS": 1139.7,
         "lastEndS": 2709.5,
         "spanS": 1569.8
@@ -2317,6 +2369,8 @@
         "feedingS": 59.6,
         "drinkingS": 19.3,
         "inactiveS": 36.4,
+        "firstFrame": 832,
+        "lastFrame": 51578,
         "firstStartS": 55.5,
         "lastEndS": 3438.5,
         "spanS": 3383.0
@@ -2330,6 +2384,8 @@
         "feedingS": 36.3,
         "drinkingS": 59.7,
         "inactiveS": 13.5,
+        "firstFrame": 516,
+        "lastFrame": 51890,
         "firstStartS": 34.4,
         "lastEndS": 3459.3,
         "spanS": 3424.9
@@ -2343,6 +2399,8 @@
         "feedingS": 63.5,
         "drinkingS": 36.9,
         "inactiveS": 20.1,
+        "firstFrame": 710,
+        "lastFrame": 49602,
         "firstStartS": 47.3,
         "lastEndS": 3306.7,
         "spanS": 3259.4
@@ -2356,6 +2414,8 @@
         "feedingS": 6.5,
         "drinkingS": 7.7,
         "inactiveS": 6.1,
+        "firstFrame": 11616,
+        "lastFrame": 49322,
         "firstStartS": 774.4,
         "lastEndS": 3288.1,
         "spanS": 2513.7
@@ -2369,6 +2429,8 @@
         "feedingS": 3.2,
         "drinkingS": 19.1,
         "inactiveS": 1.5,
+        "firstFrame": 23336,
+        "lastFrame": 51460,
         "firstStartS": 1555.7,
         "lastEndS": 3430.6,
         "spanS": 1874.9
@@ -2382,6 +2444,8 @@
         "feedingS": 0.0,
         "drinkingS": 5.1,
         "inactiveS": 0.0,
+        "firstFrame": 24892,
+        "lastFrame": 24982,
         "firstStartS": 1659.4,
         "lastEndS": 1665.4,
         "spanS": 6.0
@@ -2395,6 +2459,8 @@
         "feedingS": 4.3,
         "drinkingS": 28.7,
         "inactiveS": 0.0,
+        "firstFrame": 1946,
+        "lastFrame": 41996,
         "firstStartS": 129.7,
         "lastEndS": 2799.6,
         "spanS": 2669.9
@@ -2408,6 +2474,8 @@
         "feedingS": 3.3,
         "drinkingS": 2.7,
         "inactiveS": 12.3,
+        "firstFrame": 24,
+        "lastFrame": 37270,
         "firstStartS": 1.6,
         "lastEndS": 2484.6,
         "spanS": 2483.0
@@ -2421,6 +2489,8 @@
         "feedingS": 0.0,
         "drinkingS": 3.3,
         "inactiveS": 3.1,
+        "firstFrame": 13024,
+        "lastFrame": 37384,
         "firstStartS": 868.2,
         "lastEndS": 2492.2,
         "spanS": 1623.9
@@ -2434,6 +2504,8 @@
         "feedingS": 0.0,
         "drinkingS": 0.0,
         "inactiveS": 2.7,
+        "firstFrame": 33478,
+        "lastFrame": 33550,
         "firstStartS": 2231.8,
         "lastEndS": 2236.6,
         "spanS": 4.8
@@ -2447,6 +2519,8 @@
         "feedingS": 32.3,
         "drinkingS": 0.0,
         "inactiveS": 51.2,
+        "firstFrame": 11244,
+        "lastFrame": 53210,
         "firstStartS": 749.6,
         "lastEndS": 3547.3,
         "spanS": 2797.7
@@ -2460,6 +2534,8 @@
         "feedingS": 11.6,
         "drinkingS": 0.0,
         "inactiveS": 74.7,
+        "firstFrame": 16332,
+        "lastFrame": 47602,
         "firstStartS": 1088.8,
         "lastEndS": 3173.4,
         "spanS": 2084.6
@@ -2473,6 +2549,8 @@
         "feedingS": 2.5,
         "drinkingS": 2.9,
         "inactiveS": 44.5,
+        "firstFrame": 27120,
+        "lastFrame": 53728,
         "firstStartS": 1808.0,
         "lastEndS": 3581.8,
         "spanS": 1773.8
@@ -2486,6 +2564,8 @@
         "feedingS": 33.7,
         "drinkingS": 0.0,
         "inactiveS": 0.0,
+        "firstFrame": 27284,
+        "lastFrame": 51192,
         "firstStartS": 1818.9,
         "lastEndS": 3412.7,
         "spanS": 1593.8
@@ -2499,6 +2579,8 @@
         "feedingS": 0.0,
         "drinkingS": 0.0,
         "inactiveS": 12.8,
+        "firstFrame": 37060,
+        "lastFrame": 38208,
         "firstStartS": 2470.6,
         "lastEndS": 2547.2,
         "spanS": 76.5
@@ -2512,6 +2594,8 @@
         "feedingS": 21.1,
         "drinkingS": 5.7,
         "inactiveS": 58.1,
+        "firstFrame": 9532,
+        "lastFrame": 50054,
         "firstStartS": 635.4,
         "lastEndS": 3336.8,
         "spanS": 2701.4
@@ -2525,6 +2609,8 @@
         "feedingS": 45.7,
         "drinkingS": 0.0,
         "inactiveS": 175.2,
+        "firstFrame": 306,
+        "lastFrame": 51608,
         "firstStartS": 20.4,
         "lastEndS": 3440.4,
         "spanS": 3420.0
@@ -2538,6 +2624,8 @@
         "feedingS": 25.3,
         "drinkingS": 1.7,
         "inactiveS": 220.9,
+        "firstFrame": 500,
+        "lastFrame": 52708,
         "firstStartS": 33.3,
         "lastEndS": 3513.7,
         "spanS": 3480.4
@@ -2551,6 +2639,8 @@
         "feedingS": 0.0,
         "drinkingS": 4.3,
         "inactiveS": 42.5,
+        "firstFrame": 13682,
+        "lastFrame": 47762,
         "firstStartS": 912.1,
         "lastEndS": 3184.0,
         "spanS": 2271.9
@@ -2564,6 +2654,8 @@
         "feedingS": 1.9,
         "drinkingS": 0.0,
         "inactiveS": 4.5,
+        "firstFrame": 24394,
+        "lastFrame": 42000,
         "firstStartS": 1626.2,
         "lastEndS": 2799.9,
         "spanS": 1173.7
@@ -2577,6 +2669,8 @@
         "feedingS": 19.6,
         "drinkingS": 2.0,
         "inactiveS": 164.8,
+        "firstFrame": 600,
+        "lastFrame": 48080,
         "firstStartS": 40.0,
         "lastEndS": 3205.3,
         "spanS": 3165.3
@@ -2590,6 +2684,8 @@
         "feedingS": 59.7,
         "drinkingS": 3.7,
         "inactiveS": 86.1,
+        "firstFrame": 222,
+        "lastFrame": 53928,
         "firstStartS": 14.8,
         "lastEndS": 3595.1,
         "spanS": 3580.3
@@ -2603,6 +2699,8 @@
         "feedingS": 43.6,
         "drinkingS": 2.8,
         "inactiveS": 103.6,
+        "firstFrame": 2104,
+        "lastFrame": 52702,
         "firstStartS": 140.3,
         "lastEndS": 3513.4,
         "spanS": 3373.1
@@ -2616,6 +2714,8 @@
         "feedingS": 4.9,
         "drinkingS": 24.8,
         "inactiveS": 14.3,
+        "firstFrame": 12164,
+        "lastFrame": 41752,
         "firstStartS": 810.9,
         "lastEndS": 2783.4,
         "spanS": 1972.5
@@ -2629,6 +2729,8 @@
         "feedingS": 2.5,
         "drinkingS": 0.0,
         "inactiveS": 7.3,
+        "firstFrame": 6602,
+        "lastFrame": 33574,
         "firstStartS": 440.1,
         "lastEndS": 2238.2,
         "spanS": 1798.1
@@ -2642,6 +2744,8 @@
         "feedingS": 4.3,
         "drinkingS": 0.0,
         "inactiveS": 0.0,
+        "firstFrame": 2,
+        "lastFrame": 340,
         "firstStartS": 0.1,
         "lastEndS": 22.7,
         "spanS": 22.5
@@ -2655,6 +2759,8 @@
         "feedingS": 134.2,
         "drinkingS": 0.0,
         "inactiveS": 36.4,
+        "firstFrame": 176,
+        "lastFrame": 46342,
         "firstStartS": 13.7,
         "lastEndS": 3599.5,
         "spanS": 3585.8
@@ -2668,6 +2774,8 @@
         "feedingS": 297.3,
         "drinkingS": 35.0,
         "inactiveS": 10.1,
+        "firstFrame": 774,
+        "lastFrame": 44536,
         "firstStartS": 60.1,
         "lastEndS": 3459.2,
         "spanS": 3399.1
@@ -2681,6 +2789,8 @@
         "feedingS": 170.1,
         "drinkingS": 6.4,
         "inactiveS": 50.3,
+        "firstFrame": 1190,
+        "lastFrame": 44196,
         "firstStartS": 92.4,
         "lastEndS": 3432.8,
         "spanS": 3340.3
@@ -2694,6 +2804,8 @@
         "feedingS": 0.0,
         "drinkingS": 0.0,
         "inactiveS": 3.7,
+        "firstFrame": 39560,
+        "lastFrame": 39608,
         "firstStartS": 3072.7,
         "lastEndS": 3076.4,
         "spanS": 3.7
@@ -2707,6 +2819,8 @@
         "feedingS": 5.6,
         "drinkingS": 0.0,
         "inactiveS": 0.0,
+        "firstFrame": 0,
+        "lastFrame": 18556,
         "firstStartS": 0.0,
         "lastEndS": 1441.3,
         "spanS": 1441.3
@@ -2720,6 +2834,8 @@
         "feedingS": 3.6,
         "drinkingS": 0.0,
         "inactiveS": 0.0,
+        "firstFrame": 0,
+        "lastFrame": 46,
         "firstStartS": 0.0,
         "lastEndS": 3.6,
         "spanS": 3.6

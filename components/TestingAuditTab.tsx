@@ -51,6 +51,8 @@ interface IdDistTable3Row {
   feedingS: number;
   drinkingS: number;
   inactiveS: number;
+  firstFrame?: number;
+  lastFrame?: number;
   firstStartS: number;
   lastEndS: number;
   spanS: number;
@@ -871,6 +873,7 @@ export default function TestingAuditTab() {
                     <th className="px-3 py-2.5 text-right">Feeding (s)</th>
                     <th className="px-3 py-2.5 text-right">Drinking (s)</th>
                     <th className="px-3 py-2.5 text-right">Inactive (s)</th>
+                    <th className="px-3 py-2.5 text-right">Frames</th>
                     <th className="px-3 py-2.5 text-right">First start (s)</th>
                     <th className="px-3 py-2.5 text-right">Last end (s)</th>
                     <th className="px-3 py-2.5 text-right">Span (s)</th>
@@ -891,6 +894,11 @@ export default function TestingAuditTab() {
                       <td className="px-3 py-2 text-right font-mono text-emerald-700">{r.feedingS.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right font-mono text-blue-700">{r.drinkingS.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right font-mono text-amber-700">{r.inactiveS.toFixed(1)}</td>
+                      <td className="px-3 py-2 text-right font-mono text-[11px] font-semibold text-orange-700">
+                        {r.firstFrame != null && r.lastFrame != null
+                          ? `#${r.firstFrame.toLocaleString()}–#${r.lastFrame.toLocaleString()}`
+                          : '—'}
+                      </td>
                       <td className="px-3 py-2 text-right font-mono">{r.firstStartS.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.lastEndS.toFixed(1)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.spanS.toFixed(1)}</td>
