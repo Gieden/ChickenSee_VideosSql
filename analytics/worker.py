@@ -1078,6 +1078,43 @@ class ZampenAnalyticsWorker:
                         )
                         with _urlreq.urlopen(put_req, timeout=60) as _uresp:
                             print(f"[CLOUD SYNC] Uploaded {up_info.get('storagePath')} ({_uresp.status})")
+
+                    # Also upload paired sensors.sqlite (if present in video folder) so Recorded Data Sensors updates in real time
+                    if paired_db and Path(paired_db).is_file() and Path(paired_db).name.lower() == "sensors.sqlite":
+                        try:
+                            session_folder = Path(paired_db).parent.name
+                            db_sign_req = _urlreq.Request(
+                                sync_url,
+                                data=b"",
+                                method="POST",
+                                headers={
+                                    "user-agent": "ChickenSee-Worker/1.0",
+                                    "x-sync-secret": sync_secret,
+                                    "x-filename": _urlparse.quote("sensors.sqlite"),
+                                    "x-folder": _urlparse.quote(session_folder),
+                                    "x-action": "get-upload-url",
+                                },
+                            )
+                            with _urlreq.urlopen(db_sign_req, timeout=20) as _dsresp:
+                                db_up_info = json.loads(_dsresp.read().decode("utf-8"))
+                            db_up_url = db_up_info.get("uploadUrl")
+                            if db_up_url:
+                                db_bytes = Path(paired_db).read_bytes()
+                                db_put_req = _urlreq.Request(
+                                    db_up_url,
+                                    data=db_bytes,
+                                    method="PUT",
+                                    headers={
+                                        "user-agent": "ChickenSee-Worker/1.0",
+                                        "content-type": "application/octet-stream",
+                                        "content-length": str(len(db_bytes)),
+                                        "x-upsert": "true",
+                                    },
+                                )
+                                with _urlreq.urlopen(db_put_req, timeout=90) as _duresp:
+                                    print(f"[CLOUD SYNC] Uploaded paired sensor DB {db_up_info.get('storagePath')} ({_duresp.status})")
+                        except Exception as db_up_err:
+                            print(f"[CLOUD SYNC WARN] Could not upload paired sensors.sqlite: {db_up_err}")
             except Exception as up_err:
                 print(f"[CLOUD SYNC WARN] Could not upload frame log via /api/sync: {up_err}")
         except Exception as fl_err:

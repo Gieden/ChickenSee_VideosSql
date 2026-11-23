@@ -1,7 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { getArchivedDatesSet, syncManifestFromCloud } from '@/lib/data-archive';
+import {
+  getArchivedDateCutoffs,
+  isItemArchivedByDate,
+  parseTimestampMs,
+  syncManifestFromCloud,
+} from '@/lib/data-archive';
 
 export interface SyncedFileMeta {
   url: string;
@@ -47,6 +52,7 @@ function getCandidateLocalDirs(): string[] {
   }
   dirs.push(
     path.join(process.cwd(), 'agent', 'data'),
+    path.join('C:', 'Users', 'Kairi', 'Documents', 'Finale'),
     path.join('C:', 'Users', 'Kairi', 'Documents', 'chicks', 'test', 'cam01'),
     path.join('C:', 'Users', 'Kairi', 'Documents', 'chicks', 'test'),
     path.join('C:', 'Users', 'Kairi', 'Documents', 'ChickenSee_Videos(sql)', 'agent', 'data'),
@@ -475,13 +481,13 @@ export async function listSyncedDatabases(options?: { includeArchived?: boolean 
     }
   }
 
-  // Filter out dates currently archived via Admin Settings unless includeArchived is true
-  if (!options?.includeArchived && process.env.VERCEL) {
+  // Filter out pre-wipe archived dates while keeping paired sensors.sqlite uploaded AFTER a wipe
+  if (!options?.includeArchived) {
     await syncManifestFromCloud();
   }
-  const archivedDates = options?.includeArchived ? new Set<string>() : getArchivedDatesSet();
+  const archivedCutoffs = options?.includeArchived ? new Map<string, number>() : getArchivedDateCutoffs();
   const visibleList = Array.from(unique.values()).filter(
-    (f) => !f.dateKey || !archivedDates.has(f.dateKey),
+    (f) => !f.dateKey || !isItemArchivedByDate(f.dateKey, parseTimestampMs(f.uploadedAt), archivedCutoffs),
   );
 
   // Sort newest first

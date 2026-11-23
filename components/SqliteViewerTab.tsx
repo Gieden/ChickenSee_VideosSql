@@ -180,12 +180,14 @@ export default function SqliteViewerTab() {
   const detailRequestId = useRef(0);
   const searchRequestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch SQLite files and aggregations from API
-  const fetchDatabases = useCallback(async () => {
+  // Fetch SQLite files and aggregations from API (supports silent real-time polling)
+  const fetchDatabases = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
-      const res = await fetch('/api/database');
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
+      const res = await fetch(`/api/database?_t=${Date.now()}`, { cache: 'no-store' });
       if (!res.ok) {
         throw new Error(`Failed to load databases (HTTP ${res.status})`);
       }
@@ -194,14 +196,23 @@ export default function SqliteViewerTab() {
       setOverview(data.overview || null);
     } catch (err: any) {
       console.error('Error fetching SQLite databases:', err);
-      setError(err?.message || 'Could not load SQLite sensor files.');
+      if (!silent) {
+        setError(err?.message || 'Could not load SQLite sensor files.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchDatabases();
+    fetchDatabases(false);
+    // Real-time background polling every 10 seconds while tab is visible
+    const timer = window.setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchDatabases(true);
+      }
+    }, 10000);
+    return () => window.clearInterval(timer);
   }, [fetchDatabases]);
 
   const loadModalDetails = async (
@@ -636,7 +647,7 @@ export default function SqliteViewerTab() {
             </div>
 
             <button
-              onClick={fetchDatabases}
+              onClick={() => fetchDatabases(false)}
               disabled={loading}
               className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50 hover:border-slate-300 disabled:opacity-50"
             >
@@ -769,7 +780,7 @@ export default function SqliteViewerTab() {
                 <p className="font-bold">Could not load sensor databases</p>
                 <p className="text-xs text-red-600 mt-1">{error}</p>
                 <button
-                  onClick={fetchDatabases}
+                  onClick={() => fetchDatabases(false)}
                   className="mt-3 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-red-700"
                 >
                   Retry Connection
