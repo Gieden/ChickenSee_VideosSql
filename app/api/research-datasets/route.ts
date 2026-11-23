@@ -18,6 +18,10 @@ import {
   DetectionTrackingRow,
   EnvironmentReadingRow,
 } from '@/lib/research-datasets';
+import {
+  buildStrictIdentityTransferMap,
+  resolveStrictBirdDef,
+} from '@/lib/strict-identity-transfer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -339,6 +343,7 @@ export async function GET(req: NextRequest) {
           flFps,
         );
         const endStr = formatSqlTimestamp(new Date(safeBaseMs + flDurS * 1000).toISOString());
+        const { trackToDesignated } = buildStrictIdentityTransferMap(fl);
 
         if (Array.isArray(fl.behavior_events)) {
           exactLoadedVideos.add(vidName);
@@ -347,7 +352,11 @@ export async function GET(req: NextRequest) {
           );
           for (const ev of sortedEvents) {
             if (behaviorEvents.length >= maxBehaviorEvents) break;
-            const def = mapBirdToDef(String(ev.bird_label || ''), Number(ev.track_id));
+            const { def, wasTransferred } = resolveStrictBirdDef(
+              String(ev.bird_label || ''),
+              Number(ev.track_id),
+              trackToDesignated,
+            );
             const hasFrames = ev.start_frame != null && ev.end_frame != null;
             const startFrame = hasFrames
               ? Number(ev.start_frame) || 0
@@ -364,14 +373,14 @@ export async function GET(req: NextRequest) {
             const dS = Math.max(0.1, eS - sS);
             behaviorEvents.push({
               video: vidName,
-              track_id: Number(ev.track_id) || def.trackId,
+              track_id: def.trackId,
               chicken_id: def.shortId,
               shortId: def.shortId,
               chId: def.chId,
               profileLabel: def.profileLabel,
               saddle_color: def.saddleColor,
               dotColor: def.dotColor,
-              identity_status: ev.bird_label && ev.bird_label !== 'Chicken' ? 'confirmed' : 'assigned_during_tracking',
+              identity_status: !wasTransferred && ev.bird_label && ev.bird_label !== 'Chicken' ? 'confirmed' : 'assigned_during_tracking',
               behavior: String(ev.behavior || 'feeding'),
               start_time: formatSqlTimestamp(new Date(safeBaseMs + sS * 1000).toISOString()),
               end_time: formatSqlTimestamp(new Date(safeBaseMs + eS * 1000).toISOString()),
@@ -398,7 +407,11 @@ export async function GET(req: NextRequest) {
           );
           for (const dtRow of sortedDetections) {
             if (detectionTracking.length >= maxDetectionTracking) break;
-            const def = mapBirdToDef(String(dtRow.bird_label || ''), Number(dtRow.track_id));
+            const { def } = resolveStrictBirdDef(
+              String(dtRow.bird_label || ''),
+              Number(dtRow.track_id),
+              trackToDesignated,
+            );
             const frameNum = Number(dtRow.frame_number) || 0;
             const elS = dtRow.frame_number != null
               ? frameNum / effectiveFps
@@ -412,7 +425,7 @@ export async function GET(req: NextRequest) {
               profileLabel: def.profileLabel,
               saddle_color: def.saddleColor,
               dotColor: def.dotColor,
-              track_id: Number(dtRow.track_id) || def.trackId,
+              track_id: def.trackId,
               x_center_px: Number(dtRow.x_center_px) || 0,
               y_center_px: Number(dtRow.y_center_px) || 0,
               bbox_width_px: Number(dtRow.bbox_width_px) || 56,
@@ -441,7 +454,11 @@ export async function GET(req: NextRequest) {
             }
           >();
           for (const br of fl.bird_records) {
-            const def = mapBirdToDef(String(br.bird_label || ''), Number(br.track_id));
+            const { def } = resolveStrictBirdDef(
+              String(br.bird_label || ''),
+              Number(br.track_id),
+              trackToDesignated,
+            );
             const prev = mergedBirds.get(def.shortId) || {
               def,
               validS: 0,
@@ -450,14 +467,13 @@ export async function GET(req: NextRequest) {
             };
             prev.validS += Math.max(0, Number(br.valid_observation_duration_s) || 0);
             prev.occS += Math.max(0, Number(br.occluded_duration_s) || 0);
-            prev.rawWinS += Math.max(0, Number(br.window_duration_s) || 0);
+            prev.rawWinS = Math.max(prev.rawWinS, Number(br.window_duration_s) || 0);
             mergedBirds.set(def.shortId, prev);
           }
           const fullWinDur = Math.max(1, Math.round(flDurS));
           for (const entry of Array.from(mergedBirds.values())) {
-            const scale = entry.rawWinS > 0 ? fullWinDur / entry.rawWinS : timeScale;
-            const validS = Math.min(fullWinDur, Math.round(entry.validS * scale));
-            const occS = Math.min(Math.max(0, fullWinDur - validS), Math.round(entry.occS * scale));
+            const validS = Math.min(fullWinDur, Math.round(entry.validS * timeScale));
+            const occS = Math.min(Math.max(0, fullWinDur - validS), Math.round(entry.occS * timeScale));
             const lostS = Math.max(0, fullWinDur - validS - occS);
             observationWindows.push({
               video: vidName,

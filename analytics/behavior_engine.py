@@ -764,10 +764,103 @@ class BehaviorAnalysisEngine:
                                 state_b.pecking_victim_count += 1
                                 self.pecking_cooldowns[pair_key] = self.current_chunk_elapsed_s
 
+    def _apply_strict_identity_transfer(self, monitored_s: float) -> None:
+        """
+        Strict Identity Distribution & Retroactive Data Transfer:
+        Transfers all accumulated metrics, completed behavior bouts, and detection_tracking
+        rows from temporarily unidentified 'Chicken' tracks to their designated Hen/Rooster
+        based on (1) spatial proximity (<= 85 px) and (2) largest unobserved time gap among
+        the designated birds present in the chunk.
+        """
+        designated_states = [
+            s for s in self.bird_states.values()
+            if s.label and s.label.lower() != "chicken" and "unidentified" not in s.label.lower()
+        ]
+        if not designated_states:
+            return
+
+        unid_ids = [
+            tid for tid, s in self.bird_states.items()
+            if not s.label or s.label.lower() == "chicken" or "unidentified" in s.label.lower()
+        ]
+        if not unid_ids:
+            return
+
+        # Sort unidentified tracks largest-first so major segments claim their best match first
+        unid_ids.sort(key=lambda tid: self.bird_states[tid].valid_observation_s, reverse=True)
+        transfer_map: Dict[int, BirdBehaviorState] = {}
+
+        for tid in unid_ids:
+            u_state = self.bird_states[tid]
+            target: Optional[BirdBehaviorState] = None
+
+            # Rule 1: Spatial handoff (nearest designated bird within 85 px)
+            if u_state.last_pos is not None:
+                best_dist = 85.0
+                for d_state in designated_states:
+                    if d_state.last_pos is None:
+                        continue
+                    dist = math.hypot(
+                        u_state.last_pos[0] - d_state.last_pos[0],
+                        u_state.last_pos[1] - d_state.last_pos[1],
+                    )
+                    if dist <= best_dist:
+                        best_dist = dist
+                        target = d_state
+
+            # Rule 2: Strict 6-bird capacity distribution (designated bird with largest unobserved gap)
+            if target is None:
+                target = max(
+                    designated_states,
+                    key=lambda d: max(0.0, monitored_s - d.valid_observation_s),
+                )
+
+            transfer_map[tid] = target
+
+            # Transfer accumulated behavioral & observation metrics
+            target.valid_observation_s = min(monitored_s, target.valid_observation_s + u_state.valid_observation_s)
+            target.feeding_time_s += u_state.feeding_time_s
+            target.feeding_bouts += u_state.feeding_bouts
+            target.reduced_feeding_events += u_state.reduced_feeding_events
+            target.drinking_time_s += u_state.drinking_time_s
+            target.drinking_bouts += u_state.drinking_bouts
+            target.reduced_drinking_events += u_state.reduced_drinking_events
+            target.total_inactivity_s += u_state.total_inactivity_s
+            target.prolonged_low_activity_events += u_state.prolonged_low_activity_events
+            target.total_isolation_s += u_state.total_isolation_s
+            target.social_isolation_events += u_state.social_isolation_events
+            if u_state.is_lethargic_flag:
+                target.is_lethargic_flag = True
+
+            del self.bird_states[tid]
+
+        # Retroactively re-label completed behavior bouts & detection_tracking rows
+        for bout in self._completed_bouts:
+            tid = int(bout.get("track_id") or 0)
+            if tid in transfer_map:
+                tgt = transfer_map[tid]
+                bout["track_id"] = tgt.track_id
+                bout["bird_label"] = tgt.label
+
+        for row in self._detection_tracking_rows:
+            tid = int(row.get("track_id") or 0)
+            if tid in transfer_map:
+                tgt = transfer_map[tid]
+                row["track_id"] = tgt.track_id
+                row["bird_label"] = tgt.label
+
     def compute_chunk_summary(self) -> BehaviorChunkSummary:
         """
         Synthesizes all tracking states into the 30-minute behavior metrics record.
         """
+        # Flush any still-open behavior bouts first so they are included in strict identity transfer
+        for bout in list(self._active_bouts.values()):
+            self._finalize_bout(bout)
+        self._active_bouts.clear()
+
+        # Strictly transfer any temporarily unidentified 'Chicken' track data to its designated Hen/Rooster
+        self._apply_strict_identity_transfer(max(1.0, self.current_chunk_elapsed_s))
+
         unique_birds = len(self.bird_states)
         avg_present = sum(self.bird_frame_counts) / max(1, len(self.bird_frame_counts))
 

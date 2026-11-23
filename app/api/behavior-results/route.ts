@@ -15,6 +15,11 @@ import {
   syncManifestFromCloud,
 } from '@/lib/data-archive';
 import { downloadStorageFile, listStorageFiles, listSyncedDatabases } from '@/lib/supabase-storage';
+import {
+  buildStrictIdentityTransferMap,
+  resolveStrictBirdDef,
+  SHORT_ID_TO_CANONICAL_LABEL,
+} from '@/lib/strict-identity-transfer';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -429,9 +434,15 @@ export async function GET(req: NextRequest) {
             });
           }
           const interval = grouped.get(key)!;
+          const { trackToDesignated } = buildStrictIdentityTransferMap(fl);
+          const resolveIntervalBirdId = (rawLbl: string, tid: number) => {
+            const { def } = resolveStrictBirdDef(rawLbl, tid, trackToDesignated);
+            const canonical = SHORT_ID_TO_CANONICAL_LABEL[def.shortId] || rawLbl;
+            return BIRD_LABEL_TO_ID[canonical] || BIRD_LABEL_TO_ID[rawLbl] || 'chicken_orange';
+          };
           if (Array.isArray(fl.bird_records) && fl.bird_records.length > 0) {
             for (const br of fl.bird_records) {
-              const birdId = BIRD_LABEL_TO_ID[String(br.bird_label || '')] || 'chicken_orange';
+              const birdId = resolveIntervalBirdId(String(br.bird_label || ''), Number(br.track_id));
               const cur = interval.behaviorsByBird[birdId] ??= {
                 reducedFeeding: 0,
                 reducedDrinking: 0,
@@ -453,7 +464,7 @@ export async function GET(req: NextRequest) {
             }
           } else if (Array.isArray(fl.behavior_events)) {
             for (const ev of fl.behavior_events) {
-              const birdId = BIRD_LABEL_TO_ID[String(ev.bird_label || '')] || 'chicken_orange';
+              const birdId = resolveIntervalBirdId(String(ev.bird_label || ''), Number(ev.track_id));
               const cur = interval.behaviorsByBird[birdId] ??= {
                 reducedFeeding: 0,
                 reducedDrinking: 0,
