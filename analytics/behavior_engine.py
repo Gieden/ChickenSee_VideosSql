@@ -399,11 +399,15 @@ class BehaviorAnalysisEngine:
         self.bird_frame_counts.append(len(current_birds))
 
         # -------------------------------------------------------------
-        # Step 0: Live Per-Episode Spatial Handoff (ID7+ -> Designated Bird)
-        # Detects the exact frame when an unidentified box (e.g. ID7) flips back
-        # to its designated bird (e.g. H5 Yellow-Green) at the same (x, y) spot,
-        # transferring ONLY that episode's data and resetting ID7 cleanly.
+        # Step 0: Exact ByteTrack Identity Promotion + Live Spatial Handoff
+        # 0.0 First, honor exact ByteTrack promotions emitted by tracker.py when a unique
+        #     unidentified track (ID7, ID8, ...) is confirmed as H1–H5 or Rooster on the
+        #     same raw_track_id (100% deterministic, zero guessing).
         # -------------------------------------------------------------
+        for old_unid_id, new_canonical_id, new_label in getattr(frame_out, "promoted_tracks", []) or []:
+            if old_unid_id in self.bird_states:
+                self._transfer_unid_episode(old_unid_id, new_canonical_id, new_label, start_frame=0)
+
         cur_frame_idx = int(getattr(frame_out, "frame_idx", self.total_frames_in_chunk))
         cur_designated_tids = {
             b.track_id for b in current_birds

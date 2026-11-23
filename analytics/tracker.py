@@ -121,6 +121,7 @@ class TrackerFrameOutput:
     feeders: List[TrackedDetection]
     drinkers: List[TrackedDetection]
     heads: List[TrackedDetection] = field(default_factory=list)
+    promoted_tracks: List[Tuple[int, int, str]] = field(default_factory=list)  # (old_unid_id, new_canonical_id, new_label)
 
 
 class ZampenYOLOTracker:
@@ -219,6 +220,7 @@ class ZampenYOLOTracker:
         self.processed_frame_count = 0
         self.short_id_map: Dict[int, int] = {}
         self._unidentified_id_map: Dict[int, int] = {}
+        self._next_unidentified_id: int = ANIMAL_TO_FIXED_ID["Chicken"]
         self._next_short_id = 1
         # Fixed-population ID pool: when flock_size > 0 display IDs are drawn
         # from {1..flock_size}
@@ -279,6 +281,7 @@ class ZampenYOLOTracker:
         self.processed_frame_count = 0
         self.short_id_map.clear()
         self._unidentified_id_map.clear()
+        self._next_unidentified_id = ANIMAL_TO_FIXED_ID["Chicken"]
         self._next_short_id = 1
         getattr(self, "cached_feeders", []).clear()
         getattr(self, "cached_drinkers", []).clear()
@@ -1534,16 +1537,24 @@ class ZampenYOLOTracker:
             for bird in birds
             if bird.class_name == "Rooster" or bird.bird_label in HEN_TO_FIXED_ID
         }
+        if not hasattr(self, "_next_unidentified_id"):
+            self._next_unidentified_id = ANIMAL_TO_FIXED_ID["Chicken"]
+
         for bird in birds:
             if bird.class_name == "Chicken" and bird.bird_label == "Chicken":
-                tracking_id = bird.track_id
-                display_id = self._unidentified_id_map.get(tracking_id)
+                raw_key = getattr(bird, "raw_track_id", None)
+                if raw_key is None:
+                    raw_key = bird.track_id
+                display_id = self._unidentified_id_map.get(raw_key) if raw_key is not None else None
                 if display_id is None or display_id in used_display_ids:
-                    display_id = ANIMAL_TO_FIXED_ID["Chicken"]
-                    while display_id in used_display_ids:
-                        display_id += 1
-                    if tracking_id is not None:
-                        self._unidentified_id_map[tracking_id] = display_id
+                    # Assign a fresh, non-reusable unidentified ID (7, 8, 9, ...) per unique ByteTrack track
+                    # so two different birds NEVER collide on the same ID7 slot.
+                    while self._next_unidentified_id in used_display_ids:
+                        self._next_unidentified_id += 1
+                    display_id = self._next_unidentified_id
+                    self._next_unidentified_id += 1
+                    if raw_key is not None:
+                        self._unidentified_id_map[raw_key] = display_id
                 bird.track_id = display_id
                 used_display_ids.add(display_id)
 
@@ -1557,14 +1568,23 @@ class ZampenYOLOTracker:
             if current_owner is not None and current_owner != bird.track_id:
                 bird.bird_label = "Chicken"
 
+        # Emit exact ByteTrack promotion events whenever a track that was previously assigned
+        # an unidentified ID (7, 8, 9...) is now confirmed as a designated Hen (1..5) or Rooster (6).
+        promoted_tracks: List[Tuple[int, int, str]] = []
         for bird in birds:
-            if bird.track_id is not None and bird.bird_label.startswith("Hen"):
+            if bird.track_id is not None and (bird.bird_label.startswith("Hen") or bird.bird_label == "Rooster"):
                 if bird.bird_label in HEN_TO_FIXED_ID:
                     bird.track_id = HEN_TO_FIXED_ID[bird.bird_label]
-                self.track_last_label[bird.track_id] = bird.bird_label
-                self.track_label_last_seen[bird.track_id] = self.processed_frame_count
-                self.hen_owner_last_frame[bird.bird_label] = self.processed_frame_count
-                self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
+                raw_key = getattr(bird, "raw_track_id", None)
+                if raw_key is not None and raw_key in self._unidentified_id_map:
+                    old_unid_id = self._unidentified_id_map.pop(raw_key)
+                    if old_unid_id != bird.track_id:
+                        promoted_tracks.append((old_unid_id, bird.track_id, bird.bird_label))
+                if bird.bird_label.startswith("Hen"):
+                    self.track_last_label[bird.track_id] = bird.bird_label
+                    self.track_label_last_seen[bird.track_id] = self.processed_frame_count
+                    self.hen_owner_last_frame[bird.bird_label] = self.processed_frame_count
+                    self.label_owner[bird.bird_label] = (bird.track_id, self.processed_frame_count)
 
         # Post-identity duplicate suppression: drop phantom Unidentified "Chicken" boxes that
         # double-label an already-identified Hen or Rooster (e.g. a narrow inner Chicken box
@@ -1757,6 +1777,7 @@ class ZampenYOLOTracker:
             feeders=feeders,
             drinkers=drinkers,
             heads=heads_out,
+            promoted_tracks=promoted_tracks,
         )
 
     def annotate_frame(
