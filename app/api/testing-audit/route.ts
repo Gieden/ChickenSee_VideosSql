@@ -231,14 +231,14 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      // 2. Analyze detection_tracking for per-bird track_id switches (IDSW) & false positives (FP)
-      const lastTrackByBird = new Map<string, number>();
+      // 2. Analyze detection_tracking for real spatial IDSW (swaps/teleports > 90px + saddle->Chicken flips < 45px) & FP
       const idswByBird = new Map<string, number>();
       const lowConfByBird = new Map<string, number>();
       const dtCountByBird = new Map<string, number>();
       let totalDtFrames = 0;
       let extraBoxFrames = 0;
       const seenFrames = new Set<number>();
+      const byFrame = new Map<number, any[]>();
 
       if (Array.isArray(fl.detection_tracking)) {
         const sortedDt = [...fl.detection_tracking].sort(
@@ -246,6 +246,8 @@ export async function GET(req: NextRequest) {
         );
         for (const row of sortedDt) {
           const fNum = Number(row.frame_number) || 0;
+          if (!byFrame.has(fNum)) byFrame.set(fNum, []);
+          byFrame.get(fNum)!.push(row);
           if (!seenFrames.has(fNum)) {
             seenFrames.add(fNum);
             totalDtFrames += 1;
@@ -263,11 +265,43 @@ export async function GET(req: NextRequest) {
           if (conf > 0 && conf < 0.35) {
             lowConfByBird.set(def.shortId, (lowConfByBird.get(def.shortId) || 0) + 1);
           }
-          const prevTid = lastTrackByBird.get(def.shortId);
-          if (prevTid !== undefined && tid > 0 && prevTid !== tid) {
-            idswByBird.set(def.shortId, (idswByBird.get(def.shortId) || 0) + 1);
+        }
+
+        let prevPos = new Map<string, { x: number; y: number }>();
+        let prevF: number | null = null;
+        for (const fNum of Array.from(byFrame.keys()).sort((a, b) => a - b)) {
+          const curPos = new Map<string, { x: number; y: number }>();
+          const unidPts: Array<{ x: number; y: number }> = [];
+          for (const row of byFrame.get(fNum) || []) {
+            const rawLabel = String(row.bird_label || '');
+            const x = Number(row.x_center_px) || 0;
+            const y = Number(row.y_center_px) || 0;
+            if (!rawLabel || rawLabel.toLowerCase() === 'chicken') {
+              unidPts.push({ x, y });
+            } else {
+              const def = mapBirdToDef(rawLabel, Number(row.track_id) || 0);
+              if (birdStats.has(def.shortId)) {
+                curPos.set(def.shortId, { x, y });
+              }
+            }
           }
-          if (tid > 0) lastTrackByBird.set(def.shortId, tid);
+          if (prevF !== null && fNum - prevF <= 20) {
+            for (const [key, pos] of Array.from(curPos.entries())) {
+              const prev = prevPos.get(key);
+              if (prev && Math.hypot(pos.x - prev.x, pos.y - prev.y) > 90) {
+                idswByBird.set(key, (idswByBird.get(key) || 0) + 1);
+              }
+            }
+            for (const [key, prev] of Array.from(prevPos.entries())) {
+              if (!curPos.has(key)) {
+                if (unidPts.some((u) => Math.hypot(u.x - prev.x, u.y - prev.y) < 45)) {
+                  idswByBird.set(key, (idswByBird.get(key) || 0) + 1);
+                }
+              }
+            }
+          }
+          prevPos = curPos;
+          prevF = fNum;
         }
       }
 
@@ -287,12 +321,10 @@ export async function GET(req: NextRequest) {
         const lowConfFp = rawDt > 0 ? Math.round((rawLowConf / rawDt) * tp * 0.25) : 0;
         const fp = Math.max(0, extraFpPerBird + lowConfFp);
 
-        const obsSwitches = idswByBird.get(tb.key) || 0;
-        const extraTracks = Math.max(0, st.trackIds.size - 1);
-        const idsw = Math.max(obsSwitches, extraTracks);
+        const idsw = idswByBird.get(tb.key) || 0;
 
-        // Exact identity frames: confirmed TP frames minus brief ID-switch penalty (~30 frames/switch)
-        const idtp = Math.max(0, tp - Math.min(tp, idsw * 30));
+        // Exact identity frames: confirmed TP frames minus ID-switch penalty (~45 frames / ~3s per switch)
+        const idtp = Math.max(0, tp - Math.min(tp, idsw * 45));
         const idfpIdfn = Math.max(0, gtFrames - idtp + fp);
 
         const metrics = computeMetrics({ gtFrames, tp, fp, fn, idsw, idtp, idfpIdfn });
