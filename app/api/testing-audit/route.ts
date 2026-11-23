@@ -112,6 +112,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Fast path: if precomputed 11-video audit JSON exists and live ?live=1 wasn't forced,
+  // serve it instantaneously (avoids downloading 11 x 3.3MB = 36MB on every Vercel request).
+  const forceLive = new URL(req.url).searchParams.get('live') === '1';
+  const staticAuditPath = path.join(process.cwd(), 'data', 'testing_audit_11videos.json');
+  if (!forceLive && fs.existsSync(staticAuditPath)) {
+    try {
+      const staticPayload = JSON.parse(fs.readFileSync(staticAuditPath, 'utf-8'));
+      if (Array.isArray(staticPayload?.blocks) && staticPayload.blocks.length > 0) {
+        return NextResponse.json(staticPayload, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            Pragma: 'no-cache',
+          },
+        });
+      }
+    } catch {}
+  }
+
   // Discover all uploaded rec_2026-11-17_* frame_log JSONs (local disk first, Supabase Storage fallback for Vercel)
   const sources = new Map<string, { localPath?: string; cloudKey?: string }>();
 
