@@ -38,7 +38,7 @@ class AnalyticsConfig(BaseModel):
         default_factory=lambda: os.getenv("INFERENCE_DEVICE", _DEFAULT_DEVICE),
         description="'cpu' or '0' for CUDA"
     )
-    conf_threshold: float = Field(default=0.65, description="Object detection confidence threshold for Chicken/Rooster")
+    conf_threshold: float = Field(default=0.45, description="Object detection confidence threshold for Chicken/Rooster")
     iou_threshold: float = Field(default=0.45, description="NMS IoU threshold")
     imgsz: int = Field(default_factory=lambda: int(os.getenv("INFERENCE_SIZE", "640")), description="Inference input image resolution")
     frame_stride: int = Field(default=2, description="Process every Nth frame (2 = 15fps from 30fps input)")
