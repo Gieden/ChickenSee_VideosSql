@@ -626,10 +626,18 @@ export async function GET(req: NextRequest) {
     // Merge live identity_transfers recorded by analytics/behavior_engine.py during processing
     // (for videos where ID7+ tracks were already promoted/transferred live before saving frame_log).
     const liveTransfers = Array.isArray(fl.identity_transfers) ? fl.identity_transfers : [];
+    const detTrackingRows: any[] = Array.isArray(fl.detection_tracking) ? fl.detection_tracking : [];
+    const fmtClock = (sec: number) => {
+      const mm = Math.floor(Math.max(0, sec) / 60);
+      const ss = Math.floor(Math.max(0, sec) % 60);
+      return `${String(hourNum).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    };
+
     for (const tr of liveTransfers) {
       const oldTid = Number(tr.old_track_id) || 0;
       if (oldTid < 7) continue;
-      const targetDef = mapBirdToDef(String(tr.transferred_to_label || ''), Number(tr.transferred_to_track_id) || 0);
+      const targetTid = Number(tr.transferred_to_track_id) || 0;
+      const targetDef = mapBirdToDef(String(tr.transferred_to_label || ''), targetTid);
       const targetKey = DESIGNATED_SET.has(targetDef.shortId) ? targetDef.shortId : 'UNCONFIRMED';
       if (targetKey === 'UNCONFIRMED') continue;
 
@@ -637,6 +645,10 @@ export async function GET(req: NextRequest) {
       const epEndFrame = Math.max(epStartFrame, Number(tr.end_frame) || epStartFrame);
       const epStartS = epStartFrame / efps;
       const epEndS = epEndFrame / efps;
+      const epValidS = Math.max(0.1, Number(tr.valid_s) || (epEndS - epStartS));
+      const trFeedS = Math.max(0, Number(tr.feeding_s) || 0);
+      const trDrinkS = Math.max(0, Number(tr.drinking_s) || 0);
+      const trInactS = Math.max(0, Number(tr.inactive_s) || 0);
 
       let st = strayByTid.get(oldTid);
       if (!st) {
@@ -652,12 +664,13 @@ export async function GET(req: NextRequest) {
           firstStartS: epStartS,
           lastEndS: epEndS,
           bouts: [],
+          exactSegments: [],
           liveEpisodeFrameRange: {
             startFrame: epStartFrame,
             endFrame: epEndFrame,
             startS: epStartS,
             endS: epEndS,
-            validS: Math.max(0.1, Number(tr.valid_s) || (epEndS - epStartS)),
+            validS: epValidS,
             reason: String(tr.reason || 'live_transfer'),
           },
         };
@@ -665,6 +678,73 @@ export async function GET(req: NextRequest) {
       } else {
         st.firstStartS = Math.min(st.firstStartS, epStartS);
         st.lastEndS = Math.max(st.lastEndS, epEndS);
+      }
+
+      // Build frame-accurate Table 4 segments from behavior_segments (new logs) or exact duration breakdown (existing logs)
+      const rawSegs = Array.isArray(tr.behavior_segments) ? tr.behavior_segments : [];
+      if (rawSegs.length > 0) {
+        for (const seg of rawSegs) {
+          const sBeh = String(seg.behavior || 'active').toLowerCase();
+          if (sBeh === 'social_isolation') continue;
+          const sf = Number(seg.start_frame) || epStartFrame;
+          const ef = Math.max(sf, Number(seg.end_frame) || sf);
+          const durS = Math.max(0.1, Math.round((Number(seg.duration_s) || Math.max(0.1, (ef - sf) / efps)) * 10) / 10);
+          st.exactSegments.push({
+            behavior: sBeh,
+            transferredTo: targetKey,
+            startFrame: sf,
+            endFrame: ef,
+            startTime: fmtClock(sf / efps),
+            endTime: fmtClock(ef / efps),
+            durationS: durS,
+          });
+        }
+      } else {
+        // Reconstruct accurate per-behavior durations so e.g. 0.6s Feeding + 2.1s Active is NEVER merged into 2.7s Feeding
+        const activeS = Math.max(0, Math.round((epValidS - trFeedS - trDrinkS - trInactS) * 10) / 10);
+        const epDetRows = detTrackingRows.filter(
+          (r) => Number(r.track_id) === targetTid && Number(r.frame_number) >= epStartFrame && Number(r.frame_number) <= epEndFrame,
+        );
+        const findRange = (pred: (r: any) => boolean) => {
+          const matched = epDetRows.filter(pred);
+          if (matched.length === 0) return { sf: epStartFrame, ef: epEndFrame };
+          const sf = Number(matched[0].frame_number);
+          const ef = Number(matched[matched.length - 1].frame_number);
+          return { sf, ef: Math.max(sf, ef) };
+        };
+        const parts: Array<{ beh: string; dur: number; sf: number; ef: number }> = [];
+        if (trFeedS > 0) {
+          const r = findRange((x) => Boolean(x.in_feeder_zone));
+          parts.push({ beh: 'feeding', dur: Math.round(trFeedS * 10) / 10, sf: r.sf, ef: r.ef });
+        }
+        if (trDrinkS > 0) {
+          const r = findRange((x) => Boolean(x.in_waterer_zone));
+          parts.push({ beh: 'drinking', dur: Math.round(trDrinkS * 10) / 10, sf: r.sf, ef: r.ef });
+        }
+        if (trInactS > 0) {
+          parts.push({ beh: 'inactive', dur: Math.round(trInactS * 10) / 10, sf: epStartFrame, ef: epEndFrame });
+        }
+        if (activeS > 0 || parts.length === 0) {
+          const r = findRange((x) => !x.in_feeder_zone && !x.in_waterer_zone);
+          parts.push({
+            beh: 'active',
+            dur: activeS > 0 ? activeS : Math.round(epValidS * 10) / 10,
+            sf: r.sf,
+            ef: r.ef,
+          });
+        }
+        parts.sort((a, b) => a.sf - b.sf);
+        for (const p of parts) {
+          st.exactSegments.push({
+            behavior: p.beh,
+            transferredTo: targetKey,
+            startFrame: p.sf,
+            endFrame: p.ef,
+            startTime: fmtClock(p.sf / efps),
+            endTime: fmtClock(p.ef / efps),
+            durationS: p.dur,
+          });
+        }
       }
 
       const trBouts = Array.isArray(tr.bouts) ? tr.bouts : [];
@@ -774,8 +854,16 @@ export async function GET(req: NextRequest) {
       table3Transferred.push(entry);
       if (!DESIGNATED_SET.has(entry.transferredTo)) table3Remaining.push(entry);
 
-      // Populate Table 4: one chronological row per transferred bout (or tracking episode if no completed bout)
-      const rowsForT4 = sortedBouts.length > 0 ? sortedBouts : sampleBout ? [sampleBout] : [];
+      // Populate Table 4: prefer exact per-behavior segments (when available), else completed bouts / sampleBout
+      const exactSegs = Array.isArray(st.exactSegments) ? st.exactSegments : [];
+      const rowsForT4 =
+        exactSegs.length > 0
+          ? exactSegs
+          : sortedBouts.length > 0
+            ? sortedBouts
+            : sampleBout
+              ? [sampleBout]
+              : [];
       for (const bt of rowsForT4) {
         table4Events.push({
           recording: st.recording,

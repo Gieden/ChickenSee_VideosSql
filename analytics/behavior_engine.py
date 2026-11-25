@@ -272,6 +272,15 @@ class BehaviorAnalysisEngine:
             "drinking_s": round(float(u_state.drinking_time_s), 1),
             "inactive_s": round(float(u_state.total_inactivity_s), 1),
             "bouts": transferred_bouts,
+            "behavior_segments": [
+                {
+                    "behavior": seg["behavior"],
+                    "start_frame": int(seg["start_frame"]),
+                    "end_frame": int(seg["end_frame"]),
+                    "duration_s": round(float(seg["duration_s"]), 1),
+                }
+                for seg in (meta.get("segments", []) if meta else [])
+            ],
         })
 
     def get_live_bird_behaviors(self) -> Dict[int, str]:
@@ -948,6 +957,22 @@ class BehaviorAnalysisEngine:
             else:
                 st.current_behavior = "Active"
 
+            # Record exact frame-by-frame behavior segments for unidentified episodes so Table 4 is 100% frame-accurate
+            if tid in self._unid_episode_meta:
+                ep_segs = self._unid_episode_meta[tid].setdefault("segments", [])
+                beh_lower = st.current_behavior.lower()
+                f_num = int(frame_out.frame_idx)
+                if ep_segs and ep_segs[-1]["behavior"] == beh_lower:
+                    ep_segs[-1]["end_frame"] = f_num
+                    ep_segs[-1]["duration_s"] += dt
+                else:
+                    ep_segs.append({
+                        "behavior": beh_lower,
+                        "start_frame": f_num,
+                        "end_frame": f_num,
+                        "duration_s": dt,
+                    })
+
             self._update_bout(tid, st.label, "feeding", is_actively_feeding, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "drinking", st.is_in_waterer_zone, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
             self._update_bout(tid, st.label, "inactive", is_inactive_now, frame_out.frame_idx, self.current_chunk_elapsed_s, dt, conf, nn_px, nn_bl)
@@ -1083,6 +1108,15 @@ class BehaviorAnalysisEngine:
                 "drinking_s": round(float(u_state.drinking_time_s), 1),
                 "inactive_s": round(float(u_state.total_inactivity_s), 1),
                 "bouts": [],
+                "behavior_segments": [
+                    {
+                        "behavior": seg["behavior"],
+                        "start_frame": int(seg["start_frame"]),
+                        "end_frame": int(seg["end_frame"]),
+                        "duration_s": round(float(seg["duration_s"]), 1),
+                    }
+                    for seg in (meta.get("segments", []) if meta else [])
+                ],
             }
 
             # Transfer accumulated behavioral & observation metrics
