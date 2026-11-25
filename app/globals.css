@@ -121,6 +121,9 @@ body {
 
 .portal-shell button.text-white,
 .portal-shell button .text-white,
+.portal-shell thead tr.text-white,
+.portal-shell thead tr.text-white th,
+.portal-shell thead th.text-white,
 .portal-shell .bg-gradient-to-tr .text-white,
 .portal-shell .chart-dark-tooltip,
 .portal-shell .chart-dark-tooltip p,

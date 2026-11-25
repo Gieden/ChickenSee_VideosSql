@@ -1050,53 +1050,56 @@ export default function TestingAuditTab() {
                 Chronological frame-by-frame transfer log showing exact start/end times, frame ranges, track ID, chicken ID, behavior, duration, and target ID.
               </p>
             </div>
-            <div className="overflow-x-auto max-h-[480px]">
-              <table className="w-full min-w-[880px] border-collapse text-left text-xs">
+            <div className="overflow-x-auto max-h-[500px]">
+              <table className="w-full min-w-[900px] border-collapse text-left text-xs">
                 <thead className="sticky top-0 z-10">
-                  <tr className="border-b border-orange-700 bg-[#b45309] text-[11px] font-bold text-white">
-                    <th className="px-3 py-2.5">Start time</th>
-                    <th className="px-3 py-2.5">End time</th>
-                    <th className="px-3 py-2.5">Frames</th>
-                    <th className="px-3 py-2.5 text-right">Track ID</th>
-                    <th className="px-3 py-2.5">Chicken ID</th>
-                    <th className="px-3 py-2.5">Behavior</th>
-                    <th className="px-3 py-2.5 text-right">Time (s)</th>
-                    <th className="px-3 py-2.5">ID transferred to</th>
+                  <tr className="border-b border-orange-800 bg-[#b45309] text-[11px] font-bold uppercase tracking-wider text-white">
+                    <th className="px-4 py-3 whitespace-nowrap text-white">Start time</th>
+                    <th className="px-4 py-3 whitespace-nowrap text-white">End time</th>
+                    <th className="px-4 py-3 whitespace-nowrap text-white">Frames</th>
+                    <th className="px-4 py-3 text-center whitespace-nowrap text-white">Track ID</th>
+                    <th className="px-4 py-3 whitespace-nowrap text-white">Chicken ID</th>
+                    <th className="px-4 py-3 text-center whitespace-nowrap text-white">Behavior</th>
+                    <th className="px-4 py-3 text-right whitespace-nowrap text-white">Time (s)</th>
+                    <th className="px-4 py-3 pl-6 whitespace-nowrap text-white">ID transferred to</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-200/80">
                   {(data.identityDistribution.table4Events || []).length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-6 text-center text-slate-400">
+                      <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                         No transferred events recorded for this selection.
                       </td>
                     </tr>
                   ) : (
                     (data.identityDistribution.table4Events || []).map((row, idx) => (
-                      <tr key={`${row.recording}_${row.trackId}_${row.startFrame}_${idx}`} className="hover:bg-orange-50/40">
-                        <td className="px-3 py-2 font-mono text-slate-700">{row.startTime}</td>
-                        <td className="px-3 py-2 font-mono text-slate-700">{row.endTime}</td>
-                        <td className="px-3 py-2 font-mono font-semibold text-orange-800">{row.frames}</td>
-                        <td className="px-3 py-2 text-right font-mono">{row.trackId}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600">{row.chickenId}</td>
-                        <td className="px-3 py-2">
+                      <tr
+                        key={`${row.recording}_${row.trackId}_${row.startFrame}_${idx}`}
+                        className="odd:bg-white even:bg-slate-50/70 transition-colors hover:bg-orange-50/60"
+                      >
+                        <td className="px-4 py-2.5 font-mono text-slate-700 whitespace-nowrap">{row.startTime}</td>
+                        <td className="px-4 py-2.5 font-mono text-slate-700 whitespace-nowrap">{row.endTime}</td>
+                        <td className="px-4 py-2.5 font-mono font-semibold text-orange-800 whitespace-nowrap">{row.frames}</td>
+                        <td className="px-4 py-2.5 text-center font-mono font-semibold text-slate-800 whitespace-nowrap">{row.trackId}</td>
+                        <td className="px-4 py-2.5 font-mono font-medium text-slate-600 whitespace-nowrap">{row.chickenId}</td>
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
                           <span
-                            className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold capitalize ${
+                            className={`inline-flex items-center justify-center rounded-md border px-2.5 py-0.5 text-[11px] font-bold capitalize ${
                               row.behavior === 'feeding'
-                                ? 'bg-emerald-50 text-emerald-700'
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
                                 : row.behavior === 'drinking'
-                                  ? 'bg-blue-50 text-blue-700'
+                                  ? 'border-blue-200 bg-blue-50 text-blue-800'
                                   : row.behavior === 'inactive'
-                                    ? 'bg-amber-50 text-amber-700'
-                                    : 'bg-sky-50 text-sky-700'
+                                    ? 'border-amber-200 bg-amber-50 text-amber-800'
+                                    : 'border-sky-200 bg-sky-50 text-sky-800'
                             }`}
                           >
                             {row.behavior}
                           </span>
                         </td>
-                        <td className="px-3 py-2 text-right font-mono font-semibold">{row.timeS.toFixed(1)}</td>
-                        <td className="px-3 py-2">
-                          <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
+                        <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-900 whitespace-nowrap">{row.timeS.toFixed(1)}</td>
+                        <td className="px-4 py-2.5 pl-6 whitespace-nowrap">
+                          <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-0.5 font-mono text-[11px] font-bold text-emerald-800">
                             → {row.transferredTo}
                           </span>
                         </td>
