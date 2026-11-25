@@ -735,14 +735,19 @@ export async function GET(req: NextRequest) {
         const ss1 = Math.floor(ep.startS % 60);
         const mm2 = Math.floor(ep.endS / 60);
         const ss2 = Math.floor(ep.endS % 60);
-        const reasonLabel =
-          ep.reason === 'bytetrack_promotion'
-            ? 'promoted'
-            : ep.reason === 'spatial_handoff' || ep.reason === 'spatial_origin_handoff'
-              ? 'handoff'
-              : 'transferred';
+        // Classify strictly into the 4 poultry behaviors (feeding, drinking, inactive, active)
+        let dominantBehavior = 'active';
+        if (st.feedingS > 0 || st.drinkingS > 0 || st.inactiveS > 0) {
+          if (st.feedingS >= st.drinkingS && st.feedingS >= st.inactiveS) {
+            dominantBehavior = 'feeding';
+          } else if (st.drinkingS >= st.feedingS && st.drinkingS >= st.inactiveS) {
+            dominantBehavior = 'drinking';
+          } else {
+            dominantBehavior = 'inactive';
+          }
+        }
         sampleBout = {
-          behavior: reasonLabel,
+          behavior: dominantBehavior,
           transferredTo: st.transferredTo,
           startFrame: ep.startFrame,
           endFrame: ep.endFrame,

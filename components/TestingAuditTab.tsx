@@ -1088,7 +1088,7 @@ export default function TestingAuditTab() {
                                   ? 'bg-blue-50 text-blue-700'
                                   : row.behavior === 'inactive'
                                     ? 'bg-amber-50 text-amber-700'
-                                    : 'bg-slate-100 text-slate-700'
+                                    : 'bg-sky-50 text-sky-700'
                             }`}
                           >
                             {row.behavior}
