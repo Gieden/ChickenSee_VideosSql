@@ -147,14 +147,14 @@ export default function ResearchDatasetsTab() {
     fetchDataset(false);
   }, [fetchDataset]);
 
-  // Real-time background polling every 15 seconds while tab is visible (egress-friendly)
+  // CPU-friendly background polling every 60 seconds while tab is visible
   useEffect(() => {
     if (!liveEnabled) return;
     const timer = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchDataset(true);
       }
-    }, 15000);
+    }, 60000);
     return () => clearInterval(timer);
   }, [liveEnabled, fetchDataset]);
 

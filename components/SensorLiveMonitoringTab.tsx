@@ -205,12 +205,17 @@ export default function SensorLiveMonitoringTab({
     };
   }, [fetchSensorLogs, fetchLimit]);
 
-  // Polling fallback — syncs every N seconds alongside Realtime
+  // Polling fallback — only runs when tab is visible (and slower when Realtime WebSocket is connected)
   useEffect(() => {
     if (autoRefreshSec <= 0) return;
-    const timer = setInterval(() => fetchSensorLogs(), autoRefreshSec * 1000);
+    const effectiveMs = Math.max(autoRefreshSec, realtimeStatus === 'connected' ? 30 : 15) * 1000;
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchSensorLogs();
+      }
+    }, effectiveMs);
     return () => clearInterval(timer);
-  }, [fetchSensorLogs, autoRefreshSec]);
+  }, [fetchSensorLogs, autoRefreshSec, realtimeStatus]);
 
   const summary = useMemo(() => computeTelemetrySummary(readings), [readings]);
 

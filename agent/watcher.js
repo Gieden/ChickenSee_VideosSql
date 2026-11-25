@@ -1,4 +1,5 @@
 import chokidar from 'chokidar';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
@@ -331,9 +332,63 @@ function shouldSync(filePath) {
 // ─── Sequential Upload Queue ──────────────────────────────────────────────────
 const uploadQueue = [];
 let isProcessingQueue = false;
+const MIN_REALTIME_SYNC_GAP_MS = 12_000;
+let lastSyncedQueueHash = null;
+let lastQueueSyncAt = 0;
+let lastLiveFrameSyncAt = 0;
+let lastKnownQueueActive = false;
+
+function inspectQueueStatusFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    const active = Boolean(
+      parsed?.is_queueing
+      || (parsed?.summary && ((parsed.summary.processing || 0) > 0 || (parsed.summary.queued || 0) > 0))
+      || (parsed?.active_detection && String(parsed.active_detection.status || '').toUpperCase() === 'PROCESSING')
+    );
+    // Strip volatile clock fields so idle heartbeats don't trigger redundant cloud uploads
+    const stripped = JSON.stringify(parsed, (k, v) => {
+      if (k === 'updated_at' || k === 'captured_at' || k === 'timestamp' || k === 'generated_at') {
+        return undefined;
+      }
+      return v;
+    });
+    const hash = crypto.createHash('sha256').update(stripped).digest('hex');
+    return { active, hash };
+  } catch {
+    return { active: false, hash: null };
+  }
+}
+
+function shouldAllowRealtimeCloudUpload(filePath) {
+  const base = path.basename(filePath).toLowerCase();
+  const now = Date.now();
+  if (base === 'queue_status.json') {
+    const { active, hash } = inspectQueueStatusFile(filePath);
+    lastKnownQueueActive = active;
+    if (!hash) return false;
+    // Skip completely if semantic queue contents haven't changed (0 idle uploads!)
+    if (hash === lastSyncedQueueHash) return false;
+    // While actively processing, throttle to at most once every 12 seconds
+    if (active && (now - lastQueueSyncAt) < MIN_REALTIME_SYNC_GAP_MS) return false;
+    lastSyncedQueueHash = hash;
+    lastQueueSyncAt = now;
+    return true;
+  }
+  if (base === 'live_detection.jpg') {
+    // Only sync live preview frames while a video is actively processing, at most every 12s
+    if (!lastKnownQueueActive) return false;
+    if ((now - lastLiveFrameSyncAt) < MIN_REALTIME_SYNC_GAP_MS) return false;
+    lastLiveFrameSyncAt = now;
+    return true;
+  }
+  return true;
+}
 
 function enqueueUpload(filePath) {
   if (isRealtimeSyncCandidate(filePath, LOCAL_STORAGE_ROOT)) {
+    if (!shouldAllowRealtimeCloudUpload(filePath)) return;
     realtimeSyncRequested.add(filePath);
     if (realtimeSyncRunning) return;
 
@@ -451,8 +506,8 @@ function startWatcher() {
       log('READY', 'Initial scan complete. Watching for new or updated files...');
     });
 
-  // Periodic real-time heartbeat: Windows fs.watch can miss atomic os.replace()
-  // from ignored .tmp files onto queue_status.json and live_detection.jpg.
+  // Periodic real-time heartbeat (every 15s): only syncs to cloud when queue state
+  // actually changes (ignoring timestamp-only rewrites) or while actively processing.
   const realtimeInterval = setInterval(async () => {
     try {
       await fetch('http://127.0.0.1:8000/queue?limit=500', {
@@ -466,7 +521,7 @@ function startWatcher() {
         enqueueUpload(candidatePath);
       }
     }
-  }, 3000);
+  }, 15_000);
 
   process.on('SIGINT', () => {
     clearInterval(realtimeInterval);

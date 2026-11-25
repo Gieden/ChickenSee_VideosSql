@@ -1211,10 +1211,11 @@ export default function DashboardPage() {
     });
   }, []);
 
-  // Lightweight 15s poll of latest sensor packet for live environmental threshold alerts
+  // Egress & CPU-friendly 60s poll of latest sensor packet while tab is visible
   useEffect(() => {
     let cancelled = false;
     const pollLatestSensor = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const res = await fetch('/api/sensors/live?limit=1', { cache: 'no-store' });
         if (!res.ok) return;
@@ -1225,10 +1226,15 @@ export default function DashboardPage() {
       } catch {}
     };
     pollLatestSensor();
-    const t = setInterval(pollLatestSensor, 15000);
+    const t = setInterval(pollLatestSensor, 60_000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') pollLatestSensor();
+    };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       cancelled = true;
       clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
 
@@ -1695,12 +1701,24 @@ export default function DashboardPage() {
   }, [fetchQueueStatus, fetchResults]);
 
   useEffect(() => {
-    // Poll responsive 2s-4s interval on queue tab for real-time updates.
+    // CPU-friendly queue polling: pauses completely when tab is hidden,
+    // polls every 12s while actively processing on Queue tab, 30s while processing elsewhere, 60s when idle.
     const pollInterval = activeTab === 'queue'
-      ? (queueStatus?.is_queueing ? 2_000 : 4_000)
-      : (queueStatus?.is_queueing ? 4_000 : 8_000);
-    const queueTimer = setInterval(() => { fetchQueueStatus(); }, pollInterval);
-    return () => clearInterval(queueTimer);
+      ? (queueStatus?.is_queueing ? 12_000 : 60_000)
+      : (queueStatus?.is_queueing ? 30_000 : 60_000);
+    const queueTimer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchQueueStatus();
+      }
+    }, pollInterval);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') fetchQueueStatus();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(queueTimer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [activeTab, fetchQueueStatus, queueStatus?.is_queueing]);
 
   useEffect(() => {
@@ -1748,7 +1766,11 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeTab !== 'results') return;
     fetchResults();
-    const refreshTimer = setInterval(() => { fetchResults(); }, 60_000);
+    const refreshTimer = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchResults();
+      }
+    }, 120_000);
     return () => clearInterval(refreshTimer);
   }, [activeTab, fetchResults]);
 
