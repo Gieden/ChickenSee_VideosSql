@@ -296,39 +296,49 @@ def detect_pen_equipment(
         ]
         drinker_out = (d_box, 0.82)
 
-    # 2. Real-time per-frame detection of the circular hanging Feeder hopper via HoughCircles
-    #    (actually tracks the feeder live on every frame even when bumped/swinging!)
+    # 2. Real-time per-frame detection of the circular grey Feeder hopper via tight HSV contour
+    #    (locks tightly onto the ~54x54 circular rim on every frame — never oversized!)
     if not has_feeder:
-        fx_lo, fx_hi = int(w * 0.76), int(w * 0.96)
-        fy_lo, fy_hi = int(cam_h * 0.26), int(cam_h * 0.60)
+        fx_lo, fx_hi = int(w * 0.76), int(w * 0.95)
+        fy_lo, fy_hi = int(cam_h * 0.28), int(cam_h * 0.56)
         if fx_hi > fx_lo + 20 and fy_hi > fy_lo + 20:
-            roi_gray = cv2.cvtColor(frame[fy_lo:fy_hi, fx_lo:fx_hi], cv2.COLOR_BGR2GRAY)
-            roi_blur = cv2.GaussianBlur(roi_gray, (5, 5), 1.2)
-            min_r = max(14, int(round(min(w, cam_h) * 0.055)))
-            max_r = max(min_r + 6, int(round(min(w, cam_h) * 0.105)))
-            circles = cv2.HoughCircles(
-                roi_blur,
-                cv2.HOUGH_GRADIENT,
-                dp=1.2,
-                minDist=max(24, min_r * 2),
-                param1=90,
-                param2=26,
-                minRadius=min_r,
-                maxRadius=max_r,
-            )
-            if circles is not None and len(circles[0]) > 0:
-                # Pick the strongest circular hopper whose center has neutral grey/bright metal tone
-                for cx_r, cy_r, rad in np.round(circles[0]).astype(int):
-                    fcx_c = fx_lo + int(cx_r)
-                    fcy_c = fy_lo + int(cy_r)
-                    r_pad = int(round(rad * 1.05))
-                    fx1 = max(0, fcx_c - r_pad)
-                    fy1 = max(int(round(cam_h * 0.22)), fcy_c - r_pad)
-                    fx2 = min(w - 2, fcx_c + r_pad)
-                    fy2 = min(cam_h - 2, fcy_c + r_pad)
-                    if fx2 - fx1 >= 28 and fy2 - fy1 >= 28:
-                        feeder_out = ([fx1, fy1, fx2, fy2], 0.85)
-                        break
+            roi_hsv = cv2.cvtColor(frame[fy_lo:fy_hi, fx_lo:fx_hi], cv2.COLOR_BGR2HSV)
+            min_a = (w * cam_h) * 0.0045
+            max_a = (w * cam_h) * 0.0170
+            max_side = int(round(min(w, cam_h) * 0.175))  # ~63px max on 640x360
+            for vmin_f in (140, 120):
+                gmask = cv2.inRange(
+                    roi_hsv,
+                    np.array([0, 0, vmin_f], dtype=np.uint8),
+                    np.array([180, 58, 245], dtype=np.uint8),
+                )
+                gmask = cv2.morphologyEx(gmask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+                gmask = cv2.morphologyEx(gmask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+                cnts_f, _ = cv2.findContours(gmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                best_f = None
+                for cf_c in cnts_f:
+                    hull = cv2.convexHull(cf_c)
+                    area = cv2.contourArea(hull)
+                    if not (min_a <= area <= max_a):
+                        continue
+                    x, y, bw, bh = cv2.boundingRect(hull)
+                    ar = bw / max(1.0, float(bh))
+                    peri = cv2.arcLength(hull, True)
+                    circ = (4.0 * np.pi * area / (peri * peri)) if peri > 0 else 0.0
+                    if 0.70 <= ar <= 1.40 and circ >= 0.62:
+                        # Keep bounding box tight to the circular rim even if bright ground touches bottom edge
+                        side_w = min(bw, max_side)
+                        side_h = min(bh, int(round(side_w * 1.12)), max_side)
+                        fx1 = fx_lo + x
+                        fy1 = fy_lo + y
+                        fx2 = min(w - 2, fx1 + side_w)
+                        fy2 = min(cam_h - 2, fy1 + side_h)
+                        score = circ * (1.0 - abs(1.0 - ar) * 0.5)
+                        if best_f is None or score > best_f[0]:
+                            best_f = (score, [fx1, fy1, fx2, fy2])
+                if best_f is not None:
+                    feeder_out = (best_f[1], 0.85)
+                    break
 
     # 2b. Fallback only if HoughCircles was occluded on this frame: derive from live Drinker
     if not has_feeder and feeder_out is None:
