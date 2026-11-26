@@ -1766,15 +1766,32 @@ class ZampenYOLOTracker:
             except Exception as exc:
                 pass  # Equipment detection failure is non-fatal
 
+        # Sanity-filter Feeder/Drinker boxes: reject oversized or out-of-bounds detections
+        # so an erratic YOLO box never sticks in cached_feeders / cached_drinkers.
+        def _valid_equip_box(det: TrackedDetection, is_feeder: bool) -> bool:
+            bx1, by1, bx2, by2 = det.box
+            bw, bh = bx2 - bx1, by2 - by1
+            bcx, bcy = det.centroid
+            if bw <= 12 or bh <= 12 or bw > frame_w * 0.22 or bh > cam_h * 0.32:
+                return False
+            if not self._is_inside_pen_roi(bcx, bcy, frame_w, cam_h):
+                return False
+            if is_feeder and bcy < cam_h * 0.22:
+                return False
+            return True
+
+        feeders = [f for f in feeders if _valid_equip_box(f, True)]
+        drinkers = [d for d in drinkers if _valid_equip_box(d, False)]
+
         if feeders:
             self.cached_feeders = list(feeders)
         elif getattr(self, "cached_feeders", None):
-            feeders = list(self.cached_feeders)
+            feeders = [f for f in self.cached_feeders if _valid_equip_box(f, True)]
 
         if drinkers:
             self.cached_drinkers = list(drinkers)
         elif getattr(self, "cached_drinkers", None):
-            drinkers = list(self.cached_drinkers)
+            drinkers = [d for d in self.cached_drinkers if _valid_equip_box(d, False)]
 
         if len(feeders) == 0 or len(drinkers) == 0:
             try:
@@ -1794,7 +1811,6 @@ class ZampenYOLOTracker:
                         track_id=None,
                         bird_label="Feeder",
                     ))
-                    self.cached_feeders = list(feeders)
                 if len(drinkers) == 0 and cv_drinker is not None:
                     d_box, d_conf = cv_drinker
                     drinkers.append(TrackedDetection(
@@ -1806,7 +1822,6 @@ class ZampenYOLOTracker:
                         track_id=None,
                         bird_label="Drinker",
                     ))
-                    self.cached_drinkers = list(drinkers)
             except Exception:
                 pass
 

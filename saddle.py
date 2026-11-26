@@ -257,10 +257,10 @@ def detect_pen_equipment(
     drinker_out: Optional[Tuple[List[int], float]] = None
     dome_rect: Optional[Tuple[int, int, int, int]] = None
 
-    # 1. Detect the bright white circular bell drinker dome strictly in the right-side feeding/drinking bay
-    #    (to the right of the divider pipe at x ≈ 0.66, avoiding sunlit patches on the middle dirt floor)
-    rx1, rx2 = int(w * 0.68), int(w * 0.95)
-    ry1, ry2 = int(cam_h * 0.52), int(cam_h * 0.95)
+    # 1. Detect the bright white circular bell drinker dome strictly in the right-side drinking zone
+    #    (x = 0.76..0.94, y = 0.66..0.90 of cam_h — excludes sunlit dirt patches near the pipe/bottom edge)
+    rx1, rx2 = int(w * 0.76), int(w * 0.94)
+    ry1, ry2 = int(cam_h * 0.66), int(cam_h * 0.90)
     if rx2 > rx1 and ry2 > ry1:
         hsv = cv2.cvtColor(frame[ry1:ry2, rx1:rx2], cv2.COLOR_BGR2HSV)
         min_a = (w * cam_h) * 0.0010
@@ -298,51 +298,47 @@ def detect_pen_equipment(
         ]
         drinker_out = (d_box, 0.82)
 
-    # 2. If Feeder is missing, derive its position above the Drinker
+    # 2. If Feeder is missing, derive its position above the Drinker using camera-height-calibrated offsets
+    #    (immune to oversized YOLO drinker boxes pushing the feeder into the top rail/mesh)
     if not has_feeder:
-        ref_dome = dome_rect
-        if ref_dome is None and has_drinker and existing_drinker_boxes:
+        dcx_ref: Optional[float] = None
+        dcy_ref: Optional[float] = None
+        if dome_rect is not None:
+            dx, dy, dw, dh = dome_rect
+            dcx_ref = dx + dw * 0.5
+            dcy_ref = dy + dh * 0.5
+        elif has_drinker and existing_drinker_boxes:
             db = existing_drinker_boxes[0]
-            dbw = max(10.0, float(db[2] - db[0]))
-            dbh = max(10.0, float(db[3] - db[1]))
-            # Unpad outer drinker box to estimate inner dome
-            dw_est = int(dbw / 1.44)
-            dh_est = int(dbh / 1.44)
-            dx_est = int((db[0] + db[2]) / 2.0 - dw_est / 2.0)
-            dy_est = int((db[1] + db[3]) / 2.0 - dh_est / 2.0)
-            ref_dome = (dx_est, dy_est, dw_est, dh_est)
+            dcx_ref = (db[0] + db[2]) / 2.0
+            dcy_ref = (db[1] + db[3]) / 2.0
 
-        if ref_dome is not None:
-            dx, dy, dw, dh = ref_dome
-            fcx = int(dx + dw * 0.5 + max(dw * 0.45, w * 0.025))
-            fcy = int(dy + dh * 0.5 - max(dh * 3.8, cam_h * 0.39))
-            fw = max(int(dw * 1.85), int(w * 0.09))
-            fh = max(int(dh * 1.85), int(cam_h * 0.16))
-            fy1 = max(0, fcy - fh // 2)
-            fy2 = min(cam_h, fcy + fh // 2)
-            fx1 = max(0, fcx - fw // 2)
-            fx2 = min(w, fcx + fw // 2)
-            if fx2 - fx1 >= 20 and fy2 - fy1 >= 20:
+        if dcx_ref is not None and dcy_ref is not None:
+            fcx = int(round(dcx_ref + w * 0.025))
+            fcy = int(round(dcy_ref - cam_h * 0.39))
+            fw = max(36, int(round(w * 0.095)))
+            fh = max(36, int(round(cam_h * 0.165)))
+            min_fy1 = int(round(cam_h * 0.24))
+            fy1 = max(min_fy1, fcy - fh // 2)
+            fy2 = min(int(round(cam_h * 0.65)), fy1 + fh)
+            fx1 = max(int(round(w * 0.68)), fcx - fw // 2)
+            fx2 = min(w - 4, fx1 + fw)
+            if fx2 - fx1 >= 24 and fy2 - fy1 >= 24:
                 feeder_out = ([fx1, fy1, fx2, fy2], 0.84)
 
     # 3. If Drinker is still missing but Feeder was detected by YOLO, derive Drinker below Feeder
     if not has_drinker and drinker_out is None and has_feeder and existing_feeder_boxes:
         fb = existing_feeder_boxes[0]
-        fw = max(14.0, float(fb[2] - fb[0]))
-        fh = max(14.0, float(fb[3] - fb[1]))
         fcx = (fb[0] + fb[2]) / 2.0
         fcy = (fb[1] + fb[3]) / 2.0
-        dome_w = fw / 1.75
-        dome_h = fh / 1.75
-        dcx = int(fcx - 0.35 * dome_w)
-        dcy = int(fcy + 3.65 * dome_h)
-        dw_box = int(dome_w * 1.36)
-        dh_box = int(dome_h * 1.36)
-        dx1 = max(0, dcx - dw_box // 2)
-        dy1 = max(0, dcy - dh_box // 2)
-        dx2 = min(w, dcx + dw_box // 2)
-        dy2 = min(h, dcy + dh_box // 2)
-        if dx2 - dx1 >= 16 and dy2 - dy1 >= 16 and dy2 <= h:
+        dcx = int(round(fcx - w * 0.025))
+        dcy = int(round(fcy + cam_h * 0.39))
+        dw_box = max(28, int(round(w * 0.075)))
+        dh_box = max(28, int(round(cam_h * 0.125)))
+        dx1 = max(int(round(w * 0.68)), dcx - dw_box // 2)
+        dy1 = max(int(round(cam_h * 0.55)), dcy - dh_box // 2)
+        dx2 = min(w - 4, dx1 + dw_box)
+        dy2 = min(cam_h - 2, dy1 + dh_box)
+        if dx2 - dx1 >= 20 and dy2 - dy1 >= 20:
             drinker_out = ([dx1, dy1, dx2, dy2], 0.78)
 
     return feeder_out, drinker_out
