@@ -600,7 +600,7 @@ export default function SqliteViewerTab() {
     <div className="space-y-6">
       {/* ── MAIN DASHBOARD CONTAINER ── */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        
+
         {/* Header Bar */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-orange-50/80 via-white to-white px-5 py-4 sm:px-6">
           <div className="flex items-center gap-3.5">
@@ -1084,7 +1084,7 @@ export default function SqliteViewerTab() {
                   {modalError}
                 </div>
               )}
-              
+
               {/* Quick Session Aggregation Pill Bar */}
               {modalAverages && (
                 <div className="bg-slate-50/70 px-5 py-3 sm:px-6">
@@ -1143,11 +1143,10 @@ export default function SqliteViewerTab() {
                       <button
                         key={key}
                         onClick={() => setModalChartMetric(key as any)}
-                        className={`rounded-lg px-3 py-1 transition ${
-                          modalChartMetric === key
-                            ? 'bg-white shadow-xs text-orange-600 font-bold'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
+                        className={`rounded-lg px-3 py-1 transition ${modalChartMetric === key
+                          ? 'bg-white shadow-xs text-orange-600 font-bold'
+                          : 'text-slate-600 hover:text-slate-900'
+                          }`}
                       >
                         {label}
                       </button>
@@ -1318,11 +1317,10 @@ export default function SqliteViewerTab() {
                             }
                           }
                         }}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
-                          modalActiveTable === tbl
-                            ? 'bg-orange-600 text-white shadow-xs'
-                            : 'bg-white border border-slate-200 text-slate-700 hover:bg-orange-50'
-                        }`}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${modalActiveTable === tbl
+                          ? 'bg-orange-600 text-white shadow-xs'
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-orange-50'
+                          }`}
                       >
                         {tbl === 'sensor_logs' ? '📡 Sensor Telemetry' : tbl === 'recording' ? '🎥 Paired Recording' : tbl}
                         <span className="ml-1.5 rounded-full bg-black/10 px-1.5 py-0.2 text-[9px]">
@@ -1369,7 +1367,7 @@ export default function SqliteViewerTab() {
                   const serverPaged = modalSelectedHour !== 'all' && modalActiveTable === 'sensor_logs';
                   const filtered = q && !serverPaged
                     ? activeTbl.values.filter((r) =>
-                        r.some((c) => c !== null && String(c).toLowerCase().includes(q)))
+                      r.some((c) => c !== null && String(c).toLowerCase().includes(q)))
                     : activeTbl.values;
 
                   // Pagination calculation
