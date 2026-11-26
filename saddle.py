@@ -237,6 +237,17 @@ def detect_pen_equipment(
     if h < 120 or w < 160:
         return None, None
 
+    # Exclude any bottom black telemetry HUD bar (e.g. 94px bar in 640x454 recordings)
+    cam_h = h
+    if h == 454 and w == 640:
+        cam_h = 360
+    else:
+        expected_16_9_h = int(round(w * 9.0 / 16.0))
+        if h > expected_16_9_h + 20:
+            strip = frame[expected_16_9_h : min(h, expected_16_9_h + 10), :, :]
+            if strip.size > 0 and float(strip.mean()) < 18.0:
+                cam_h = expected_16_9_h
+
     has_feeder = bool(existing_feeder_boxes and len(existing_feeder_boxes) > 0)
     has_drinker = bool(existing_drinker_boxes and len(existing_drinker_boxes) > 0)
     if has_feeder and has_drinker:
@@ -246,38 +257,44 @@ def detect_pen_equipment(
     drinker_out: Optional[Tuple[List[int], float]] = None
     dome_rect: Optional[Tuple[int, int, int, int]] = None
 
-    # 1. Detect the bright white circular bell drinker dome in the right pen zone
-    rx1, rx2 = int(w * 0.40), int(w * 0.95)
-    ry1, ry2 = int(h * 0.38), int(h * 0.92)
+    # 1. Detect the bright white circular bell drinker dome strictly in the right-side feeding/drinking bay
+    #    (to the right of the divider pipe at x ≈ 0.66, avoiding sunlit patches on the middle dirt floor)
+    rx1, rx2 = int(w * 0.68), int(w * 0.95)
+    ry1, ry2 = int(cam_h * 0.52), int(cam_h * 0.95)
     if rx2 > rx1 and ry2 > ry1:
         hsv = cv2.cvtColor(frame[ry1:ry2, rx1:rx2], cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(hsv, np.array([0, 0, 165], dtype=np.uint8), np.array([180, 95, 255], dtype=np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        min_a = (w * h) * 0.0012
-        max_a = (w * h) * 0.022
-        best_circ = 0.0
-        for c in cnts:
-            a = cv2.contourArea(c)
-            if not (min_a <= a <= max_a):
-                continue
-            x, y, bw, bh = cv2.boundingRect(c)
-            ar = bw / max(1.0, float(bh))
-            peri = cv2.arcLength(c, True)
-            circ = (4.0 * np.pi * a / (peri * peri)) if peri > 0 else 0.0
-            if 0.72 <= ar <= 1.35 and circ >= 0.50 and circ > best_circ:
-                best_circ = circ
-                dome_rect = (rx1 + x, ry1 + y, bw, bh)
+        min_a = (w * cam_h) * 0.0010
+        max_a = (w * cam_h) * 0.0090
+        # Try high-brightness threshold first (isolates white bell dome from sunlit floor), then relax slightly
+        for vmin in (225, 210, 190, 170):
+            mask = cv2.inRange(hsv, np.array([0, 0, vmin], dtype=np.uint8), np.array([180, 85, 255], dtype=np.uint8))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            best_score = 0.0
+            for c in cnts:
+                hull = cv2.convexHull(c)
+                a = cv2.contourArea(hull)
+                if not (min_a <= a <= max_a):
+                    continue
+                x, y, bw, bh = cv2.boundingRect(hull)
+                ar = bw / max(1.0, float(bh))
+                peri = cv2.arcLength(hull, True)
+                circ = (4.0 * np.pi * a / (peri * peri)) if peri > 0 else 0.0
+                if 0.72 <= ar <= 1.38 and circ >= 0.58 and circ > best_score:
+                    best_score = circ
+                    dome_rect = (rx1 + x, ry1 + y, bw, bh)
+            if dome_rect is not None:
+                break
 
     if not has_drinker and dome_rect is not None:
         dx, dy, dw, dh = dome_rect
-        pad_x, pad_y = int(dw * 0.18), int(dh * 0.18)
+        pad_x, pad_y = int(dw * 0.22), int(dh * 0.22)
         d_box = [
             max(0, dx - pad_x),
             max(0, dy - pad_y),
             min(w, dx + dw + pad_x),
-            min(h, dy + dh + pad_y),
+            min(cam_h, dy + dh + pad_y),
         ]
         drinker_out = (d_box, 0.82)
 
@@ -289,19 +306,20 @@ def detect_pen_equipment(
             dbw = max(10.0, float(db[2] - db[0]))
             dbh = max(10.0, float(db[3] - db[1]))
             # Unpad outer drinker box to estimate inner dome
-            dw_est = int(dbw / 1.36)
-            dh_est = int(dbh / 1.36)
+            dw_est = int(dbw / 1.44)
+            dh_est = int(dbh / 1.44)
             dx_est = int((db[0] + db[2]) / 2.0 - dw_est / 2.0)
             dy_est = int((db[1] + db[3]) / 2.0 - dh_est / 2.0)
             ref_dome = (dx_est, dy_est, dw_est, dh_est)
 
         if ref_dome is not None:
             dx, dy, dw, dh = ref_dome
-            fcx = int(dx + dw * 0.5 + dw * 0.35)
-            fcy = int(dy + dh * 0.5 - dh * 3.65)
-            fw, fh = int(dw * 1.75), int(dh * 1.75)
+            fcx = int(dx + dw * 0.5 + max(dw * 0.45, w * 0.025))
+            fcy = int(dy + dh * 0.5 - max(dh * 3.8, cam_h * 0.39))
+            fw = max(int(dw * 1.85), int(w * 0.09))
+            fh = max(int(dh * 1.85), int(cam_h * 0.16))
             fy1 = max(0, fcy - fh // 2)
-            fy2 = min(h, fcy + fh // 2)
+            fy2 = min(cam_h, fcy + fh // 2)
             fx1 = max(0, fcx - fw // 2)
             fx2 = min(w, fcx + fw // 2)
             if fx2 - fx1 >= 20 and fy2 - fy1 >= 20:

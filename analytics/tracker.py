@@ -1704,7 +1704,7 @@ class ZampenYOLOTracker:
         if len(feeders) == 0 or len(drinkers) == 0:
             try:
                 equip_res = getattr(self, "_equip_model", self.model).predict(
-                    frame,
+                    infer_frame,
                     conf=getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.15),
                     iou=self.iou,
                     imgsz=self.imgsz,
@@ -1717,11 +1717,14 @@ class ZampenYOLOTracker:
                     e_classes = equip_res.boxes.cls.int().cpu().tolist()
                     for e_box, e_conf, e_cls in zip(e_boxes, e_confs, e_classes):
                         e_name = self.class_map.get(e_cls, f"class_{e_cls}")
+                        x1, y1, x2, y2 = [int(v) for v in e_box]
+                        ecx, ecy = (x1 + x2) // 2, (y1 + y2) // 2
+                        if not self._is_inside_pen_roi(ecx, ecy, frame_w, cam_h):
+                            continue
                         if e_name == "Feeder" and len(feeders) == 0:
-                            x1, y1, x2, y2 = [int(v) for v in e_box]
                             feeders.append(TrackedDetection(
                                 box=[x1, y1, x2, y2],
-                                centroid=((x1 + x2) // 2, (y1 + y2) // 2),
+                                centroid=(ecx, ecy),
                                 confidence=float(e_conf),
                                 class_id=e_cls,
                                 class_name="Feeder",
@@ -1729,10 +1732,9 @@ class ZampenYOLOTracker:
                                 bird_label="Feeder",
                             ))
                         elif e_name == "Drinker" and len(drinkers) == 0:
-                            x1, y1, x2, y2 = [int(v) for v in e_box]
                             drinkers.append(TrackedDetection(
                                 box=[x1, y1, x2, y2],
-                                centroid=((x1 + x2) // 2, (y1 + y2) // 2),
+                                centroid=(ecx, ecy),
                                 confidence=float(e_conf),
                                 class_id=e_cls,
                                 class_name="Drinker",
