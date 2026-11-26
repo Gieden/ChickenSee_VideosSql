@@ -592,7 +592,6 @@ class ZampenAnalyticsWorker:
         self.current_job_id = job.id
         self.current_progress_pct = 0.0
         self.tracker.reset_video_state()
-        self.tracker.calibrate_stationary_equipment(video_path)
         DB.update_job_progress(job.id, 0, total_frames)
         self._update_persisted_queue_status(
             job.id, filename, 0.0, 0, total_frames, "PROCESSING", video_path

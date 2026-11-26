@@ -136,6 +136,7 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.45  # Chicken/Rooster bird detection confidence gate
+    MIN_EQUIPMENT_CONFIDENCE = 0.12  # Live per-frame YOLO Feeder/Drinker threshold (filtered by pen ROI + size sanity)
     # Normalized (x_frac, y_frac_of_camera_height) top boundary along the red wooden pen rail.
     # Excludes the upper wire-mesh strip showing the neighboring pen so external chickens/objects are never detected.
     PEN_TOP_BORDER_NORM: Tuple[Tuple[float, float], ...] = (
@@ -183,27 +184,27 @@ class ZampenYOLOTracker:
         return float(cy) >= cls._pen_top_y_at_x(cx, w, cam_h)
 
     @classmethod
-    def _apply_pen_roi_mask(cls, frame: np.ndarray) -> Tuple[np.ndarray, int]:
+    def _apply_pen_roi_mask(cls, frame: np.ndarray, use_clahe: bool = True) -> Tuple[np.ndarray, int]:
         """
         Prepares the inference copy of the frame:
-          1. Applies gentle LAB-luminance CLAHE (clipLimit=1.8) inside the camera area to balance
-             harsh diagonal sunlight vs. deep pen corner shadows (boosts Rooster & saddle recall).
+          1. When use_clahe=True, applies gentle LAB-luminance CLAHE (clipLimit=1.8) inside the camera
+             area to balance harsh diagonal sunlight vs. deep pen corner shadows.
           2. Masks out the upper neighboring-pen mesh strip (above the top red rail) and bottom HUD bar,
              leaving the original frame untouched for HSV saddle checks and video recording.
         """
         h, w = frame.shape[:2]
         cam_h = cls._detect_camera_height(frame)
         infer_frame = frame.copy()
-        # Gentle luminance-only CLAHE inside the active camera region (preserves hue/chroma)
-        try:
-            cam_roi = infer_frame[0:cam_h, 0:w]
-            lab = cv2.cvtColor(cam_roi, cv2.COLOR_BGR2LAB)
-            l_ch, a_ch, b_ch = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8))
-            l_eq = clahe.apply(l_ch)
-            infer_frame[0:cam_h, 0:w] = cv2.cvtColor(cv2.merge((l_eq, a_ch, b_ch)), cv2.COLOR_LAB2BGR)
-        except Exception:
-            pass
+        if use_clahe:
+            try:
+                cam_roi = infer_frame[0:cam_h, 0:w]
+                lab = cv2.cvtColor(cam_roi, cv2.COLOR_BGR2LAB)
+                l_ch, a_ch, b_ch = cv2.split(lab)
+                clahe = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8))
+                l_eq = clahe.apply(l_ch)
+                infer_frame[0:cam_h, 0:w] = cv2.cvtColor(cv2.merge((l_eq, a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+            except Exception:
+                pass
         poly_pts = [[0, 0], [w, 0]]
         for xf, yf in reversed(cls.PEN_TOP_BORDER_NORM):
             poly_pts.append([int(round(xf * w)), int(round(yf * cam_h))])
@@ -360,8 +361,8 @@ class ZampenYOLOTracker:
         self._next_short_id = 1
         getattr(self, "cached_feeders", []).clear()
         getattr(self, "cached_drinkers", []).clear()
-        self._calibrated_feeder: Optional[TrackedDetection] = None
-        self._calibrated_drinker: Optional[TrackedDetection] = None
+        self._feeder_miss_streak = 0
+        self._drinker_miss_streak = 0
         # Re-read flock_size from config in case the env var was changed between videos
         if not hasattr(self, "flock_size"):
             self.flock_size = CONFIG.flock_size
@@ -1131,9 +1132,12 @@ class ZampenYOLOTracker:
                     if has_head_class:
                         gate_list.append(getattr(self, "MIN_HEAD_CONFIDENCE", 0.12))
                     min_saddle_gate = min(gate_list)
+                    # Dual-pass recovery: run on raw ROI-masked frame (best for bright sunlight & blue/white saddles)
+                    # while primary ByteTrack ran on CLAHE-enhanced frame (best for deep shadows & corner birds).
+                    raw_masked_frame, _ = self._apply_pen_roi_mask(frame, use_clahe=False)
                     raw_res = equip_model.predict(
-                        infer_frame,
-                        conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20), min_saddle_gate),
+                        raw_masked_frame,
+                        conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.12), min_saddle_gate),
                         iou=self.iou,
                         imgsz=self.imgsz,
                         device=self.device,
@@ -1895,36 +1899,10 @@ class ZampenYOLOTracker:
         feeders = [f for f in feeders if _valid_equip_box(f, True)]
         drinkers = [d for d in drinkers if _valid_equip_box(d, False)]
 
-        # When pre-scan calibrated stationary equipment anchors exist, keep Feeder & Drinker
-        # 100% consistent from Frame 0 to the end (zero startup delay, zero occlusion flicker,
-        # and rejects erratic off-anchor jumps > 45 px).
-        cal_f = getattr(self, "_calibrated_feeder", None)
-        cal_d = getattr(self, "_calibrated_drinker", None)
-
-        if cal_f is not None:
-            near_f = [
-                f for f in feeders
-                if math.hypot(f.centroid[0] - cal_f.centroid[0], f.centroid[1] - cal_f.centroid[1]) <= 45.0
-            ]
-            feeders = [near_f[0]] if near_f else [cal_f]
-            self.cached_feeders = list(feeders)
-        elif feeders:
-            self.cached_feeders = list(feeders)
-        elif getattr(self, "cached_feeders", None):
-            feeders = [f for f in self.cached_feeders if _valid_equip_box(f, True)]
-
-        if cal_d is not None:
-            near_d = [
-                d for d in drinkers
-                if math.hypot(d.centroid[0] - cal_d.centroid[0], d.centroid[1] - cal_d.centroid[1]) <= 45.0
-            ]
-            drinkers = [near_d[0]] if near_d else [cal_d]
-            self.cached_drinkers = list(drinkers)
-        elif drinkers:
-            self.cached_drinkers = list(drinkers)
-        elif getattr(self, "cached_drinkers", None):
-            drinkers = [d for d in self.cached_drinkers if _valid_equip_box(d, False)]
-
+        # Real-time per-frame Feeder/Drinker detection (NO stationary pre-scan!).
+        # 1. Try live YOLO detections first (already collected in feeders/drinkers).
+        # 2. If missing on this frame, run live per-frame CV detection (HoughCircles for Feeder + white dome for Drinker).
+        # 3. Only hold previous frame's live box briefly (<= 20 frames / ~1s) if a chicken momentarily occludes it.
         if len(feeders) == 0 or len(drinkers) == 0:
             try:
                 cv_feeder, cv_drinker = detect_pen_equipment(
@@ -1934,7 +1912,7 @@ class ZampenYOLOTracker:
                 )
                 if len(feeders) == 0 and cv_feeder is not None:
                     f_box, f_conf = cv_feeder
-                    feeders.append(TrackedDetection(
+                    cand_f = TrackedDetection(
                         box=f_box,
                         centroid=((f_box[0] + f_box[2]) // 2, (f_box[1] + f_box[3]) // 2),
                         confidence=f_conf,
@@ -1942,10 +1920,12 @@ class ZampenYOLOTracker:
                         class_name="Feeder",
                         track_id=None,
                         bird_label="Feeder",
-                    ))
+                    )
+                    if _valid_equip_box(cand_f, True):
+                        feeders.append(cand_f)
                 if len(drinkers) == 0 and cv_drinker is not None:
                     d_box, d_conf = cv_drinker
-                    drinkers.append(TrackedDetection(
+                    cand_d = TrackedDetection(
                         box=d_box,
                         centroid=((d_box[0] + d_box[2]) // 2, (d_box[1] + d_box[3]) // 2),
                         confidence=d_conf,
@@ -1953,9 +1933,27 @@ class ZampenYOLOTracker:
                         class_name="Drinker",
                         track_id=None,
                         bird_label="Drinker",
-                    ))
+                    )
+                    if _valid_equip_box(cand_d, False):
+                        drinkers.append(cand_d)
             except Exception:
                 pass
+
+        if feeders:
+            self.cached_feeders = list(feeders)
+            self._feeder_miss_streak = 0
+        else:
+            self._feeder_miss_streak = getattr(self, "_feeder_miss_streak", 0) + 1
+            if self._feeder_miss_streak <= 20 and getattr(self, "cached_feeders", None):
+                feeders = [f for f in self.cached_feeders if _valid_equip_box(f, True)]
+
+        if drinkers:
+            self.cached_drinkers = list(drinkers)
+            self._drinker_miss_streak = 0
+        else:
+            self._drinker_miss_streak = getattr(self, "_drinker_miss_streak", 0) + 1
+            if self._drinker_miss_streak <= 20 and getattr(self, "cached_drinkers", None):
+                drinkers = [d for d in self.cached_drinkers if _valid_equip_box(d, False)]
 
         equipment = suppress_overlapping_equipment(
             [

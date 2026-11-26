@@ -257,19 +257,17 @@ def detect_pen_equipment(
     drinker_out: Optional[Tuple[List[int], float]] = None
     dome_rect: Optional[Tuple[int, int, int, int]] = None
 
-    # 1. Detect the bright white circular bell drinker dome strictly in the right-side drinking zone
-    #    (x = 0.76..0.94, y = 0.66..0.90 of cam_h — excludes sunlit dirt patches near the pipe/bottom edge)
+    # 1. Real-time per-frame detection of the bright white circular bell drinker dome
+    #    in the right-side drinking zone (no MORPH_CLOSE so glare pixels don't merge with dome)
     rx1, rx2 = int(w * 0.76), int(w * 0.94)
     ry1, ry2 = int(cam_h * 0.66), int(cam_h * 0.90)
     if rx2 > rx1 and ry2 > ry1:
         hsv = cv2.cvtColor(frame[ry1:ry2, rx1:rx2], cv2.COLOR_BGR2HSV)
-        min_a = (w * cam_h) * 0.0010
-        max_a = (w * cam_h) * 0.0090
-        # Try high-brightness threshold first (isolates white bell dome from sunlit floor), then relax slightly
-        for vmin in (225, 210, 190, 170):
-            mask = cv2.inRange(hsv, np.array([0, 0, vmin], dtype=np.uint8), np.array([180, 85, 255], dtype=np.uint8))
+        min_a = (w * cam_h) * 0.0009
+        max_a = (w * cam_h) * 0.0095
+        for vmin in (225, 210, 195):
+            mask = cv2.inRange(hsv, np.array([0, 0, vmin], dtype=np.uint8), np.array([180, 95, 255], dtype=np.uint8))
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             best_score = 0.0
             for c in cnts:
@@ -281,7 +279,7 @@ def detect_pen_equipment(
                 ar = bw / max(1.0, float(bh))
                 peri = cv2.arcLength(hull, True)
                 circ = (4.0 * np.pi * a / (peri * peri)) if peri > 0 else 0.0
-                if 0.72 <= ar <= 1.38 and circ >= 0.58 and circ > best_score:
+                if 0.65 <= ar <= 1.45 and circ >= 0.55 and circ > best_score:
                     best_score = circ
                     dome_rect = (rx1 + x, ry1 + y, bw, bh)
             if dome_rect is not None:
@@ -289,7 +287,7 @@ def detect_pen_equipment(
 
     if not has_drinker and dome_rect is not None:
         dx, dy, dw, dh = dome_rect
-        pad_x, pad_y = int(dw * 0.22), int(dh * 0.22)
+        pad_x, pad_y = int(dw * 0.20), int(dh * 0.20)
         d_box = [
             max(0, dx - pad_x),
             max(0, dy - pad_y),
@@ -298,9 +296,42 @@ def detect_pen_equipment(
         ]
         drinker_out = (d_box, 0.82)
 
-    # 2. If Feeder is missing, derive its position above the Drinker using camera-height-calibrated offsets
-    #    (immune to oversized YOLO drinker boxes pushing the feeder into the top rail/mesh)
+    # 2. Real-time per-frame detection of the circular hanging Feeder hopper via HoughCircles
+    #    (actually tracks the feeder live on every frame even when bumped/swinging!)
     if not has_feeder:
+        fx_lo, fx_hi = int(w * 0.76), int(w * 0.96)
+        fy_lo, fy_hi = int(cam_h * 0.26), int(cam_h * 0.60)
+        if fx_hi > fx_lo + 20 and fy_hi > fy_lo + 20:
+            roi_gray = cv2.cvtColor(frame[fy_lo:fy_hi, fx_lo:fx_hi], cv2.COLOR_BGR2GRAY)
+            roi_blur = cv2.GaussianBlur(roi_gray, (5, 5), 1.2)
+            min_r = max(14, int(round(min(w, cam_h) * 0.055)))
+            max_r = max(min_r + 6, int(round(min(w, cam_h) * 0.105)))
+            circles = cv2.HoughCircles(
+                roi_blur,
+                cv2.HOUGH_GRADIENT,
+                dp=1.2,
+                minDist=max(24, min_r * 2),
+                param1=90,
+                param2=26,
+                minRadius=min_r,
+                maxRadius=max_r,
+            )
+            if circles is not None and len(circles[0]) > 0:
+                # Pick the strongest circular hopper whose center has neutral grey/bright metal tone
+                for cx_r, cy_r, rad in np.round(circles[0]).astype(int):
+                    fcx_c = fx_lo + int(cx_r)
+                    fcy_c = fy_lo + int(cy_r)
+                    r_pad = int(round(rad * 1.05))
+                    fx1 = max(0, fcx_c - r_pad)
+                    fy1 = max(int(round(cam_h * 0.22)), fcy_c - r_pad)
+                    fx2 = min(w - 2, fcx_c + r_pad)
+                    fy2 = min(cam_h - 2, fcy_c + r_pad)
+                    if fx2 - fx1 >= 28 and fy2 - fy1 >= 28:
+                        feeder_out = ([fx1, fy1, fx2, fy2], 0.85)
+                        break
+
+    # 2b. Fallback only if HoughCircles was occluded on this frame: derive from live Drinker
+    if not has_feeder and feeder_out is None:
         dcx_ref: Optional[float] = None
         dcy_ref: Optional[float] = None
         if dome_rect is not None:
