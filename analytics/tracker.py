@@ -185,12 +185,25 @@ class ZampenYOLOTracker:
     @classmethod
     def _apply_pen_roi_mask(cls, frame: np.ndarray) -> Tuple[np.ndarray, int]:
         """
-        Masks out the upper neighboring-pen mesh strip (above the top red rail) on a copy of the frame
-        used strictly for YOLO inference, while leaving the original frame intact for display/recording.
+        Prepares the inference copy of the frame:
+          1. Applies gentle LAB-luminance CLAHE (clipLimit=1.8) inside the camera area to balance
+             harsh diagonal sunlight vs. deep pen corner shadows (boosts Rooster & saddle recall).
+          2. Masks out the upper neighboring-pen mesh strip (above the top red rail) and bottom HUD bar,
+             leaving the original frame untouched for HSV saddle checks and video recording.
         """
         h, w = frame.shape[:2]
         cam_h = cls._detect_camera_height(frame)
         infer_frame = frame.copy()
+        # Gentle luminance-only CLAHE inside the active camera region (preserves hue/chroma)
+        try:
+            cam_roi = infer_frame[0:cam_h, 0:w]
+            lab = cv2.cvtColor(cam_roi, cv2.COLOR_BGR2LAB)
+            l_ch, a_ch, b_ch = cv2.split(lab)
+            clahe = cv2.createCLAHE(clipLimit=1.8, tileGridSize=(8, 8))
+            l_eq = clahe.apply(l_ch)
+            infer_frame[0:cam_h, 0:w] = cv2.cvtColor(cv2.merge((l_eq, a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+        except Exception:
+            pass
         poly_pts = [[0, 0], [w, 0]]
         for xf, yf in reversed(cls.PEN_TOP_BORDER_NORM):
             poly_pts.append([int(round(xf * w)), int(round(yf * cam_h))])
@@ -1057,23 +1070,32 @@ class ZampenYOLOTracker:
                                         track_id=None,
                                         bird_label="Drinker",
                                     ))
-                            elif r_name in ("Chicken", "Rooster") and r_confidence >= self.MIN_DETECTION_CONFIDENCE:
-                                if not any(
-                                    self._is_duplicate_bird_box(
-                                        [rx1, ry1, rx2, ry2], b.box,
-                                        iou_thresh=0.42, iomin_thresh=0.80, nested_iou_thresh=0.30,
-                                    )
-                                    for b in birds
-                                ):
-                                    birds.append(TrackedDetection(
-                                        box=[rx1, ry1, rx2, ry2],
-                                        centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
-                                        confidence=r_confidence,
-                                        class_id=r_cls,
-                                        class_name=r_name,
-                                        track_id=None,
-                                        bird_label=r_name,
-                                    ))
+                            elif r_name in ("Chicken", "Rooster"):
+                                # Primary gate: MIN_DETECTION_CONFIDENCE (0.45).
+                                # When fewer than expected_birds (6) are detected inside the pen ROI,
+                                # allow recovering shadowed/corner birds down to 0.34 (capped at expected_birds).
+                                deficit_gate = (
+                                    min(self.MIN_DETECTION_CONFIDENCE, 0.34)
+                                    if len(birds) < expected_birds
+                                    else self.MIN_DETECTION_CONFIDENCE
+                                )
+                                if r_confidence >= deficit_gate:
+                                    if not any(
+                                        self._is_duplicate_bird_box(
+                                            [rx1, ry1, rx2, ry2], b.box,
+                                            iou_thresh=0.42, iomin_thresh=0.80, nested_iou_thresh=0.30,
+                                        )
+                                        for b in birds
+                                    ):
+                                        birds.append(TrackedDetection(
+                                            box=[rx1, ry1, rx2, ry2],
+                                            centroid=((rx1 + rx2) // 2, (ry1 + ry2) // 2),
+                                            confidence=r_confidence,
+                                            class_id=r_cls,
+                                            class_name=r_name,
+                                            track_id=None,
+                                            bird_label=r_name,
+                                        ))
             except Exception:
                 pass
 
