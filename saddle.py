@@ -305,15 +305,15 @@ def detect_pen_equipment(
             roi_hsv = cv2.cvtColor(frame[fy_lo:fy_hi, fx_lo:fx_hi], cv2.COLOR_BGR2HSV)
             min_a = (w * cam_h) * 0.0045
             max_a = (w * cam_h) * 0.0170
-            max_side = int(round(min(w, cam_h) * 0.175))  # ~63px max on 640x360
-            for vmin_f in (140, 120):
+            max_side = int(round(min(w, cam_h) * 0.165))  # ~59px max on 640x360
+            for vmin_f in (118, 135):
                 gmask = cv2.inRange(
                     roi_hsv,
                     np.array([0, 0, vmin_f], dtype=np.uint8),
-                    np.array([180, 58, 245], dtype=np.uint8),
+                    np.array([180, 62, 245], dtype=np.uint8),
                 )
                 gmask = cv2.morphologyEx(gmask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-                gmask = cv2.morphologyEx(gmask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+                gmask = cv2.morphologyEx(gmask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
                 cnts_f, _ = cv2.findContours(gmask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 best_f = None
                 for cf_c in cnts_f:
