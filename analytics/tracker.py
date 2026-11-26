@@ -136,6 +136,68 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.45  # Chicken/Rooster bird detection confidence gate
+    # Normalized (x_frac, y_frac_of_camera_height) top boundary along the red wooden pen rail.
+    # Excludes the upper wire-mesh strip showing the neighboring pen so external chickens/objects are never detected.
+    PEN_TOP_BORDER_NORM: Tuple[Tuple[float, float], ...] = (
+        (0.00, 0.145),
+        (0.25, 0.115),
+        (0.50, 0.115),
+        (0.75, 0.135),
+        (1.00, 0.205),
+    )
+
+    @classmethod
+    def _detect_camera_height(cls, frame: np.ndarray) -> int:
+        """Returns camera feed height excluding any bottom black telemetry HUD bar (e.g. 360px in 640x454 videos)."""
+        h, w = frame.shape[:2]
+        if h == 454 and w == 640:
+            return 360
+        # For any other resolution with a tall bottom black HUD bar (aspect > 16:9 height), detect the horizontal cut
+        expected_16_9_h = int(round(w * 9.0 / 16.0))
+        if h > expected_16_9_h + 20:
+            strip = frame[expected_16_9_h : min(h, expected_16_9_h + 10), :, :]
+            if strip.size > 0 and float(strip.mean()) < 18.0:
+                return expected_16_9_h
+        return h
+
+    @classmethod
+    def _pen_top_y_at_x(cls, x: float, w: int, cam_h: int) -> float:
+        """Piecewise-linear Y coordinate of the top red pen rail at pixel x."""
+        if w <= 1:
+            return 0.0
+        xf = max(0.0, min(1.0, float(x) / float(w)))
+        pts = cls.PEN_TOP_BORDER_NORM
+        for i in range(len(pts) - 1):
+            x0, y0 = pts[i]
+            x1, y1 = pts[i + 1]
+            if xf <= x1 or i == len(pts) - 2:
+                t = (xf - x0) / max(1e-6, (x1 - x0))
+                return (y0 + t * (y1 - y0)) * float(cam_h)
+        return pts[-1][1] * float(cam_h)
+
+    @classmethod
+    def _is_inside_pen_roi(cls, cx: int, cy: int, w: int, cam_h: int) -> bool:
+        """Returns True only when centroid (cx, cy) is inside the active pen below the top red rail."""
+        if cy < 0 or cy >= cam_h:
+            return False
+        return float(cy) >= cls._pen_top_y_at_x(cx, w, cam_h)
+
+    @classmethod
+    def _apply_pen_roi_mask(cls, frame: np.ndarray) -> Tuple[np.ndarray, int]:
+        """
+        Masks out the upper neighboring-pen mesh strip (above the top red rail) on a copy of the frame
+        used strictly for YOLO inference, while leaving the original frame intact for display/recording.
+        """
+        h, w = frame.shape[:2]
+        cam_h = cls._detect_camera_height(frame)
+        infer_frame = frame.copy()
+        poly_pts = [[0, 0], [w, 0]]
+        for xf, yf in reversed(cls.PEN_TOP_BORDER_NORM):
+            poly_pts.append([int(round(xf * w)), int(round(yf * cam_h))])
+        cv2.fillPoly(infer_frame, [np.array(poly_pts, dtype=np.int32)], (0, 0, 0))
+        if cam_h < h:
+            infer_frame[cam_h:h, :] = 0
+        return infer_frame, cam_h
     MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
     MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
     MIN_HEAD_CONFIDENCE = 0.22       # Low gate for new Head class (poultry_v8 R=0.227)
@@ -800,6 +862,10 @@ class ZampenYOLOTracker:
         self._prune_track_class_history()
         timestamp_s = frame_idx / fps if fps > 0 else 0.0
 
+        # Mask out the upper neighboring-pen wire-mesh area before YOLO inference
+        frame_h, frame_w = frame.shape[:2]
+        infer_frame, cam_h = self._apply_pen_roi_mask(frame)
+
         # Run ByteTrack prediction workflow
         track_kwargs = dict(
             persist=True,
@@ -814,7 +880,7 @@ class ZampenYOLOTracker:
         )
         if getattr(self, "_tracking_enabled", True):
             try:
-                results = self.model.track(frame, **track_kwargs)[0]
+                results = self.model.track(infer_frame, **track_kwargs)[0]
             except Exception as exc:
                 # A tracker problem must not sink the whole video: keep analysing it without
                 # temporal IDs (the Re-ID bank still gives every bird a stable short ID).
@@ -824,7 +890,7 @@ class ZampenYOLOTracker:
                 )
                 self._tracking_enabled = False
                 results = self.model.predict(
-                    frame,
+                    infer_frame,
                     conf=track_kwargs["conf"],
                     iou=self.iou,
                     imgsz=self.imgsz,
@@ -833,7 +899,7 @@ class ZampenYOLOTracker:
                 )[0]
         else:
             results = self.model.predict(
-                frame,
+                infer_frame,
                 conf=track_kwargs["conf"],
                 iou=self.iou,
                 imgsz=self.imgsz,
@@ -888,6 +954,8 @@ class ZampenYOLOTracker:
                 continue
             x1, y1, x2, y2 = [int(v) for v in box]
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            if not self._is_inside_pen_roi(cx, cy, frame_w, cam_h):
+                continue
 
             det = TrackedDetection(
                 box=[x1, y1, x2, y2],
@@ -939,7 +1007,7 @@ class ZampenYOLOTracker:
                         gate_list.append(getattr(self, "MIN_HEAD_CONFIDENCE", 0.12))
                     min_saddle_gate = min(gate_list)
                     raw_res = equip_model.predict(
-                        frame,
+                        infer_frame,
                         conf=min(getattr(self, "MIN_EQUIPMENT_CONFIDENCE", 0.20), min_saddle_gate),
                         iou=self.iou,
                         imgsz=self.imgsz,
@@ -954,6 +1022,9 @@ class ZampenYOLOTracker:
                             r_name = self.class_map.get(r_cls, f"class_{r_cls}")
                             r_confidence = float(r_conf)
                             rx1, ry1, rx2, ry2 = [int(v) for v in r_box]
+                            rcx, rcy = (rx1 + rx2) // 2, (ry1 + ry2) // 2
+                            if not self._is_inside_pen_roi(rcx, rcy, frame_w, cam_h):
+                                continue
                             if r_name == "Head" and r_confidence >= getattr(self, "MIN_HEAD_CONFIDENCE", 0.12):
                                 if not any(equipment_boxes_overlap([rx1, ry1, rx2, ry2], h[0], 0.45) for h in head_dets):
                                     head_dets.append(([rx1, ry1, rx2, ry2], r_confidence, r_cls))
@@ -1012,7 +1083,7 @@ class ZampenYOLOTracker:
             try:
                 head_gate = getattr(self, "MIN_HEAD_CONFIDENCE", 0.25)
                 h_res = head_model.predict(
-                    frame,
+                    infer_frame,
                     conf=head_gate,
                     iou=0.45,
                     imgsz=self.imgsz,
