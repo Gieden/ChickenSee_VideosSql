@@ -360,6 +360,8 @@ class ZampenYOLOTracker:
         self._next_short_id = 1
         getattr(self, "cached_feeders", []).clear()
         getattr(self, "cached_drinkers", []).clear()
+        self._calibrated_feeder: Optional[TrackedDetection] = None
+        self._calibrated_drinker: Optional[TrackedDetection] = None
         # Re-read flock_size from config in case the env var was changed between videos
         if not hasattr(self, "flock_size"):
             self.flock_size = CONFIG.flock_size
@@ -832,6 +834,116 @@ class ZampenYOLOTracker:
             resolved_name,
             resolved_confidence_sum / resolved_observations,
         )
+
+    def calibrate_stationary_equipment(self, video_path: str, sample_count: int = 10) -> None:
+        """
+        Pre-scans up to `sample_count` evenly spaced frames before Frame 0 to compute the
+        median stationary Feeder and Drinker bounding boxes in the right-side feeding/drinking bay.
+        Eliminates Frame-0 startup delay and prevents equipment flickering when chickens occlude
+        a station mid-video.
+        """
+        self._calibrated_feeder = None
+        self._calibrated_drinker = None
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+            if total <= 0:
+                cap.release()
+                return
+
+            indices = sorted(set(int(total * frac) for frac in np.linspace(0.0, 0.88, max(2, sample_count))))
+            feeder_boxes: List[List[int]] = []
+            drinker_boxes: List[List[int]] = []
+            equip_model = getattr(self, "_equip_model", self.model)
+
+            for fidx in indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, fidx)
+                ok, fr = cap.read()
+                if not ok or fr is None:
+                    continue
+                fh, fw = fr.shape[:2]
+                infer_fr, cam_h = self._apply_pen_roi_mask(fr)
+
+                # 1. Check YOLO equipment detections inside right bay
+                yolo_f: List[List[int]] = []
+                yolo_d: List[List[int]] = []
+                if equip_model is not None and hasattr(equip_model, "predict"):
+                    try:
+                        res = equip_model.predict(
+                            infer_fr,
+                            conf=0.15,
+                            iou=self.iou,
+                            imgsz=self.imgsz,
+                            device=self.device,
+                            verbose=False,
+                        )[0]
+                        if res.boxes is not None and len(res.boxes) > 0:
+                            for eb, ec, ecl in zip(
+                                res.boxes.xyxy.cpu().numpy(),
+                                res.boxes.conf.cpu().numpy(),
+                                res.boxes.cls.int().cpu().tolist(),
+                            ):
+                                ename = self.class_map.get(ecl, "")
+                                x1, y1, x2, y2 = [int(v) for v in eb]
+                                bw, bh = x2 - x1, y2 - y1
+                                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                                if bw <= 12 or bh <= 12 or bw > fw * 0.20 or bh > cam_h * 0.28:
+                                    continue
+                                if cx < fw * 0.72 or not self._is_inside_pen_roi(cx, cy, fw, cam_h):
+                                    continue
+                                if ename == "Feeder" and cam_h * 0.24 <= cy <= cam_h * 0.62:
+                                    yolo_f.append([x1, y1, x2, y2])
+                                elif ename == "Drinker" and cam_h * 0.62 <= cy <= cam_h * 0.94:
+                                    yolo_d.append([x1, y1, x2, y2])
+                    except Exception:
+                        pass
+
+                # 2. Check CV right-bay bell drinker / derived feeder
+                cv_f, cv_d = detect_pen_equipment(fr, yolo_f, yolo_d)
+                for b in yolo_f:
+                    feeder_boxes.append(b)
+                if not yolo_f and cv_f is not None:
+                    feeder_boxes.append(list(cv_f[0]))
+                for b in yolo_d:
+                    drinker_boxes.append(b)
+                if not yolo_d and cv_d is not None:
+                    drinker_boxes.append(list(cv_d[0]))
+
+            cap.release()
+
+            if feeder_boxes:
+                med_f = [int(round(float(np.median([b[i] for b in feeder_boxes])))) for i in range(4)]
+                self._calibrated_feeder = TrackedDetection(
+                    box=med_f,
+                    centroid=((med_f[0] + med_f[2]) // 2, (med_f[1] + med_f[3]) // 2),
+                    confidence=0.90,
+                    class_id=2,
+                    class_name="Feeder",
+                    track_id=None,
+                    bird_label="Feeder",
+                )
+                self.cached_feeders = [self._calibrated_feeder]
+            if drinker_boxes:
+                med_d = [int(round(float(np.median([b[i] for b in drinker_boxes])))) for i in range(4)]
+                self._calibrated_drinker = TrackedDetection(
+                    box=med_d,
+                    centroid=((med_d[0] + med_d[2]) // 2, (med_d[1] + med_d[3]) // 2),
+                    confidence=0.90,
+                    class_id=1,
+                    class_name="Drinker",
+                    track_id=None,
+                    bird_label="Drinker",
+                )
+                self.cached_drinkers = [self._calibrated_drinker]
+            print(
+                f"[TRACKER] Calibrated stationary equipment ({len(feeder_boxes)} feeder, {len(drinker_boxes)} drinker samples): "
+                f"Feeder={self._calibrated_feeder.box if self._calibrated_feeder else None} | "
+                f"Drinker={self._calibrated_drinker.box if self._calibrated_drinker else None}"
+            )
+        except Exception as exc:
+            print(f"[TRACKER WARN] Stationary equipment calibration skipped: {exc}")
 
     def _prune_track_class_history(self) -> None:
         if self.processed_frame_count % self.CLASS_HISTORY_TTL_FRAMES:
@@ -1783,12 +1895,32 @@ class ZampenYOLOTracker:
         feeders = [f for f in feeders if _valid_equip_box(f, True)]
         drinkers = [d for d in drinkers if _valid_equip_box(d, False)]
 
-        if feeders:
+        # When pre-scan calibrated stationary equipment anchors exist, keep Feeder & Drinker
+        # 100% consistent from Frame 0 to the end (zero startup delay, zero occlusion flicker,
+        # and rejects erratic off-anchor jumps > 45 px).
+        cal_f = getattr(self, "_calibrated_feeder", None)
+        cal_d = getattr(self, "_calibrated_drinker", None)
+
+        if cal_f is not None:
+            near_f = [
+                f for f in feeders
+                if math.hypot(f.centroid[0] - cal_f.centroid[0], f.centroid[1] - cal_f.centroid[1]) <= 45.0
+            ]
+            feeders = [near_f[0]] if near_f else [cal_f]
+            self.cached_feeders = list(feeders)
+        elif feeders:
             self.cached_feeders = list(feeders)
         elif getattr(self, "cached_feeders", None):
             feeders = [f for f in self.cached_feeders if _valid_equip_box(f, True)]
 
-        if drinkers:
+        if cal_d is not None:
+            near_d = [
+                d for d in drinkers
+                if math.hypot(d.centroid[0] - cal_d.centroid[0], d.centroid[1] - cal_d.centroid[1]) <= 45.0
+            ]
+            drinkers = [near_d[0]] if near_d else [cal_d]
+            self.cached_drinkers = list(drinkers)
+        elif drinkers:
             self.cached_drinkers = list(drinkers)
         elif getattr(self, "cached_drinkers", None):
             drinkers = [d for d in self.cached_drinkers if _valid_equip_box(d, False)]
