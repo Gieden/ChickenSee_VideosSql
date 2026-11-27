@@ -35,6 +35,7 @@ Archive/*.sql
 
 # Training datasets (only the trained .pt model is needed for detection)
 dataset/
+dataset_head/
 datasets/
 /train/
 /valid/
