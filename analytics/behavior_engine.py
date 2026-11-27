@@ -568,8 +568,9 @@ class BehaviorAnalysisEngine:
                                 origin_tid = d_tid
                                 origin_label = dlbl
                     co_init = {dtid: 1 for dtid in cur_designated_tids}
+                    prev_segments = list(meta.get("segments", [])) if meta else []
                     self._unid_episode_meta[b.track_id] = {
-                        "start_frame": cur_frame_idx,
+                        "start_frame": int(meta["start_frame"]) if (meta and prev_segments) else cur_frame_idx,
                         "last_frame": cur_frame_idx,
                         "last_x": float(b.centroid[0]),
                         "last_y": float(b.centroid[1]),
@@ -577,6 +578,7 @@ class BehaviorAnalysisEngine:
                         "origin_label": origin_label,
                         "frame_count": 1,
                         "co_seen_counts": co_init,
+                        "segments": prev_segments,
                     }
                 else:
                     meta["last_frame"] = cur_frame_idx
@@ -962,7 +964,7 @@ class BehaviorAnalysisEngine:
                 ep_segs = self._unid_episode_meta[tid].setdefault("segments", [])
                 beh_lower = st.current_behavior.lower()
                 f_num = int(frame_out.frame_idx)
-                if ep_segs and ep_segs[-1]["behavior"] == beh_lower:
+                if ep_segs and ep_segs[-1]["behavior"] == beh_lower and (f_num - ep_segs[-1]["end_frame"]) <= 6:
                     ep_segs[-1]["end_frame"] = f_num
                     ep_segs[-1]["duration_s"] += dt
                 else:

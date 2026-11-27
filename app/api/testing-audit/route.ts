@@ -188,9 +188,47 @@ export async function GET(req: NextRequest) {
   // Fast path: when viewing "all" (11-video 2026-11-17 audit) and live ?live=1 wasn't forced,
   // serve precomputed JSON instantaneously and attach the live availableVideos list!
   if (selectedVideo === 'all' && !forceLive && staticPayloadCache?.blocks?.length > 0) {
+    const idist = staticPayloadCache.identityDistribution || {};
+    let staticTable4 = Array.isArray(idist.table4Events) ? idist.table4Events : [];
+    if (staticTable4.length === 0 && Array.isArray(idist.table3Transferred)) {
+      const rebuilt: any[] = [];
+      for (const st of idist.table3Transferred) {
+        const bouts = Array.isArray(st.bouts) && st.bouts.length > 0
+          ? st.bouts
+          : st.sampleBout
+            ? [st.sampleBout]
+            : [];
+        for (const bt of bouts) {
+          const sf = Number(bt.startFrame) || 0;
+          const ef = Math.max(sf, Number(bt.endFrame) || sf);
+          rebuilt.push({
+            recording: st.recording,
+            startTime: bt.startTime,
+            endTime: bt.endTime,
+            startFrame: sf,
+            endFrame: ef,
+            frames: `#${sf}–#${ef}`,
+            trackId: st.trackId,
+            chickenId: st.label,
+            behavior: bt.behavior,
+            timeS: Number(bt.durationS) || 0,
+            transferredTo: bt.transferredTo || st.transferredTo,
+          });
+        }
+      }
+      staticTable4 = rebuilt.sort((a, b) =>
+        a.recording === b.recording
+          ? a.startFrame - b.startFrame || a.trackId - b.trackId
+          : String(a.recording).localeCompare(String(b.recording)),
+      );
+    }
     return NextResponse.json(
       {
         ...staticPayloadCache,
+        identityDistribution: {
+          ...idist,
+          table4Events: staticTable4,
+        },
         selectedVideo: 'all',
         availableVideos,
         cloudListError,
@@ -588,6 +626,7 @@ export async function GET(req: NextRequest) {
             firstStartS: sS,
             lastEndS: eS,
             bouts: [],
+            exactSegments: [],
           };
           strayByTid.set(tid, st);
         }
@@ -681,6 +720,7 @@ export async function GET(req: NextRequest) {
       }
 
       // Build frame-accurate Table 4 segments from behavior_segments (new logs) or exact duration breakdown (existing logs)
+      if (!Array.isArray(st.exactSegments)) st.exactSegments = [];
       const rawSegs = Array.isArray(tr.behavior_segments) ? tr.behavior_segments : [];
       if (rawSegs.length > 0) {
         for (const seg of rawSegs) {
