@@ -561,6 +561,7 @@ function getDailyPotentialStressFactors(
 export default function BehaviorResultsTab() {
   const [intervals, setIntervals] = useState<IntervalTelemetry[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isBackgroundSyncing, setIsBackgroundSyncing] = useState<boolean>(false);
   const [isRealData, setIsRealData] = useState<boolean>(true);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [sessionTimesByDate, setSessionTimesByDate] = useState<
@@ -577,6 +578,8 @@ export default function BehaviorResultsTab() {
         if (!silent) {
           setIsLoading(true);
           setLoadError(null);
+        } else {
+          setIsBackgroundSyncing(true);
         }
         // Only pass refresh=true on explicit user refresh; silent polls use the 5s server cache
         const url = silent
@@ -606,6 +609,7 @@ export default function BehaviorResultsTab() {
         }
       } finally {
         if (active && !silent) setIsLoading(false);
+        if (active && silent) setIsBackgroundSyncing(false);
       }
     }
     loadTelemetry(false);
@@ -1682,6 +1686,31 @@ export default function BehaviorResultsTab() {
 
   return (
     <div className="space-y-6 text-slate-800">
+      {/* ──────────────────────── LIVE FETCHING NOTIFICATION BANNER ──────────────────────── */}
+      {isLoading && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-3 rounded-2xl border border-amber-300/90 bg-amber-50/90 px-4 py-3 text-xs text-amber-950 shadow-xs"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+            <RotateCcw className="h-4 w-4 animate-spin" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-bold text-amber-950">System is currently fetching behavior &amp; sensor data…</p>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-600" />
+                Loading
+              </span>
+            </div>
+            <p className="mt-0.5 text-[11px] text-amber-800">
+              Retrieving recorded video behavior summaries and environmental sensor readings from Supabase. Results will appear automatically once ready.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ──────────────────────── RANGE FILTER TOOLBAR ──────────────────────── */}
       <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1691,12 +1720,24 @@ export default function BehaviorResultsTab() {
               <h2 className="text-base sm:text-lg font-bold text-slate-900">Telemetry &amp; Behavior Range Filter</h2>
             </div>
             <p className="mt-1 text-xs text-slate-500">
-              Only days with recorded behavior or telemetry can be selected · {recordedDates.length} {recordedDates.length === 1 ? 'day' : 'days'} available
-              {recordedDates.length > 0 && latestRecorded ? ` (latest ${formatLongDay(latestRecorded)}).` : '.'}
+              {isLoading && recordedDates.length === 0 ? (
+                <span className="font-medium text-amber-700">Fetching available recorded days and sensor data…</span>
+              ) : (
+                <>
+                  Only days with recorded behavior or telemetry can be selected · {recordedDates.length} {recordedDates.length === 1 ? 'day' : 'days'} available
+                  {recordedDates.length > 0 && latestRecorded ? ` (latest ${formatLongDay(latestRecorded)}).` : '.'}
+                </>
+              )}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {isBackgroundSyncing && !isLoading && (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-800">
+                <RotateCcw className="h-3 w-3 animate-spin" />
+                Fetching latest data…
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setRefreshKey((k) => k + 1)}
@@ -1704,7 +1745,7 @@ export default function BehaviorResultsTab() {
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
             >
               <RotateCcw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
+              {isLoading ? 'Fetching…' : 'Refresh'}
             </button>
             <button
               type="button"
@@ -1813,19 +1854,39 @@ export default function BehaviorResultsTab() {
         </div>
 
         {/* Database Sync Banner */}
-        <div className="rounded-2xl border border-emerald-200/90 bg-emerald-50/70 p-4 text-xs text-emerald-950 shadow-xs">
+        <div
+          className={`rounded-2xl border p-4 text-xs shadow-xs ${
+            isLoading
+              ? 'border-amber-200/90 bg-amber-50/70 text-amber-950'
+              : 'border-emerald-200/90 bg-emerald-50/70 text-emerald-950'
+          }`}
+        >
           <div className="flex items-start gap-2.5">
-            <Radio className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            {isLoading ? (
+              <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-amber-600" />
+            ) : (
+              <Radio className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+            )}
             <div>
               <div className="flex items-center gap-2">
-                <p className="font-bold">Recorded behavior and telemetry results</p>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                  <Check className="h-3 w-3 text-emerald-600" />
-                  Current database data
-                </span>
+                <p className="font-bold">
+                  {isLoading ? 'Fetching behavior and telemetry results…' : 'Recorded behavior and telemetry results'}
+                </p>
+                {isLoading ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                    Fetching data…
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                    <Check className="h-3 w-3 text-emerald-600" />
+                    Current database data
+                  </span>
+                )}
               </div>
               <p className="mt-1 text-[11px] text-slate-600">
-                Current profile totals come from recorded behavior intervals. Environmental values are blank when no matching sensor readings were recorded.
+                {isLoading
+                  ? 'Please wait a few seconds while the system loads recorded behavior intervals and sensor telemetry.'
+                  : 'Current profile totals come from recorded behavior intervals. Environmental values are blank when no matching sensor readings were recorded.'}
               </p>
             </div>
           </div>
