@@ -156,7 +156,10 @@ async function loadAnalyticsDbData() {
   ].filter((p) => fs.existsSync(p));
 
   if (candidateDbPaths.length === 0) {
-    throw new Error('The behavior analytics database is not available.');
+    return {
+      metrics: [] as unknown[][],
+      birdsByChunk: new Map<number, Record<string, BirdBehaviorCounts>>(),
+    };
   }
 
   // Pick the most recently updated database file so a stale /tmp copy never masks fresh analytics
@@ -281,7 +284,15 @@ export async function GET(req: NextRequest) {
     if (cached) {
       intervals = cached;
     } else {
-      const analyticsData = await loadAnalyticsDbData();
+      let analyticsData: { metrics: unknown[][]; birdsByChunk: Map<number, Record<string, BirdBehaviorCounts>> } = {
+        metrics: [],
+        birdsByChunk: new Map(),
+      };
+      try {
+        analyticsData = await loadAnalyticsDbData();
+      } catch (dbErr) {
+        console.warn('Local zampen_analytics.db unavailable; falling back to Supabase Storage summaries:', dbErr);
+      }
       const dbVideoNames = new Set<string>();
       const grouped = new Map<string, {
         date: string;
