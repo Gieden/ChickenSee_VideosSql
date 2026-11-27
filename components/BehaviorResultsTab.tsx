@@ -1686,31 +1686,6 @@ export default function BehaviorResultsTab() {
 
   return (
     <div className="space-y-6 text-slate-800">
-      {/* ──────────────────────── LIVE FETCHING NOTIFICATION BANNER ──────────────────────── */}
-      {isLoading && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-3 rounded-2xl border border-amber-300/90 bg-amber-50/90 px-4 py-3 text-xs text-amber-950 shadow-xs"
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-            <RotateCcw className="h-4 w-4 animate-spin" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-bold text-amber-950">System is currently fetching behavior &amp; sensor data…</p>
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-200/80 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-600" />
-                Loading
-              </span>
-            </div>
-            <p className="mt-0.5 text-[11px] text-amber-800">
-              Retrieving recorded video behavior summaries and environmental sensor readings from Supabase. Results will appear automatically once ready.
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* ──────────────────────── RANGE FILTER TOOLBAR ──────────────────────── */}
       <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
