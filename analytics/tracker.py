@@ -136,7 +136,6 @@ class ZampenYOLOTracker:
     # Keep per-track class history alive for 600 frames (~20 s at 30 fps).
     CLASS_HISTORY_TTL_FRAMES = 600
     MIN_DETECTION_CONFIDENCE = 0.45  # Chicken/Rooster bird detection confidence gate
-    MIN_EQUIPMENT_CONFIDENCE = 0.12  # Live per-frame YOLO Feeder/Drinker threshold (filtered by pen ROI + size sanity)
     # Normalized (x_frac, y_frac_of_camera_height) top boundary along the red wooden pen rail.
     # Excludes the upper wire-mesh strip showing the neighboring pen so external chickens/objects are never detected.
     PEN_TOP_BORDER_NORM: Tuple[Tuple[float, float], ...] = (
@@ -212,17 +211,17 @@ class ZampenYOLOTracker:
         if cam_h < h:
             infer_frame[cam_h:h, :] = 0
         return infer_frame, cam_h
-    MIN_EQUIPMENT_CONFIDENCE = 0.20  # Calibrated for poultry_v8 (Feeder/Drinker mAP50=90.4-92.4%)
-    MIN_SADDLE_CONFIDENCE = 0.15     # Default saddle gate
-    MIN_HEAD_CONFIDENCE = 0.22       # Low gate for new Head class (poultry_v8 R=0.227)
+    MIN_EQUIPMENT_CONFIDENCE = 0.25  # Calibrated for poultry_v9 (Feeder mAP50=97.0%, Drinker mAP50=94.4%)
+    MIN_SADDLE_CONFIDENCE = 0.18     # Default saddle gate
+    MIN_HEAD_CONFIDENCE = 0.22       # Low gate for Head class (poultry_v9 R=0.220, supplemented by head_detector.pt)
     SHOW_HEAD_OVERLAY = False        # Hidden from annotated video; Head detection stays active internally for Feeding/Drinking
-    # Per-saddle confidence gates calibrated from poultry_v8 validation recall/precision:
+    # Per-saddle confidence gates calibrated from poultry_v9 validation precision/recall:
     MIN_SADDLE_CONFIDENCE_BY_CLASS = {
-        "Saddle_Color_Blue": 0.15,
-        "Saddle_Color_White": 0.15,
-        "Saddle_Color_Yellow": 0.15,
-        "Saddle_Color_Red": 0.18,
-        "Saddle_Color_YellowGreen": 0.18,
+        "Saddle_Color_Blue": 0.20,
+        "Saddle_Color_White": 0.20,
+        "Saddle_Color_Yellow": 0.18,
+        "Saddle_Color_Red": 0.22,
+        "Saddle_Color_YellowGreen": 0.25,
     }
     REIDENTIFICATION_MAX_GAP_FRAMES = 90
     REIDENTIFICATION_DISTANCE_RATIO = 0.30
@@ -1096,14 +1095,10 @@ class ZampenYOLOTracker:
             if class_name in ("Chicken", "Rooster") or class_name.startswith("Hen"):
                 det.bird_label = class_name
                 birds.append(det)
-            elif class_name == "Feeder":
-                det.bird_label = "Feeder"
-                det.track_id = None
-                feeders.append(det)
-            elif class_name == "Drinker":
-                det.bird_label = "Drinker"
-                det.track_id = None
-                drinkers.append(det)
+            elif class_name in ("Feeder", "Drinker"):
+                # Skip ByteTrack Kalman-warped boxes for equipment; exact un-warped per-frame
+                # YOLO boxes are collected below via _equip_model.predict() on every frame.
+                continue
             elif class_name == "Head":
                 head_dets.append(([x1, y1, x2, y2], confidence, cls_id))
             elif class_name.startswith("Saddle_Color_"):
@@ -1959,7 +1954,8 @@ class ZampenYOLOTracker:
             [
                 (detection.box, detection.confidence, detection.class_name, detection)
                 for detection in feeders + drinkers
-            ]
+            ],
+            threshold=0.30,
         )
         feeders = [
             detection for _, _, label, detection in equipment if label == "Feeder"

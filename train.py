@@ -42,13 +42,15 @@ DEFAULT_CLASS_NAMES = {
 }
 
 CLASS_NAMES = dict(DEFAULT_CLASS_NAMES)
-# Oversample underrepresented / lower-AP classes:
-# Head currently has 580 boxes in 171/3000 images, and Blue/White/Yellow saddles had lower AP.
+# Oversample genuinely underrepresented classes in the 3,065-image dataset:
+#   - Head: 705 boxes in 224/3065 imgs (7.3%)
+#   - Saddle_Color_White: 682 boxes in 672 imgs
+#   - Saddle_Color_Red: 880 boxes in 878 imgs
+# (Yellow now has 1,593 boxes and Blue has 1,181 boxes, so they no longer need oversampling.)
 SADDLE_CLASSES_WITH_LOW_AP = {
     "Head",
-    "Saddle_Color_Blue",
     "Saddle_Color_White",
-    "Saddle_Color_Yellow",
+    "Saddle_Color_Red",
 }
 SADDLE_OVERSAMPLE_PREFIX = "__saddle_boost__"
 
@@ -229,7 +231,7 @@ def main():
     # Count paired raw images
     raw_images = [
         f for f in os.listdir(images_dir)
-        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
     ]
     total_raw = len(raw_images)
     n_train = sum(
@@ -278,19 +280,22 @@ def main():
             print(f"🗑️  Removed stale cache: {cache_path}")
 
     # ---------------------------------------------------------------------------
-    # Step 3 — Load base model
+    # Step 3 — Load base model (prefer matching 10-class weights to preserve heads)
     # ---------------------------------------------------------------------------
     base_model = None
+    v8_10cls_weight = os.path.join(project_dir, "custom_poultry_v8_10cls.pt")
     custom_weight = os.path.join(project_dir, "custom_poultry.pt")
     yolo26_weight = os.path.join(project_dir, "yolo26n.pt")
 
-    if os.path.isfile(custom_weight):
+    if os.path.isfile(v8_10cls_weight) and len(CLASS_NAMES) == 10:
+        base_model = v8_10cls_weight
+    elif os.path.isfile(custom_weight):
         base_model = custom_weight
     elif os.path.isfile(yolo26_weight):
         base_model = yolo26_weight
     else:
         raise FileNotFoundError(
-            "No model weights found. Place either custom_poultry.pt or yolo26n.pt in the project root before training."
+            "No model weights found. Place custom_poultry_v8_10cls.pt, custom_poultry.pt, or yolo26n.pt in the project root before training."
         )
 
     # Determine training hardware accelerator
@@ -302,19 +307,19 @@ def main():
     model = YOLO(base_model)
 
     # ---------------------------------------------------------------------------
-    # Step 4 — Train (tuned for 3,000-image top-down pen dataset on 4 GB GTX 1650)
+    # Step 4 — Train (tuned for 3,065-image top-down pen dataset on 4 GB GTX 1650)
     # ---------------------------------------------------------------------------
-    run_name = "poultry_v8"
+    run_name = "poultry_v9"
     batch_size = 8 if device != "cpu" else 4
-    # If the dataset class count changed (e.g. 9 -> 10 with new 'Head' class), Ultralytics
-    # re-initializes the classification head, so use lr0=0.005 for clean head convergence;
-    # otherwise use gentle lr0=0.002 for same-schema fine-tuning.
+    # If the base weights already match the 10-class schema (e.g. custom_poultry_v8_10cls.pt),
+    # use gentle lr0=0.002 for clean fine-tuning; otherwise use lr0=0.005 for head convergence.
     base_nc = len(getattr(model, "names", {}) or {})
-    is_same_schema_finetune = (
-        os.path.abspath(base_model) == os.path.abspath(custom_weight)
-        and base_nc == len(CLASS_NAMES)
+    is_custom_base = os.path.abspath(base_model) in (
+        os.path.abspath(v8_10cls_weight),
+        os.path.abspath(custom_weight),
     )
-    lr0 = 0.002 if is_same_schema_finetune else (0.005 if os.path.abspath(base_model) == os.path.abspath(custom_weight) else 0.01)
+    is_same_schema_finetune = is_custom_base and base_nc == len(CLASS_NAMES)
+    lr0 = 0.002 if is_same_schema_finetune else (0.005 if is_custom_base else 0.01)
     results = model.train(
         data=yaml_path,
         epochs=150,
@@ -328,15 +333,15 @@ def main():
         name=run_name,
         exist_ok=True,
         project=os.path.join(project_dir, "runs", "detect"),
-        # Overhead top-down pen augmentation — preserves saddle color signal
+        # Overhead top-down pen augmentation — handles harsh sunlight/shadow while preserving saddle hues
         degrees=10.0,
         fliplr=0.5,
         flipud=0.5,           # valid for top-down camera view; doubles geometric variety
         mosaic=1.0,
         scale=0.5,            # 0.5x–1.5x keeps small saddle markers readable (0.9 shrank to 10%)
         hsv_h=0.005,          # mild hue jitter so Yellow vs YellowGreen saddles stay distinct
-        hsv_s=0.2,
-        hsv_v=0.15,
+        hsv_s=0.25,
+        hsv_v=0.25,           # stronger brightness/shadow jitter for new pen sunlight glare & dark corners
         patience=30,          # early stopping if no improvement for 30 epochs
         save_period=25,       # checkpoint every 25 epochs
         verbose=True,
@@ -351,6 +356,7 @@ def main():
         best_weights = os.path.join(project_dir, "runs", "detect", run_name, "weights", "best.pt")
 
     target_weights = os.path.join(project_dir, "custom_poultry.pt")
+    versioned_weights = os.path.join(project_dir, f"custom_{run_name}_{len(CLASS_NAMES)}cls.pt")
     backup_weights = os.path.join(project_dir, "custom_poultry_prev.pt")
 
     if os.path.isfile(best_weights):
@@ -358,8 +364,10 @@ def main():
             shutil.copy2(target_weights, backup_weights)
             print(f"💾 Backed up previous weights → {backup_weights}")
         shutil.copy2(best_weights, target_weights)
+        shutil.copy2(best_weights, versioned_weights)
         print(f"\n🎉 Training complete!")
         print(f"   Best weights → {target_weights}")
+        print(f"   Versioned    → {versioned_weights}")
     else:
         print("\n❌ Training finished but best.pt not found — check runs/ folder.")
 
