@@ -577,8 +577,20 @@ export async function GET(req: NextRequest) {
 
     const availableDates = Array.from(new Set(activeIntervals.map((i) => i.date))).sort().reverse();
 
-    // Build per-date session time slots from paired video/data-sensor folders (rec_YYYY-MM-DD_HH-MM-SS_...)
+    // Build per-date session time slots & full-day (7:00 AM – 5:00 PM) video detection coverage
     const sessionTimesMap = new Map<string, Map<string, SessionTimeSlot>>();
+    const detectedHoursByDate = new Map<string, Set<number>>();
+    const recordDetectedHour = (dateStr: string | null | undefined, hr: number) => {
+      const norm = dateStr ? normalizeIsoDate(dateStr) : null;
+      if (!norm || !Number.isInteger(hr) || hr < 0 || hr > 23) return;
+      let set = detectedHoursByDate.get(norm);
+      if (!set) {
+        set = new Set<number>();
+        detectedHoursByDate.set(norm, set);
+      }
+      set.add(hr);
+    };
+
     try {
       const syncedDbs = await listSyncedDatabases({ includeArchived: false });
       for (const dbMeta of syncedDbs) {
@@ -606,16 +618,38 @@ export async function GET(req: NextRequest) {
         const parsedFolder = parseRecFolderDateTime(videoPath) || parseRecFolderDateTime(videoFilename);
         if (parsedFolder) {
           addSessionTime(sessionTimesMap, parsedFolder.date, parsedFolder.hour, parsedFolder.minute, parsedFolder.folderName);
+          recordDetectedHour(parsedFolder.date, parsedFolder.hour);
         } else {
           const normDate = normalizeIsoDate(rawDate);
           const h = Number.parseInt(hourSlot, 10);
-          if (normDate && Number.isInteger(h) && h >= 0 && h < 24 && !sessionTimesMap.has(normDate)) {
-            addSessionTime(sessionTimesMap, normDate, h, 0);
+          if (normDate && Number.isInteger(h) && h >= 0 && h < 24) {
+            recordDetectedHour(normDate, h);
+            if (!sessionTimesMap.has(normDate)) {
+              addSessionTime(sessionTimesMap, normDate, h, 0);
+            }
           }
         }
       }
     } catch {
-      // Non-fatal: paired sensor folders still populate sessionTimesMap
+      // Non-fatal: paired sensor folders and cloud frame logs still populate coverage
+    }
+
+    // Also record detected video hours from cloud/local behavior_summary_* & frame_log_* filenames
+    try {
+      const [sumFiles, flFiles] = await Promise.all([
+        listStorageFiles('results', 'behavior_summary_'),
+        listStorageFiles('results', 'frame_log_'),
+      ]);
+      for (const cf of [...sumFiles, ...flFiles]) {
+        const base = (cf.pathname || cf.storagePath || '').split('/').pop() || '';
+        const parsed = parseRecFolderDateTime(base);
+        if (parsed) {
+          addSessionTime(sessionTimesMap, parsed.date, parsed.hour, parsed.minute, parsed.folderName);
+          recordDetectedHour(parsed.date, parsed.hour);
+        }
+      }
+    } catch {
+      // Non-fatal
     }
 
     const sessionTimesByDate: Record<string, SessionTimeSlot[]> = {};
@@ -625,14 +659,56 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const formatHour12 = (h: number) => {
+      const period = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 === 0 ? 12 : h % 12;
+      return `${h12}:00 ${period}`;
+    };
+
+    const dayCoverageByDate: Record<
+      string,
+      {
+        detectedHours: number[];
+        daytimeHoursCount: number;
+        earliestHour: number | null;
+        latestHour: number | null;
+        isFullDayComplete: boolean;
+        coverageLabel: string;
+      }
+    > = {};
+
+    for (const d of availableDates) {
+      const hours = Array.from(detectedHoursByDate.get(d) || []).sort((a, b) => a - b);
+      const daytimeHours = hours.filter((h) => h >= 7 && h <= 17);
+      const earliestHour = daytimeHours.length > 0 ? daytimeHours[0] : hours.length > 0 ? hours[0] : null;
+      const latestHour = daytimeHours.length > 0 ? daytimeHours[daytimeHours.length - 1] : hours.length > 0 ? hours[hours.length - 1] : null;
+      // Full-day (7:00 AM – 5:00 PM) requires coverage from <= 7 AM through >= 4 PM (16:00–17:00 block) with >= 8 daytime hours detected
+      const isFullDayComplete =
+        daytimeHours.length >= 10 ||
+        (daytimeHours.length >= 8 && earliestHour !== null && earliestHour <= 7 && latestHour !== null && latestHour >= 16);
+      const coverageLabel =
+        earliestHour !== null && latestHour !== null
+          ? `${formatHour12(earliestHour)} – ${formatHour12(Math.min(23, latestHour + 1))}`
+          : 'Partial session';
+      dayCoverageByDate[d] = {
+        detectedHours: hours,
+        daytimeHoursCount: Math.min(10, daytimeHours.length),
+        earliestHour,
+        latestHour,
+        isFullDayComplete,
+        coverageLabel,
+      };
+    }
+
     return NextResponse.json(
       {
         success: true,
-        source: 'zampen_analytics.db + Supabase sensor_logs',
+        source: 'zampen_analytics.db + Supabase Storage + sensor_logs',
         count: filtered.length,
         availableDates,
         archivedDates: Array.from(archivedSet),
         sessionTimesByDate,
+        dayCoverageByDate,
         intervals: filtered,
       },
       {

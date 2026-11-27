@@ -392,9 +392,28 @@ function formatDaySummaryLabels(dateIso: string): { intervalLabel: string; fullT
   };
 }
 
+interface DayDetectionCoverage {
+  detectedHours: number[];
+  daytimeHoursCount: number;
+  earliestHour: number | null;
+  latestHour: number | null;
+  isFullDayComplete: boolean;
+  coverageLabel: string;
+}
+
+interface DailyStressFactorResult {
+  status: 'pending' | 'correlated_stress' | 'behavioral_only' | 'environmental_watch' | 'normal';
+  headline: string;
+  detail: string;
+  factors: string[];
+  isFullDayComplete: boolean;
+}
+
 /**
- * Evaluates Potential Stress Factors strictly on a full-day summary (07:00 AM - 05:00 PM).
- * The system never diagnoses or suggests stress from a single 1-hour interval alone.
+ * Evaluates Sensor × Behavior Potential Stress Factors strictly AFTER the whole day
+ * (7:00 AM – 5:00 PM) video detection has completed.
+ * Correlates Temperature (°C), Humidity (%), THI, Ammonia (ppm), and Sound (dBA)
+ * against Reduced Feeding (RFA), Reduced Drinking (RDA), and Reduced Locomotor (LOC).
  */
 function getDailyPotentialStressFactors(
   interval: IntervalTelemetry,
@@ -406,120 +425,136 @@ function getDailyPotentialStressFactors(
     socialIsolation?: number;
     reducedLocomotor?: number;
   },
-): { headline: string; detail: string } {
+  dayCoverage?: DayDetectionCoverage | null,
+): DailyStressFactorResult {
   const isFullDaySummary =
     interval.id.startsWith('consolidated_')
     || interval.id.startsWith('int_')
     || /0[67]:00\s*AM\s*[–-]\s*0?5:00\s*PM/i.test(interval.fullTimeLabel);
 
-  if (!isFullDaySummary) {
+  if (!isFullDaySummary || !dayCoverage?.isFullDayComplete) {
+    const hrs = dayCoverage?.daytimeHoursCount ?? 0;
+    const span = dayCoverage?.coverageLabel ? ` (${dayCoverage.coverageLabel})` : '';
     return {
-      headline: 'Full-day summary required.',
-      detail: 'Stress assessment applies only to full-day summaries, not 1-hour intervals.',
+      status: 'pending',
+      headline: 'Pending full-day detection (7:00 AM – 5:00 PM)',
+      detail: `${hrs}/10 daytime hours detected${span}. Stress factor correlation is generated only after 7:00 AM – 5:00 PM video detection completes.`,
+      factors: [],
+      isFullDayComplete: false,
     };
   }
 
   const rfa = counts.reducedFeeding || 0;
   const rda = counts.reducedDrinking || 0;
-  const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
   const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-  const nh3 = interval.ammoniaPpm ?? 0;
-  const temp = interval.tempC ?? 0;
 
-  switch (interval.date) {
-    case '2026-11-01':
-      return {
-        headline: 'Possible feed/water access issue.',
-        detail: 'Reduced feeding + drinking flags.',
-      };
-    case '2026-11-02':
-      return {
-        headline: 'Possible access or social stress.',
-        detail: 'Intake + isolation flags overlap.',
-      };
-    case '2026-11-03':
-      return {
-        headline: 'Possible water-access issue.',
-        detail: 'Reduced drinking + isolation flags.',
-      };
-    case '2026-11-04':
-      return {
-        headline: 'Possible feed-access or air-quality issue.',
-        detail: `Check feed; ammonia recorded at ${Math.round(nh3 || 12)} ppm.`,
-      };
-    case '2026-11-05':
-      return {
-        headline: 'Possible feed-access or air-quality issue.',
-        detail: `Check feed; ammonia recorded at ${Math.round(nh3 || 15)} ppm.`,
-      };
-    case '2026-11-06':
-      return {
-        headline: 'Possible ventilation or social issue.',
-        detail: `Isolation flags; ammonia at ${Math.round(nh3 || 18)} ppm.`,
-      };
-    case '2026-11-07':
-      return {
-        headline: 'Possible ventilation or social issue.',
-        detail: `Isolation flags; ammonia at ${Math.round(nh3 || 20)} ppm.`,
-      };
-    case '2026-11-08':
-    case '2026-11-09':
-      return {
-        headline: 'Possible access or flock-condition issue.',
-        detail: 'Intake + isolation flags overlap.',
-      };
-    default:
-      break;
+  const temp = interval.tempC;
+  const hum = interval.humidityPct;
+  const nh3 = interval.ammoniaPpm;
+  const sound = interval.soundDb;
+  const thi = interval.thi;
+
+  const envFactors: string[] = [];
+  const envDetails: string[] = [];
+
+  // 1. Thermal / Heat & Cold Stress (Temperature + Humidity + THI)
+  if ((thi !== null && thi >= 79) || (temp !== null && temp >= 32)) {
+    envFactors.push('Severe Heat Stress');
+    envDetails.push(
+      `Temp ${formatMetric(temp, 1)} °C` +
+        (hum !== null ? ` / RH ${formatMetric(hum, 0)}%` : '') +
+        (thi !== null ? ` (THI ${formatMetric(thi, 1)})` : ''),
+    );
+  } else if (
+    (thi !== null && thi >= 74) ||
+    (temp !== null && temp >= 30) ||
+    (temp !== null && temp >= 28.5 && hum !== null && hum >= 75)
+  ) {
+    envFactors.push('Heat / Thermal Stress');
+    envDetails.push(
+      `Temp ${formatMetric(temp, 1)} °C` +
+        (hum !== null ? ` / RH ${formatMetric(hum, 0)}%` : '') +
+        (thi !== null ? ` (THI ${formatMetric(thi, 1)})` : ''),
+    );
+  } else if (temp !== null && temp > 0 && temp < 22) {
+    envFactors.push('Cold / Thermal Stress');
+    envDetails.push(`Low Temp ${formatMetric(temp, 1)} °C`);
   }
 
-  if (nh3 >= 16 && iso > 0) {
+  if (hum !== null && hum >= 80 && !envFactors.some((f) => f.includes('Heat'))) {
+    envFactors.push('High Humidity');
+    envDetails.push(`RH ${formatMetric(hum, 0)}%`);
+  }
+
+  // 2. Air Quality / Ammonia Stress
+  if (nh3 !== null && nh3 >= 20) {
+    envFactors.push('Critical Ammonia');
+    envDetails.push(`NH₃ ${formatMetric(nh3, 1)} ppm`);
+  } else if (nh3 !== null && nh3 >= 10) {
+    envFactors.push('Elevated Ammonia');
+    envDetails.push(`NH₃ ${formatMetric(nh3, 1)} ppm`);
+  }
+
+  // 3. Acoustic / Noise Stress
+  if (sound !== null && sound >= 80) {
+    envFactors.push('High Noise Stress');
+    envDetails.push(`Sound ${formatMetric(sound, 1)} dBA`);
+  } else if (sound !== null && sound >= 75) {
+    envFactors.push('Elevated Noise');
+    envDetails.push(`Sound ${formatMetric(sound, 1)} dBA`);
+  }
+
+  // Behavioral Stress Indicators (strictly Feeding, Drinking, Locomotor/Inactivity)
+  const behFactors: string[] = [];
+  if (rfa > 0) behFactors.push(`Reduced Feeding (${rfa})`);
+  if (rda > 0) behFactors.push(`Reduced Drinking (${rda})`);
+  if (loc > 0) behFactors.push(`Low Activity (${loc})`);
+
+  // Correlate Environmental Sensors × Full-Day Behaviors
+  if (envFactors.length > 0 && behFactors.length > 0) {
     return {
-      headline: 'Possible ventilation or social issue.',
-      detail: `Isolation flags; ammonia at ${formatMetric(nh3, 0)} ppm.`,
+      status: 'correlated_stress',
+      headline: `${envFactors.join(' + ')} correlated with ${behFactors.map((b) => b.split(' (')[0]).join(' & ')}.`,
+      detail: `Full-day (7AM–5PM) correlation: ${envDetails.join(', ')} paired with ${behFactors.join(', ')}.`,
+      factors: [...envFactors, ...behFactors],
+      isFullDayComplete: true,
     };
   }
-  if (nh3 >= 10 && rfa > 0) {
+
+  if (behFactors.length > 0) {
+    const accessHint =
+      rfa > 0 && rda > 0
+        ? 'Possible feed & water access stress.'
+        : rfa > 0
+          ? 'Possible feed-access or appetite stress.'
+          : rda > 0
+            ? 'Possible water-access or hydration stress.'
+            : 'Possible lethargy or flock-condition stress.';
     return {
-      headline: 'Possible feed-access or air-quality issue.',
-      detail: `Check feed; ammonia recorded at ${formatMetric(nh3, 0)} ppm.`,
+      status: 'behavioral_only',
+      headline: accessHint,
+      detail: `Full-day (7AM–5PM) ${behFactors.join(', ')} while environmental sensors remained within normal range.`,
+      factors: behFactors,
+      isFullDayComplete: true,
     };
   }
-  if ((rfa >= 5 || rda >= 5) && iso >= 5) {
+
+  if (envFactors.length > 0) {
     return {
-      headline: 'Possible access or flock-condition issue.',
-      detail: 'Intake + isolation flags overlap.',
-    };
-  }
-  if (rda > rfa && iso > 0) {
-    return {
-      headline: 'Possible water-access issue.',
-      detail: 'Reduced drinking + isolation flags.',
-    };
-  }
-  if ((rfa > 0 || rda > 0) && iso > 0) {
-    return {
-      headline: 'Possible access or social stress.',
-      detail: 'Intake + isolation flags overlap.',
-    };
-  }
-  if (rfa > 0 && rda > 0) {
-    return {
-      headline: 'Possible feed/water access issue.',
-      detail: 'Reduced feeding + drinking flags.',
-    };
-  }
-  if (iso > 0 || loc > 0) {
-    return {
-      headline: 'Possible social or flock-condition issue.',
-      detail: temp >= 31
-        ? `Isolation/locomotor flags; daily temp avg ${formatMetric(temp, 1)} °C.`
-        : 'Full-day isolation or reduced locomotor flags recorded.',
+      status: 'environmental_watch',
+      headline: `Environmental stress risk: ${envFactors.join(' + ')}.`,
+      detail: `Full-day (7AM–5PM) sensor alert (${envDetails.join(', ')}) with 0 behavioral deficit flags — monitor flock closely.`,
+      factors: envFactors,
+      isFullDayComplete: true,
     };
   }
 
   return {
-    headline: 'No combined daily stress flags.',
-    detail: 'Full-day behavior and environmental readings within normal range.',
+    status: 'normal',
+    headline: 'No stress factors detected (Full-day normal).',
+    detail: 'Full-day (7:00 AM – 5:00 PM) behavior and all environmental sensor readings stayed within normal range.',
+    factors: [],
+    isFullDayComplete: true,
   };
 }
 
@@ -531,6 +566,7 @@ export default function BehaviorResultsTab() {
   const [sessionTimesByDate, setSessionTimesByDate] = useState<
     Record<string, Array<{ hour: number; minute: number; folderName?: string }>>
   >({});
+  const [dayCoverageByDate, setDayCoverageByDate] = useState<Record<string, DayDetectionCoverage>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -558,6 +594,7 @@ export default function BehaviorResultsTab() {
         setIntervals(data.intervals);
         setAvailableDates(data.availableDates);
         setSessionTimesByDate(data.sessionTimesByDate || {});
+        setDayCoverageByDate(data.dayCoverageByDate || {});
         setIsRealData(true);
       } catch (err) {
         console.error('Failed to load behavior results from database:', err);
@@ -987,7 +1024,7 @@ export default function BehaviorResultsTab() {
         prolongedInactivity: 0,
         featherPecking: 0,
       };
-      const stress = getDailyPotentialStressFactors(interval, counts);
+      const stress = getDailyPotentialStressFactors(interval, counts, dayCoverageByDate[interval.date]);
       const matchLabel = interval.intervalLabel.toLowerCase().includes(q);
       const matchFull = interval.fullTimeLabel.toLowerCase().includes(q);
       const matchTemp = interval.tempC !== null && String(interval.tempC).includes(q);
@@ -1027,7 +1064,7 @@ export default function BehaviorResultsTab() {
       };
       const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
       const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-      const stress = getDailyPotentialStressFactors(i, counts);
+      const stress = getDailyPotentialStressFactors(i, counts, dayCoverageByDate[i.date]);
       return [
         `"${i.intervalLabel}"`,
         `"${i.fullTimeLabel}"`,
@@ -1066,7 +1103,7 @@ export default function BehaviorResultsTab() {
         };
         const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
         const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-        const stress = getDailyPotentialStressFactors(i, counts);
+        const stress = getDailyPotentialStressFactors(i, counts, dayCoverageByDate[i.date]);
         return `
           <tr>
             <td style="padding:8px;border:1px solid #cbd5e1;"><strong>${i.intervalLabel}</strong><br/><span style="color:#64748b;font-size:10pt;">${i.fullTimeLabel}</span></td>
@@ -1290,7 +1327,7 @@ export default function BehaviorResultsTab() {
         };
         const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
         const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-        const stress = getDailyPotentialStressFactors(interval, counts);
+        const stress = getDailyPotentialStressFactors(interval, counts, dayCoverageByDate[interval.date]);
 
         // Col 1: INTERVAL & TIME (2 lines inside column 1)
         const cleanFullTime = interval.fullTimeLabel.replace(/[·•]/g, '-');
@@ -1502,7 +1539,7 @@ export default function BehaviorResultsTab() {
       };
       const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
       const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-      const stress = getDailyPotentialStressFactors(interval, counts);
+      const stress = getDailyPotentialStressFactors(interval, counts, dayCoverageByDate[interval.date]);
 
       // Col 1: Interval & Time
       ctx.fillStyle = '#0f172a';
@@ -2646,7 +2683,7 @@ export default function BehaviorResultsTab() {
                 };
                 const iso = counts.socialIsolation ?? counts.featherPecking ?? 0;
                 const loc = counts.reducedLocomotor ?? counts.prolongedInactivity ?? 0;
-                const stressFactor = getDailyPotentialStressFactors(interval, counts);
+                const stressFactor = getDailyPotentialStressFactors(interval, counts, dayCoverageByDate[interval.date]);
 
                 return (
                   <tr key={interval.id} className="hover:bg-slate-50/50 transition-colors">
@@ -2705,8 +2742,41 @@ export default function BehaviorResultsTab() {
                       {formatMetric(interval.soundDb, 1)} dBA
                     </td>
 
-                    {/* Potential Stress Factors (Full-Day Summary Only) */}
-                    <td className="py-3.5 px-5 min-w-[240px]">
+                    {/* Potential Stress Factors (Strictly After Full-Day 7:00 AM - 5:00 PM Detection) */}
+                    <td className="py-3.5 px-5 min-w-[260px]">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+                            stressFactor.status === 'pending'
+                              ? 'border-amber-200 bg-amber-50 text-amber-800'
+                              : stressFactor.status === 'correlated_stress'
+                                ? 'border-red-200 bg-red-50 text-red-800'
+                                : stressFactor.status === 'behavioral_only'
+                                  ? 'border-orange-200 bg-orange-50 text-orange-800'
+                                  : stressFactor.status === 'environmental_watch'
+                                    ? 'border-yellow-200 bg-yellow-50 text-yellow-800'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          }`}
+                        >
+                          {stressFactor.status === 'pending'
+                            ? 'Pending 7AM–5PM'
+                            : stressFactor.status === 'correlated_stress'
+                              ? 'Correlated Stress'
+                              : stressFactor.status === 'behavioral_only'
+                                ? 'Behavioral Stress'
+                                : stressFactor.status === 'environmental_watch'
+                                  ? 'Env. Watch'
+                                  : '7AM–5PM Normal'}
+                        </span>
+                        {stressFactor.factors.slice(0, 3).map((factor) => (
+                          <span
+                            key={factor}
+                            className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700"
+                          >
+                            {factor}
+                          </span>
+                        ))}
+                      </div>
                       <div className="font-medium text-slate-700 leading-snug">
                         {stressFactor.headline}
                       </div>
