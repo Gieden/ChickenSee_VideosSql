@@ -74,6 +74,8 @@ class BirdTrackState:
     feeder_immobile_s: float = 0.0
     head_feeder_grace_s: float = 0.0
     head_drinker_grace_s: float = 0.0
+    feeder_dwell_s: float = 0.0
+    drinker_dwell_s: float = 0.0
     current_behavior: str = "Active"
 
 
@@ -421,15 +423,18 @@ class BehaviorAnalysisEngine:
         sx1, sy1, sx2, sy2 = station_box
         sw = max(1.0, float(sx2 - sx1))
         sh = max(1.0, float(sy2 - sy1))
-        station_radius = 0.44 * min(sw, sh)
+        min_side = min(sw, sh)
+        # Inner trough/pan radius (excludes outer flange & empty rectangular corners)
+        station_radius = 0.36 * min_side
 
         # Closest distance from the circular station's center to the bird's box
         dist_to_center = cls._point_to_box_distance(station_centroid, bird_box)
         rim_gap = max(0.0, dist_to_center - station_radius)
-        # Require actual entry into the station bounding box (no exterior proximity halo)
-        if not cls._boxes_strictly_overlap(bird_box, station_box, min_overlap_px=3):
+        # Require meaningful 2D penetration into the station box (rejects 4-7px side grazes)
+        min_ov = 10 if min_side >= 44.0 else 6
+        if not cls._boxes_strictly_overlap(bird_box, station_box, min_overlap_px=min_ov):
             return False, max(rim_gap, 1.0)
-        if rim_gap > min(reach_margin_px, 2.0):
+        if rim_gap > min(reach_margin_px, 1.0):
             return False, rim_gap
 
         # Bird's centroid must be within realistic neck-reach of the circular rim
@@ -441,16 +446,17 @@ class BehaviorAnalysisEngine:
             bird_centroid[0] - station_centroid[0],
             bird_centroid[1] - station_centroid[1],
         )
-        if centroid_dist > station_radius + 0.58 * bird_len:
+        if centroid_dist > station_radius + 0.48 * bird_len:
             return False, rim_gap
 
-        # Perpendicular-passing veto: a bird walking vertically alongside the left/right
-        # edge of the feeder (or horizontally past the top/bottom) is passing by, not eating.
+        # Tangential / perpendicular-passing veto: a bird genuinely eating faces RADIALLY
+        # into the circular station. A bird oriented horizontally above/below the feeder
+        # or vertically alongside its left/right edge is standing/passing beside it, not eating.
         dx = abs(bird_centroid[0] - station_centroid[0])
         dy = abs(bird_centroid[1] - station_centroid[1])
-        if dx > 1.35 * dy and bh > 1.30 * bw:
+        if dx >= 1.10 * dy and bh >= 1.18 * bw:
             return False, rim_gap
-        if dy > 1.35 * dx and bw > 1.30 * bh:
+        if dy >= 1.10 * dx and bw >= 1.18 * bh:
             return False, rim_gap
 
         return True, rim_gap
@@ -747,21 +753,38 @@ class BehaviorAnalysisEngine:
 
             station_speed_ok = (velocity <= 35.0 and avg_vel <= 22.0)
 
-            near_feeder = (
+            raw_near_feeder = (
                 feeder_ok
                 and station_speed_ok
                 and not (moving_away_feeder and feeder_dist > 0.0)
             )
-            near_drinker = (
+            raw_near_drinker = (
                 drinker_ok
                 and station_speed_ok
                 and not (moving_away_drinker and drinker_dist > 0.0)
             )
-            if near_feeder and near_drinker:
+            if raw_near_feeder and raw_near_drinker:
                 if feeder_dist <= drinker_dist:
-                    near_drinker = False
+                    raw_near_drinker = False
                 else:
-                    near_feeder = False
+                    raw_near_feeder = False
+
+            # Dwell confirmation gate: confirm Feeding/Drinking immediately when Head directly
+            # overlaps the station; when relying on body-box fallback, require >= 0.5s sustained
+            # contact so brief passing/corner overlaps never flash false [Feeding]/[Drinking].
+            has_confirmed_head_feeder = (head_box is not None and feeder_ok) or state.head_feeder_grace_s > 0.0
+            has_confirmed_head_drinker = (head_box is not None and drinker_ok) or state.head_drinker_grace_s > 0.0
+            if raw_near_feeder:
+                state.feeder_dwell_s += dt
+            else:
+                state.feeder_dwell_s = 0.0
+            if raw_near_drinker:
+                state.drinker_dwell_s += dt
+            else:
+                state.drinker_dwell_s = 0.0
+
+            near_feeder = raw_near_feeder and (has_confirmed_head_feeder or state.feeder_dwell_s >= 0.5)
+            near_drinker = raw_near_drinker and (has_confirmed_head_drinker or state.drinker_dwell_s >= 0.5)
 
             # A bird actively within the feeder/drinker zone stays Feeding/Drinking even when
             # standing still to eat or drink — never misclassify stationary eating as Inactive.
