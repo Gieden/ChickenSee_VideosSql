@@ -624,9 +624,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
         {/* AMMONIA */}
         <MetricCard
           label="Ammonia (NH₃)"
-          value={summary.ammonia.current !== null ? `${summary.ammonia.current.toFixed(2)}` : '—'}
+          value={summary.ammonia.current !== null ? `${summary.ammonia.current.toFixed(5)}` : '—'}
           unit="ppm"
-          sub={`Avg ${summary.ammonia.avg ?? '—'} ppm · Peak ${summary.ammonia.max ?? '—'} ppm`}
+          sub={`Avg ${summary.ammonia.avg !== null ? Number(summary.ammonia.avg).toFixed(5) : '—'} ppm · Peak ${summary.ammonia.max !== null ? Number(summary.ammonia.max).toFixed(5) : '—'} ppm`}
           bar={Math.min(100, Math.max(10, ((summary.ammonia.current ?? 5) / 25) * 100))}
           barColor={
             summary.ammonia.current !== null && summary.ammonia.current > 20 ? 'bg-rose-500' :
@@ -781,7 +781,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                     <span className="font-semibold text-slate-500">{chartData.reversed[hoverIndex].formattedTime}</span>
                     <span>T: {chartData.reversed[hoverIndex].temperature ?? '—'}°C</span>
                     <span>H: {chartData.reversed[hoverIndex].humidity ?? '—'}%</span>
-                    <span>NH₃: {chartData.reversed[hoverIndex].ammonia_ppm ?? '—'} ppm</span>
+                    <span>NH₃: {chartData.reversed[hoverIndex].ammonia_ppm !== null ? chartData.reversed[hoverIndex].ammonia_ppm!.toFixed(5) : '—'} ppm</span>
                     <span>dB: {chartData.reversed[hoverIndex].sound_db ?? '—'}</span>
                   </div>
                 )}
@@ -898,7 +898,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.sensor_logs;`}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
                       {r.ammonia_ppm !== null
-                        ? <span className={`font-mono font-semibold ${r.ammonia_ppm > 20 ? 'text-rose-600' : r.ammonia_ppm > 10 ? 'text-amber-600' : 'text-slate-700'}`}>{r.ammonia_ppm.toFixed(2)} ppm</span>
+                        ? <span className={`font-mono font-semibold ${r.ammonia_ppm > 20 ? 'text-rose-600' : r.ammonia_ppm > 10 ? 'text-amber-600' : 'text-slate-700'}`}>{r.ammonia_ppm.toFixed(5)} ppm</span>
                         : <span className="text-slate-400">—</span>}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">

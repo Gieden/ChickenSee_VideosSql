@@ -1012,7 +1012,7 @@ export default function BehaviorResultsTab() {
     return {
       tempAvg: Number(formatMetric(avg(tempVals) ?? 29.8, 1)),
       humAvg: Number(formatMetric(avg(humVals) ?? 70.2, 1)),
-      ammoniaAvg: Number(formatMetric(avg(nh3Vals) ?? 1.99, 2)),
+      ammoniaAvg: formatMetric(avg(nh3Vals), 5),
       soundAvg: Number(formatMetric(avg(soundVals) ?? 72.9, 1)),
     };
   }, [filteredIntervals]);
@@ -1115,7 +1115,7 @@ export default function BehaviorResultsTab() {
             <td style="padding:8px;border:1px solid #cbd5e1;">RFA: ${counts.reducedFeeding} | RDA: ${counts.reducedDrinking} | ISO: ${iso} | LOC: ${loc}</td>
             <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.tempC, 1)} °C</td>
             <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.humidityPct, 0)} %</td>
-            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.ammoniaPpm, 1)} ppm</td>
+            <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.ammoniaPpm, 5)} ppm</td>
             <td style="padding:8px;border:1px solid #cbd5e1;">${formatMetric(i.soundDb, 1)} dBA</td>
             <td style="padding:8px;border:1px solid #cbd5e1;"><strong>${stress.headline}</strong><br/><span style="color:#475569;font-size:10pt;">${stress.detail}</span></td>
           </tr>`;
@@ -1365,7 +1365,7 @@ export default function BehaviorResultsTab() {
         drawText(ops, humTxt, columns[4].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
 
         // Col 6: AMMONIA (PPM)
-        const nh3Txt = interval.ammoniaPpm !== null && interval.ammoniaPpm !== undefined ? `${formatMetric(interval.ammoniaPpm, 1)} ppm` : '- ppm';
+        const nh3Txt = interval.ammoniaPpm !== null && interval.ammoniaPpm !== undefined ? `${formatMetric(interval.ammoniaPpm, 5)} ppm` : '- ppm';
         drawText(ops, nh3Txt, columns[5].x + 6, currentTop - 19, 8, false, [0.12, 0.16, 0.23]);
 
         // Col 7: SOUND (dBA)
@@ -1588,7 +1588,7 @@ export default function BehaviorResultsTab() {
       ctx.font = '12px monospace';
       ctx.fillText(`${formatMetric(interval.tempC, 1)} °C`, 665, y + 34);
       ctx.fillText(`${formatMetric(interval.humidityPct, 0)} %`, 760, y + 34);
-      ctx.fillText(`${formatMetric(interval.ammoniaPpm, 1)} ppm`, 870, y + 34);
+      ctx.fillText(`${formatMetric(interval.ammoniaPpm, 5)} ppm`, 870, y + 34);
       ctx.fillText(`${formatMetric(interval.soundDb, 1)} dBA`, 985, y + 34);
 
       // Col 8: Potential Stress Factors (475px available width + automatic word wrap)
@@ -2385,7 +2385,7 @@ export default function BehaviorResultsTab() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-xs bg-[#854d0e]" />
-                    <span className="tooltip-label">Ammonia: <strong className="tooltip-val font-semibold">{item.ammoniaPpm ?? '—'}</strong></span>
+                    <span className="tooltip-label">Ammonia: <strong className="tooltip-val font-semibold">{item.ammoniaPpm !== null ? `${formatMetric(item.ammoniaPpm, 5)} ppm` : '—'}</strong></span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="h-2.5 w-2.5 shrink-0 rounded-xs bg-[#60a5fa]" />
@@ -2770,7 +2770,7 @@ export default function BehaviorResultsTab() {
 
                     {/* Ammonia (PPM) */}
                     <td className="py-3.5 px-4 font-mono font-medium text-slate-800">
-                      {formatMetric(interval.ammoniaPpm, 1)} ppm
+                      {formatMetric(interval.ammoniaPpm, 5)} ppm
                     </td>
 
                     {/* Sound (dBA) */}

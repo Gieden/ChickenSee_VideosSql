@@ -154,7 +154,11 @@ export function computeTelemetrySummary(readings: EnrichedSensorReading[]): Sens
   const nh3s = readings.map((r) => r.ammonia_ppm).filter((v): v is number => v !== null && !isNaN(v));
   const sounds = readings.map((r) => r.sound_db).filter((v): v is number => v !== null && !isNaN(v));
 
-  const avg = (arr: number[]) => (arr.length ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : null);
+  const avg = (arr: number[], decimals = 1) => {
+    if (!arr.length) return null;
+    const factor = 10 ** decimals;
+    return Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * factor) / factor;
+  };
   const min = (arr: number[]) => (arr.length ? Math.min(...arr) : null);
   const max = (arr: number[]) => (arr.length ? Math.max(...arr) : null);
 
@@ -179,7 +183,7 @@ export function computeTelemetrySummary(readings: EnrichedSensorReading[]): Sens
     },
     ammonia: {
       current: latest.ammonia_ppm,
-      avg: avg(nh3s),
+      avg: avg(nh3s, 5),
       max: max(nh3s),
     },
     sound: {
